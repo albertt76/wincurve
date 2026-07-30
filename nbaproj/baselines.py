@@ -20,6 +20,24 @@ from .teams import FULL_SEASON_GAMES, add_prior_season
 
 LEAGUE_MEAN_PCT = 0.5  # exact by construction: every game has one winner
 
+# Number of games each season's preseason win total was actually set for. Verified
+# from the league-average total: 2011-12 averages 33.1 (a 66-game schedule) and
+# 2020-21 averages 36.0 (72 games), while every other season averages ~41.
+#
+# 2019-20 is deliberately 82: that season began on a normal schedule and was
+# interrupted afterwards, so the totals were set for 82 games even though only
+# 64-75 were played. That makes its market comparison apples-to-oranges, so it is
+# reported separately rather than silently mixed in (see MARKET_SUSPECT_SEASONS).
+MARKET_TOTAL_GAMES = {"2011-12": 66, "2020-21": 72}
+MARKET_SUSPECT_SEASONS = {"2019-20"}
+
+
+def market_wins_82(odds_df: pd.DataFrame) -> pd.Series:
+    """Rescale each season's win total to an 82-game equivalent."""
+    scale_games = odds_df["season"].map(MARKET_TOTAL_GAMES).fillna(
+        FULL_SEASON_GAMES).astype(float)
+    return odds_df["wins_ou"] * FULL_SEASON_GAMES / scale_games
+
 
 def fit_reversion(train: pd.DataFrame) -> float:
     """Least-squares reversion coefficient k in pct_next = .5 + k*(pct_prev - .5).

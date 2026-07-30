@@ -30,7 +30,7 @@ FIRST_BOX_SEASON = 2005      # advanced box score: confirmed 458 players in 2005
 FIRST_TRACKING_SEASON = 2013  # shot/defensive tracking: 2012-13 returns empty
 FIRST_HUSTLE_SEASON = 2016    # hustle: 2015-16 is a partial rollout (147 rows)
 
-LAST_COMPLETE_SEASON = 2024   # most recent season with a full set of results
+LAST_COMPLETE_SEASON = 2025   # 2025-26 verified complete (all 30 teams at 82 GP)
 
 
 def player_advanced(season: str) -> pd.DataFrame:

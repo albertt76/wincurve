@@ -243,6 +243,16 @@ successful outcome, not a failed one: it's the finding.
 
 ## 7. Realistic expectations
 
+**Measured (Stage 1):** the market's preseason win totals achieve 6.67 MAE (mean
+absolute error -- average miss in wins) against 8.07 for a mean-reverted naive
+baseline, over 2013-14..2025-26 excluding 2019-20.
+
+The binomial noise floor computed in §1 (3.44 MAE) is **not an achievable target**.
+It assumes we know each team's true strength in October *and* that it holds constant
+all season. Rosters change through unforeseeable injuries and trades, so the real
+frontier is well above it, and 6.67 is likely close. Do not read "market captures
+only 30% of the gap to the floor" as an opportunity estimate.
+
 Season win totals are among the sharpest markets in sports — they're posted months ahead,
 heavily bet, and slow-moving. Published attempts to systematically beat them mostly fail,
 and the market sits close to the irreducible noise floor described in §1.
