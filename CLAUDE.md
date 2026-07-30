@@ -13,7 +13,9 @@ betting.** The deliverable is *explainable per-team disagreement* — "we differ
 the market on this team, and here is the structural reason why."
 
 Current projection target: **2026-27 season**. Shipped backtest MAE (roster mode + carryover +
-RAPM defensive blend): **7.77 wins** vs market 6.88 (was 7.95 before the RAPM def-blend).
+RAPM defensive blend + rim/hustle tracking defense): **7.74 wins** vs market 6.88 (7.95 before
+the RAPM def-blend; 7.77 before the tracking-defense features — that last step is within noise
+on aggregate, kept for per-player defensive credibility, not for MAE).
 
 See [DESIGN.md](DESIGN.md) for full architecture, statistical traps, and staged plan.
 
@@ -67,14 +69,25 @@ calibrated against team offense/defense with its own slope, net = off + def. It 
 but lets the app attribute a rating to offense vs defense and surface the defensive weakness.
 
 Layer A's defensive component is the model's **weakest link**, and now we can say exactly why:
-the box-score defensive metric is ~60% defensive-rebounds-plus-blocks by fitted weight (rebounds
-alone 41%), so `def_impact` correlates 0.82 with defensive rebounding — it largely measures
-*being a center*. Elite perimeter defense (containment, deterrence) produces few countable
-events, so the metric's top-12 are ~10 centers and it rates celebrated stoppers (Dort, NAW,
-Anunoby, Holiday) near zero. Defense R² is 0.33 vs offense 0.82. Box-informed RAPM from
-play-by-play is the structural fix; it is surfaced per-player in the UI (box-vs-RAPM "D↑/D↓"
-flags) but not yet in the projection — see the RAPM section for why (the carryover substitutes
-for its aggregate value).
+with box-score stats alone the defensive metric is ~60% defensive-rebounds-plus-blocks by fitted
+weight (rebounds alone 41%), so `def_impact` correlated 0.82 with defensive rebounding — it
+largely measured *being a center*, over-crediting non-defenders like Karl-Anthony Towns.
+
+Two upgrades now attack that directly, both shipped:
+- **Player-tracking defensive features** (`add_tracking_features`, shipped 2026-07): opponent
+  FG% suppression *at the rim* with this player as the nearest defender, plus deflections and
+  contested shots. Rim suppression is the block-count-misses signal — deterring a shot without
+  swatting it. It fixes the KAT-type over-credit (KAT's 2024-25 `def_impact` +1.62 → +0.44,
+  below average as he should be) and lifts recent-fold defensive calibration R² 0.33 → 0.48.
+- **Box-informed RAPM from play-by-play**, blended into the defensive aggregate by roster
+  turnover (`nbaproj.rapm_blend`), and surfaced per-player in the UI (box-vs-RAPM "D↑/D↓" flags).
+
+Both move aggregate win MAE only within noise (every team plays centers ~48 min, so the
+positional bias washes out in aggregate) — their value is a *credible per-player defensive
+number*, which is what the disagreement tool rests on. **What still slips through:** perimeter
+*containment* produces few countable events even with tracking, so celebrated stoppers (Dort,
+NAW, Anunoby, Holiday) still rate near zero — the residual the (in-progress) prior-year
+All-Defense correction targets.
 
 **Why bottom-up:** 21 seasons x 30 teams = **630 team-seasons**. That is far too few
 rows to fit a team-level model with the many features originally envisioned (positional
@@ -100,8 +113,9 @@ Walk-forward means: to predict season N, train only on seasons before N. All err
 | Model / baseline | MAE | Notes |
 |---|---|---|
 | Market (preseason win totals) | **6.88** | the yardstick; we do not beat it |
-| **wincurve — roster + carryover + RAPM def-blend** | **7.77** | shipped; all 9/9 folds beat the box-only model |
-| wincurve — roster mode + carryover (box def only) | 7.95 | the prior shipped model, before the RAPM blend |
+| **wincurve — + RAPM def-blend + rim/hustle tracking def** | **7.74** | shipped; tracking step is within noise (7.77 → 7.74, ±0.06 SE) — kept for per-player credibility |
+| wincurve — roster + carryover + RAPM def-blend | 7.77 | prior shipped model, before the tracking-defense features |
+| wincurve — roster mode + carryover (box def only) | 7.95 | the shipped model before the RAPM blend |
 | Leaky upper bound (actual roster + minutes) | 7.11 | ceiling given perfect roster knowledge |
 | Mean-reverted previous wins ← *the gate* | 8.13 | every stage must clear this |
 | Previous wins (persistence) | 8.75 | |
@@ -143,7 +157,13 @@ Stored in `data/` (gitignored; regenerate with `python scripts/fetch_all.py`).
 | `game_log` (team-games) | 50,538 | 21 | 2005-06 → 2025-26 |
 | `rim_defense` (tracking) | 6,823 | 13 | 2013-14 → 2025-26 |
 | `hustle` | 5,455 | 10 | 2016-17 → 2025-26 |
+| `player_passing` (tracking) | 6,942 | 13 | 2013-14 → 2025-26 |
 | preseason win totals | 630 | 21 | 2005-06 → 2025-26 |
+
+`rim_defense` + `hustle` now feed the **defensive** metric (`add_tracking_features`);
+`player_passing` (potential/secondary assists, points created) is pulled for the offensive
+creation experiment. Tracking is ~half the 21-season backbone, so these features are
+league-average-filled before 2013-14/2016-17.
 
 **Availability cliffs that constrain the fit work:** tracking data starts 2013-14 and
 hustle data 2016-17. So "fit" features exist for only 10-13 seasons (300-390
@@ -249,7 +269,7 @@ per-team grid of simulated win distributions across rating offsets is interpolat
 keeps real schedule strength intact without running a simulation in the browser.
 
 **Caveats are stated in the page itself, deliberately:** that the model does not beat the
-market on aggregate accuracy (7.77 vs 6.88 MAE), that single-player what-ifs extrapolate the
+market on aggregate accuracy (7.74 vs 6.88 MAE), that single-player what-ifs extrapolate the
 calibration slope further than the backtest validated, and (upcoming season) that the market
 ring is shown-only and never an input. Do not remove them.
 
@@ -508,6 +528,31 @@ follows the churn the carryover can't. No second arm — it is one pipeline with
 defensive aggregate. The 2025-26 live input was unblocked by the PlayByPlayV3 reconstruction.
 The what-if editor blends client-side too (per-player `defr` = projected RAPM defense, weight =
 `team.turnover`), so edits stay exact.
+
+### ✅ SHIPPED: rim + hustle tracking into the defensive metric (`add_tracking_features`)
+
+The box defensive fit now also sees player-tracking features, merged in `nbaproj/impact.py`
+(`add_tracking_features`, wired through `scripts/stage2_report.py`):
+
+- **rim_supp / rim_vol / rim_val** — opponent rim FG% *expected minus allowed* with this player
+  as nearest defender (from `rim_defense.parquet`, 2013-14+), how often he defends the rim, and
+  their product (a points-saved proxy, ~0 for low-volume perimeter players so "missing" reads
+  neutral). Traded players' stints are combined into a season total (attempts/makes summed,
+  expected % attempt-weighted) before rates are derived, so the merge stays 1 row per
+  player-season.
+- **defl_p36 / cont2_p36** — deflections and 2pt shots contested per 36 min (from
+  `hustle.parquet`, 2016-17+).
+
+Missing values (older seasons, or a player who never registers at the rim) get z-score 0 =
+league-average, filled only for real rotation players (`has_rates`) so tracking is weighted
+exactly like the box features. **Gate (`final_gate`, authoritative on the shipped parquet,
+5000 sims): blend 7.771 → 7.735 excl-short, +0.035 ±0.059 SE, 6/9 folds — within noise on
+aggregate.** The reason to ship is player-level: KAT 2024-25 `def_impact` +1.62 → +0.44,
+Holmgren/Gobert/Wembanyama correctly on top, recent-fold defensive R² 0.33 → 0.48. On a *stable*
+roster the UI's defense leans on the box component (RAPM only overrides under turnover), so this
+fixes what the RAPM blend alone does not. **Follow-up:** the box-informed RAPM prior was fit on
+the *old* box defense; refitting it on the rim-corrected box could recover a little more (the
+gate above already shows the gain with the old-prior RAPM, so shipping now is conservative).
 
 ### ✅ 2025-26 play-by-play via PlayByPlayV3 (`nbaproj.bulk_pbp.build_segments_bulk_v3`)
 

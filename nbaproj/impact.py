@@ -73,6 +73,31 @@ OFFENSE_FEATURES = ["pts_p100", "fg3m_p100", "fga_p100", "fta_p100", "ast_p100",
 # which teammates he shares the floor with, which is why it is one shrunk feature
 # among several rather than the whole metric.
 DEFENSE_FEATURES = ["stl_p100", "blk_p100", "dreb_p100", "pf_p100", "def_rating_rel"]
+
+# Player-tracking defensive features (added when the tracking data is merged in; see
+# ``add_tracking_features``). These directly attack the box metric's central defect --
+# that ~60% of its defensive weight is defensive rebounds + blocks, so it mostly measures
+# *being a center* and hands non-defenders like Karl-Anthony Towns an above-average rating.
+#
+#   rim_supp  opponent field-goal % at the rim, EXPECTED minus ALLOWED, with this player as
+#             the nearest defender (+ = holds shooters below their expected rate). This is
+#             the signal a block count misses: deterring or altering a shot without swatting
+#             it. It correctly rates KAT below average and Gobert/Wembanyama/Holmgren on top.
+#   rim_vol   rim field goals defended per game (how often he is the man at the rim at all).
+#   rim_val   rim_supp * rim_vol -- a points-saved proxy that is ~0 for low-volume perimeter
+#             players, so "missing" (a guard who never defends the rim) reads as neutral.
+#   defl_p36  deflections per 36 minutes -- disruptive perimeter activity (steals that never
+#             complete), the on-ball signal blocks/steals under-count.
+#   cont2_p36 two-point shots contested per 36 minutes.
+#
+# Coverage caveat: rim tracking starts 2013-14, hustle 2016-17. Where a feature is missing
+# (older seasons, or a player who does not register at the rim) its within-season z-score is
+# filled to 0 = league average, so the absence contributes nothing rather than dropping the
+# player. Walk-forward these move win MAE only +0.036 (deep in the noise -- every team plays
+# centers ~48 min, so the positional bias washes out in aggregate), but they lift the
+# defensive calibration r-squared 0.33 -> 0.48 and make the per-player defensive numbers the
+# UI shows actually credible. Shipped for that player-level credibility, not for aggregate MAE.
+TRACKING_DEFENSE_FEATURES = ["rim_supp", "rim_vol", "rim_val", "defl_p36", "cont2_p36"]
 ALL_FEATURES = list(dict.fromkeys(OFFENSE_FEATURES + DEFENSE_FEATURES))
 
 # Chosen by DOWNSTREAM projection accuracy, which is the only criterion that matters.
@@ -145,6 +170,50 @@ def add_on_court_features(
     out = out.merge(ref[["player_id", "season_start", "ref_team_def_rating"]],
                     on=["player_id", "season_start"], how="left")
     out["def_rating_rel"] = -(out["on_court_def_rating"] - out["ref_team_def_rating"])
+    return out
+
+
+def add_tracking_features(
+    player_seasons: pd.DataFrame,
+    rim_defense: pd.DataFrame | None = None,
+    hustle: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Attach the player-tracking defensive features (``TRACKING_DEFENSE_FEATURES``).
+
+    ``rim_defense`` supplies opponent shooting at the rim against this player as the nearest
+    defender; ``hustle`` supplies deflections and contested shots. Both are optional -- when a
+    frame is omitted its features are simply absent and later filled to league-average -- so a
+    caller with only partial tracking (older seasons) still works. Merged on
+    ``(player_id, season_start)``; the rim frame keys the defender on ``CLOSE_DEF_PERSON_ID``.
+    """
+    out = player_seasons.copy()
+    if rim_defense is not None and len(rim_defense):
+        rd = rim_defense.rename(columns={"CLOSE_DEF_PERSON_ID": "player_id",
+                                         "SEASON_START": "season_start"}).copy()
+        # A traded player has one rim row per team stint; combine them into a season total
+        # (attempts and makes summed, expected % attempt-weighted) BEFORE deriving rates,
+        # so the merge stays strictly one row per player-season.
+        rd["_ns_fga"] = rd["NS_LT_06_PCT"] * rd["FGA_LT_06"]
+        g = rd.groupby(["player_id", "season_start"], as_index=False).agg(
+            fga=("FGA_LT_06", "sum"), fgm=("FGM_LT_06", "sum"),
+            games=("G", "sum"), ns_fga=("_ns_fga", "sum"))
+        fga = g["fga"].clip(lower=1)
+        g["rim_supp"] = (g["ns_fga"] - g["fgm"]) / fga       # expected minus allowed rim FG%
+        g["rim_vol"] = g["fga"] / g["games"].clip(lower=1)    # rim FG defended per game
+        g["rim_val"] = g["rim_supp"] * g["rim_vol"]           # points-saved proxy
+        out = out.merge(g[["player_id", "season_start", "rim_supp", "rim_vol", "rim_val"]],
+                        on=["player_id", "season_start"], how="left")
+    if hustle is not None and len(hustle):
+        hu = hustle.rename(columns={"PLAYER_ID": "player_id",
+                                    "SEASON_START": "season_start"}).copy()
+        g = hu.groupby(["player_id", "season_start"], as_index=False).agg(
+            defl=("DEFLECTIONS", "sum"), cont2=("CONTESTED_SHOTS_2PT", "sum"),
+            mins=("MIN", "sum"))
+        mins = g["mins"].clip(lower=1)
+        g["defl_p36"] = g["defl"] / mins * 36                 # deflections per 36 min
+        g["cont2_p36"] = g["cont2"] / mins * 36               # 2pt shots contested per 36
+        out = out.merge(g[["player_id", "season_start", "defl_p36", "cont2_p36"]],
+                        on=["player_id", "season_start"], how="left")
     return out
 
 
@@ -280,11 +349,26 @@ def build_impact(
     Impact columns are returned on the conventional per-player scale (see
     ``FLOOR_SPOTS``): points per 100 possessions relative to a league-average player.
     """
+    # Use whatever tracking defensive features the caller merged in (see
+    # ``add_tracking_features``); fall back to the pure box set if none are present.
+    track = [c for c in TRACKING_DEFENSE_FEATURES if c in player_seasons.columns]
+    def_features = DEFENSE_FEATURES + track
+    all_features = list(dict.fromkeys(OFFENSE_FEATURES + def_features))
+
     ps = add_on_court_features(
         player_seasons, player_team_seasons, team_seasons, player_advanced)
-    psz = _standardize_within_season(ps, ALL_FEATURES)
+    psz = _standardize_within_season(ps, all_features)
+    # A tracking feature is missing for older seasons (before the data existed) and for
+    # players who never register at the rim; treat that as league-average (z = 0) rather
+    # than dropping the player, but only for real rotation players (`has_rates`), so the
+    # aggregation weights tracking exactly as it weights the box features.
+    for c in track:
+        m = psz["has_rates"]
+        psz.loc[m, f"{c}_z"] = psz.loc[m, f"{c}_z"].fillna(0.0)
     targets = _league_centered_targets(team_seasons)
-    tf = build_team_features(player_team_seasons, psz, ALL_FEATURES)
+    tf = build_team_features(player_team_seasons, psz, all_features)
+    for c in track:  # a team-season with no tracking at all (pre-2013) -> neutral, not dropped
+        tf[f"{c}_z"] = tf[f"{c}_z"].fillna(0.0)
 
     diagnostics, scored = [], []
     for test_season in range(first_test_season,
@@ -295,7 +379,7 @@ def build_impact(
         off_coefs, off_r2 = calibrate(
             train_teams, train_targets, OFFENSE_FEATURES, "off_rating_dev")
         def_coefs, def_r2 = calibrate(
-            train_teams, train_targets, DEFENSE_FEATURES, "def_rating_dev")
+            train_teams, train_targets, def_features, "def_rating_dev")
 
         diagnostics.append({
             "test_season": test_season,
@@ -310,7 +394,7 @@ def build_impact(
         test["off_impact"] = apply_coefs(
             test, off_coefs, OFFENSE_FEATURES) / FLOOR_SPOTS
         test["def_impact"] = apply_coefs(
-            test, def_coefs, DEFENSE_FEATURES) / FLOOR_SPOTS
+            test, def_coefs, def_features) / FLOOR_SPOTS
         test["impact"] = test["off_impact"] + test["def_impact"]
         scored.append(test)
 

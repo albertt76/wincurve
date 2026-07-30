@@ -18,7 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from nbaproj.impact import DEFENSE_FEATURES, build_impact  # noqa: E402
+from nbaproj.impact import (  # noqa: E402
+    DEFENSE_FEATURES, add_tracking_features, build_impact,
+)
 from nbaproj.teams import load_team_seasons  # noqa: E402
 
 PROC = Path("data/processed")
@@ -38,6 +40,13 @@ def main() -> int:
     pts = pd.read_parquet(PROC / "player_team_seasons.parquet")
     pa = pd.read_parquet(PROC / "player_advanced.parquet")
     ts = load_team_seasons()
+
+    # Merge the player-tracking defensive features (rim protection + hustle) so the
+    # defensive fit sees more than rebounds and blocks. Missing where the data does not
+    # reach (rim 2013-14+, hustle 2016-17+); build_impact fills those to league-average.
+    rim = pd.read_parquet(PROC / "rim_defense.parquet")
+    hustle = pd.read_parquet(PROC / "hustle.parquet")
+    ps = add_tracking_features(ps, rim_defense=rim, hustle=hustle)
 
     scored, diag = build_impact(ps, pts, ts, pa, first_test_season=2013)
     scored.to_parquet(PROC / "player_impact.parquet", index=False)
