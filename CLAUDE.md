@@ -1,4 +1,4 @@
-# NBA Season Record Projection System
+# wincurve — NBA Season Record Projection System
 
 ## What this project is
 
