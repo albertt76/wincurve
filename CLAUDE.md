@@ -346,12 +346,15 @@ scripts/
   short folds, coverage 80.0 → 80.7%). Shipped because it unlocks the per-team off/def split
   and the per-player defensive-disagreement surface in the UI.
 - 🟡 **Defensive metric / RAPM** — pipeline, box-informed estimator, and the **deciding
-  end-to-end integration test all done** (RAPM pulled 2013–2024). Verdict: RAPM is the better
-  defensive metric but the one-year carryover already substitutes for it, so the blanket swap
-  is MAE-neutral; a turnover-weighted blend gains a modest +0.16 wins. **Not shipped into the
-  projection** — see the RAPM section below — but now **surfaced per-player in the UI** as
-  box-vs-RAPM `D↑/D↓` flags (`nbaproj.rapm.box_vs_rapm_by_player`). Blocked from the projection
-  live until the bulk mirror adds 2025-26 PBP.
+  end-to-end integration test all done** (RAPM now covers **2013–2025**). Verdict: RAPM is the
+  better defensive metric but the one-year carryover already substitutes for it, so the blanket
+  swap is MAE-neutral; a turnover-weighted blend gains a modest +0.16 wins. **Not shipped into
+  the projection** — see the RAPM section below — but now **surfaced per-player in the UI** as
+  box-vs-RAPM `D↑/D↓` flags (`nbaproj.rapm.box_vs_rapm_by_player`), using each player's most
+  recent RAPM (now 2025-26). The **live-deployment blocker is resolved**: the bulk mirror ships
+  2025-26 play-by-play only in the newer PlayByPlayV3 schema, which `nbaproj.bulk_pbp` now
+  reconstructs (validated RAPM-equivalent, corr 0.99). Productionising the turnover-weighted
+  blend into the live projection is therefore now unblocked (future work).
 
 ### Offseason movement & absences — how each is handled
 
@@ -461,8 +464,9 @@ architecture for partial/early-season data.
 (4 seasons pulled from bulk), predicting each team's defense from its roster's PRIOR-season
 defensive metric: RAPM beats the box score in all 3 transitions -- mean correlation **0.546
 (RAPM) vs 0.401 (box)**. Out-of-sample, so not circular. RAPM defense is a genuinely better
-predictor of future team defense. Indicative not decisive (only 3 transitions; the bulk
-mirror has nbastats through 2024-25). Script: `scripts/rapm_predict.py`.
+predictor of future team defense. Indicative not decisive (only 3 transitions at the time;
+2025-26 RAPM now exists too, via the v3 path below, so a 4th transition can be added). Script:
+`scripts/rapm_predict.py`.
 
 **✅ Integration test DONE — the deciding one. Verdict: RAPM did NOT ship (yet).**
 (`scripts/rapm_integration_test.py`; box-informed RAPM pulled for 2013–2024, swapped for the
@@ -485,10 +489,26 @@ box prior, so it is scale-compatible and the swap is well-posed.)
   with turnover-weighting as the mechanistic story. Modest and borderline (fold-level t≈3,
   team-level t≈1.45), about half the carryover's own +0.35.
 
-**Why not shipped:** (1) blanket swap fails the aggregate gate; (2) the blend is real but
-borderline and adds a second full pipeline arm; (3) **live blocker** — the bulk PBP mirror
-reaches only 2024-25, so RAPM cannot inform the LIVE 2026-27 projection's most-recent,
-recency-weighted season. Backtest-ready, not live-deployable until 2025-26 PBP is mirrored.
+**Why not shipped into the projection:** (1) blanket swap fails the aggregate gate; (2) the
+blend is real but borderline and adds a second full pipeline arm. The former **live blocker is
+now resolved** — 2025-26 play-by-play is available (v3 schema, reconstructed by
+`nbaproj.bulk_pbp`; `rapm_2025` built), so RAPM *can* now inform the live projection's
+most-recent season. Productionising the turnover-weighted blend is unblocked future work; for
+now RAPM is surfaced only as the UI's per-player `D↑/D↓` flags.
+
+### ✅ 2025-26 play-by-play via PlayByPlayV3 (`nbaproj.bulk_pbp.build_segments_bulk_v3`)
+
+The bulk mirror (shufinskiy/nba_data) stopped shipping the v2 `nbastats` feed for recent
+seasons — 2025-26 exists only as **`nbastatsv3`** (PlayByPlayV3), a different schema with no
+shared columns. `segments_for_season` now auto-routes: v2 where available, else v3. The v3
+reconstruction handles its quirks — a sub names only the outgoing player by id, the incoming by
+name ("SUB: in FOR out"), resolved from a per-game map of `playerName` + `playerNameI` (the
+initial+last form used on same-team last-name collisions) + outgoing names from other subs, all
+diacritic-normalised; the rare unresolved incoming gets a placeholder id. Attributing points in
+event order (not by timestamp) is what makes the offense/defense split reproduce, not just the
+net. **Validated on 2024 (both schemas exist): corr 0.99 total, 0.98 offense, 0.98 defense** vs
+the v2 reconstruction. Any season 1996-97+ is now reachable regardless of which schema the
+mirror ships.
 RAPM stays a **documented, validated candidate**. The turnover-weighted blend is the natural
 next step once 2025-26 lands and if it clears a coverage check.
 
