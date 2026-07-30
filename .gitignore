@@ -4,3 +4,6 @@ __pycache__/
 data/raw/
 data/processed/
 .DS_Store
+
+# stray analysis outputs accidentally written to repo root (scratchpad path with separators stripped)
+/*.parquet
