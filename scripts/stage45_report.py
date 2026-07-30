@@ -43,6 +43,9 @@ def main() -> int:
     pgl = pd.read_parquet(PROC / "player_game_log.parquet")
     gl = pd.read_parquet(PROC / "game_log.parquet")
     pa = pd.read_parquet(PROC / "player_advanced.parquet")
+    rosters = pd.read_parquet(PROC / "team_rosters.parquet").rename(columns={
+        "TeamID": "team_id", "PLAYER_ID": "player_id",
+        "SEASON_START": "season_start"})
     ts = load_team_seasons()
 
     ages = pd.DataFrame({
@@ -70,12 +73,13 @@ def main() -> int:
     print("MAE = mean absolute error (average miss, in 82-game-equivalent wins).")
     print("Lower is better.\n")
 
-    all_preds = {"early": [], "actual": []}
-    for mode in ("early", "actual"):
+    all_preds = {"roster": [], "early": [], "actual": []}
+    for mode in ("roster", "early", "actual"):
         preds = []
         for season in range(FIRST_TEST, LAST_TEST + 1):
             r = project_team_ratings(imp, pts, pgl, ts, ages,
-                                     target_season=season, mode=mode)
+                                     target_season=season, mode=mode,
+                                     team_rosters=rosters)
             if not r.empty:
                 preds.append(r)
         if preds:
@@ -136,13 +140,16 @@ def main() -> int:
             })
 
     res = pd.DataFrame(rows)
-    for mode in ("early", "actual"):
+    labels = {
+        "roster": "OPENING-DAY ROSTER (reconstructed; 95% of realised minutes)",
+        "early": "FIRST-15-GAMES ROSTER (previous approach, misses injured starters)",
+        "actual": "LEAKY UPPER BOUND (actual roster + actual minutes)",
+    }
+    for mode in ("roster", "early", "actual"):
         sub = res[res["mode"] == mode]
         if sub.empty:
             continue
-        label = ("REALISTIC (opening-rotation roster, projected minutes)"
-                 if mode == "early" else
-                 "LEAKY UPPER BOUND (actual roster + actual minutes)")
+        label = labels[mode]
         print(f"\n{'-' * 74}\n{label}\n{'-' * 74}")
         print(sub[["season", "n", "MAE_model", "MAE_market", "rating_MAE",
                    "slope", "pred_sd", "sigma_rating"]].to_string(

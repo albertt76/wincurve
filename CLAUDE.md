@@ -211,30 +211,28 @@ scripts/
     which is correct.
 - ✅ **Stage 4** — Team aggregation built, minute budget enforced, calibration fitted
   per fold on *projected* aggregates.
-- 🟡 **Stage 5** — Monte Carlo simulation built; **marginally still fails its gate** in
-  realistic mode after the alpha fix. Identical seasons (2017-18..2025-26):
+- 🔴 **Stage 5** — Simulation built and running end-to-end; **still fails its gate on
+  genuinely preseason-only information.** Identical seasons (2017-18..2025-26):
 
-  | | MAE (wins) |
-  |---|---|
-  | Market | **6.88** |
-  | Our model, leaky upper bound (real roster + minutes) | **7.25** |
-  | Mean-reverted previous wins (the gate) | **8.13** |
-  | Our model, realistic roster | **8.24** |
+  | Variant | Information used | MAE (wins) |
+  |---|---|---|
+  | Market | — | **6.88** |
+  | Leaky upper bound | actual roster + actual minutes | 7.25 |
+  | First-15-games roster | + 15 games of real rotation | 8.24 |
+  | Mean-reverted previous wins (**the gate**) | — | **8.13** |
+  | **Opening-day roster (most honest)** | **preseason only** | **8.44** |
 
-  The leaky bound now beats the gate clearly and comes within 0.38 of the market,
-  even beating it in 3 of 9 seasons. The realistic variant is essentially tied with
-  the gate. **The remaining ~1.0 win gap between the two variants is roster and
-  minutes projection, not talent.**
+  **Key finding from the roster work:** reconstructed opening-day rosters perform *worse*
+  (8.44) than the first-15-games approach (8.24), which was the opposite of the
+  expectation. The 15-game window's advantage was never roster *identity* — it was
+  observing the coach's actual minute distribution. So the earlier "realistic" 8.24 was
+  flattered by rotation leakage, and **8.44 is our true honest number.**
 
-  **Important nuance for live use:** "realistic" mode is harsher than real operation in
-  one respect — it reconstructs rosters from the first 15 games, so it misses a star who
-  was injured on opening night even though such a player is perfectly well known
-  preseason. For a live 2026-27 projection the roster is *known*; only midseason trades
-  are not. So true operational accuracy sits between 7.25 and 8.24, likely nearer 7.25.
-  Using `commonteamroster` for historical seasons (~270 calls) would tighten the
-  backtest to match how the model is actually used.
+  **This localises the largest remaining lever: minutes projection.** Prior-season
+  minutes-per-game → observed early-season rotation is worth 0.2 wins; → actual
+  full-season minutes is worth 1.2 wins. Talent projection is no longer the bottleneck.
 
-  Interval calibration (are the 80% ranges really 80%?) still unchecked.
+  Interval calibration still unchecked.
 - ⬜ **Stage 6** — Fit as residual structure (diminishing returns). *Gate may reject.*
 - ⬜ **Stage 7** — Coaching / roster continuity as shrunk effects. *Gate may reject.*
 - ⬜ **Stage 8** — Live Kalshi/Polymarket comparison + contract-year hypothesis test

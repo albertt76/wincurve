@@ -270,6 +270,82 @@ right to trust it.
 
 ---
 
+## 7b. Regime change: the draft lottery reform (no historical analogue)
+
+The draft lottery odds have been substantially revised for the upcoming season. The
+expected behavioural consequence is that losing games buys less draft position, so the
+incentive to tank weakens, and the bottom of the league should be more competitive --
+fewer teams with very low win totals, and a compressed lower tail overall.
+
+**This cannot be backtested.** There is no historical season under the new rules. That
+makes it categorically different from every other component in this project, all of which
+must clear a walk-forward gate. So it gets different treatment:
+
+1. **It must be an explicit, separately-reported adjustment**, never folded silently into
+   the projection. A user must be able to see the projection with and without it.
+2. **Its size should be anchored on the measured historical tanking effect** rather than
+   invented. We can estimate how much tanking currently costs affected teams by
+   difference-in-differences: late-season versus early-season performance for teams out of
+   contention, relative to the same change for teams still competing. That gives an upper
+   bound on what removing the incentive could recover.
+3. **The 2019 reform is the closest available evidence.** Top-3 lottery odds were
+   flattened then. If tanking measurably declined afterwards, that quantifies how much a
+   further flattening might matter -- and if it did *not* decline, that is strong evidence
+   the new reform will do less than expected.
+4. **Direction of the adjustment:** compress the lower tail toward the mean. It should
+   affect projected *bad* teams and leave contenders alone, which means it is not a
+   uniform shrinkage.
+
+The user's proposed observable proxy -- reduced minutes for rookies and very
+low-experience players -- is worth testing, since if tanking teams currently hand minutes
+to unproven players, that is both a mechanism and a measurable signature.
+
+**Standing caution:** this is the one place in the model where we are extrapolating beyond
+the data. Any projection that leans on it should say so.
+
+## 7c. Depth, talent concentration, and star reliability
+
+Our aggregation is linear: team rating is the minute-weighted mean of player impacts.
+That treats a roster with one +8 star and four replacement players as equivalent to one
+with five +1.6 players. Real basketball may not.
+
+Three related but distinct questions, which must not be conflated:
+
+**(a) Does concentration shift the expected number of wins?** A mean effect. Testable as
+structure in our residuals.
+
+**(b) Does concentration widen the range of outcomes?** A *variance* effect, and arguably
+the more important one for market comparison, since win totals are priced as
+distributions. A team whose value sits in one player is genuinely less predictable: his
+health swings the season. A deep team should be tighter. If real, this means
+`sigma_rating` in the simulation should vary by roster shape rather than being one number
+for all 30 teams.
+
+**(c) Is the *realized* penalty for star absence as steep as linear aggregation implies?**
+When a star misses games, his minutes redistribute to teammates rather than vanishing.
+If those teammates are good, the drop is shallower than the linear model predicts.
+
+The motivating observations, which point in different directions and are worth keeping
+distinct:
+
+- **Oklahoma City 2024-25** were exceptionally deep, which let them rest players and
+  absorb their second-best player's absences. They then traded depth away while getting
+  that player back for a full season -- so depth and star-availability moved in opposite
+  directions, and a model with only a talent-sum would see just the net.
+- **Boston without Jayson Tatum** substantially outperformed expectations. This is the
+  clearest evidence for (c): the linear penalty for losing a star may be too harsh.
+- **A hypothetical extended Luka Doncic absence** would obviously hurt the Lakers -- but
+  the question is whether it hurts by the linear amount, more, or less.
+
+Note the tension: (b) says concentrated teams are *riskier*, while (c) says the downside
+when the risk materialises is *smaller* than we would model. Both can be true, and
+conflating them would cancel out a real effect. They are measured separately.
+
+**Discipline:** (a) and (c) are backtestable and must clear the standard walk-forward
+gate. Beware that concentration correlates with team quality -- good teams have more good
+players -- so any claimed effect must be shown to survive controlling for projected team
+strength. With only ~270 team-seasons, an in-sample correlation here means almost nothing.
+
 ## 8. Open questions
 
 See the accompanying conversation — key forks are (1) build vs. ingest the player impact

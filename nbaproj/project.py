@@ -67,6 +67,71 @@ def roster_from_early_games(player_game_log: pd.DataFrame, season_start: int,
     ).rename(columns={"TEAM_ID": "team_id", "PLAYER_ID": "player_id"})
 
 
+def roster_opening_day(team_rosters: pd.DataFrame, player_game_log: pd.DataFrame,
+                       season_start: int) -> pd.DataFrame:
+    """Reconstruct opening-day rosters from season rosters minus midseason arrivals.
+
+    Neither source works alone:
+
+    - ``commonteamroster`` gives the **end-of-season** roster (verified: Blake Griffin,
+      traded in January 2018, appears on Detroit's 2017-18 roster and not the Clippers').
+      Used raw it leaks midseason trades.
+    - Game logs miss anyone who never played, which notably excludes a star injured on
+      opening night -- a player whose presence is perfectly well known in preseason.
+
+    Combining them fixes both. A player on team X's season roster is treated as a
+    midseason arrival, and dropped, if he **played for a different team earlier that same
+    season**. Everyone else is kept, including players with zero minutes.
+
+    Residual imperfections, stated rather than hidden:
+      - A free agent signed midseason who had not played anywhere else that season is
+        wrongly kept. These are typically minimum-contract depth players.
+      - A player on the opening roster who was cut before appearing anywhere is wrongly
+        dropped. Also low-impact.
+      - A player traded *away* midseason correctly stays on his original team, which is
+        right for opening day, but his replacement is correctly excluded -- so early-season
+        rosters can slightly over-count total minutes. The minute budget handles that.
+    """
+    ros = team_rosters[team_rosters["season_start"] == season_start]
+    logs = player_game_log[player_game_log["SEASON_START"] == season_start]
+    if ros.empty or logs.empty:
+        return pd.DataFrame()
+
+    # First appearance date per (player, team) this season.
+    first = logs.groupby(["PLAYER_ID", "TEAM_ID"], as_index=False)["GAME_DATE"].min()
+    first = first.rename(columns={"PLAYER_ID": "player_id", "TEAM_ID": "team_id",
+                                  "GAME_DATE": "first_date"})
+    # Earliest appearance for ANY team this season, per player.
+    earliest = first.groupby("player_id", as_index=False)["first_date"].min().rename(
+        columns={"first_date": "season_first_date"})
+
+    r = ros[["team_id", "player_id"]].drop_duplicates().merge(
+        first, on=["team_id", "player_id"], how="left").merge(
+        earliest, on="player_id", how="left")
+
+    # Midseason arrival: he appeared somewhere this season BEFORE his first game for
+    # this team. Players who never played (first_date NaT) are kept by design.
+    arrived_later = (
+        r["first_date"].notna()
+        & r["season_first_date"].notna()
+        & (r["first_date"] > r["season_first_date"])
+    )
+    kept = r[~arrived_later][["team_id", "player_id"]]
+
+    # Players traded AWAY midseason are missing from the end-of-season roster entirely,
+    # so the step above loses them from the team they actually started on. Blake Griffin
+    # played 33 games for the 2017-18 Clippers before being traded, and appears on
+    # nobody's season roster but Detroit's -- without this he vanishes from both.
+    #
+    # Recover them by adding anyone whose FIRST game of the season was for this team.
+    started_here = first.merge(earliest, on="player_id", how="left")
+    started_here = started_here[
+        started_here["first_date"] <= started_here["season_first_date"]
+    ][["team_id", "player_id"]]
+
+    return pd.concat([kept, started_here]).drop_duplicates().reset_index(drop=True)
+
+
 def fit_rating_scale(impact: pd.DataFrame, player_team_seasons: pd.DataFrame,
                      team_seasons: pd.DataFrame, *, before_season: int,
                      col: str = "impact", target: str = "net_rating") -> tuple[float, float]:
@@ -119,6 +184,7 @@ def project_team_ratings(
     *,
     target_season: int,
     mode: str = "early",
+    team_rosters: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Projected net-rating deviation for every team in `target_season`.
 
@@ -147,9 +213,32 @@ def project_team_ratings(
             player_team_seasons["season_start"] == target_season
         ][["team_id", "player_id", "minutes"]].copy()
     else:
-        roster = roster_from_early_games(player_game_log, target_season)
-        if roster.empty:
-            return pd.DataFrame()
+        if mode == "roster":
+            if team_rosters is None:
+                raise ValueError("mode='roster' requires team_rosters")
+            base = roster_opening_day(team_rosters, player_game_log, target_season)
+            if base.empty:
+                return pd.DataFrame()
+            # Minutes-per-game history comes from the player's PRIOR season, since an
+            # opening-day roster carries players who have not played for this team yet
+            # (new signings, and anyone injured on opening night).
+            prior = player_team_seasons[
+                player_team_seasons["season_start"] == target_season - 1
+            ].groupby("player_id", as_index=False).agg(
+                pm=("minutes", "sum"), pg=("games", "sum"))
+            prior["prior_mpg"] = prior["pm"] / prior["pg"].clip(lower=1)
+            roster = base.merge(prior[["player_id", "prior_mpg"]], on="player_id",
+                                how="left")
+            # A player with no prior season is a rookie or returnee; give him a modest
+            # default rather than dropping him, so his minutes still consume budget.
+            roster["early_mpg"] = roster["prior_mpg"].fillna(12.0)
+            roster["early_games"] = 1
+        else:
+            roster = roster_from_early_games(player_game_log, target_season)
+            if roster.empty:
+                return pd.DataFrame()
+            roster["early_mpg"] = roster["early_minutes"] / roster[
+                "early_games"].clip(lower=1)
 
         # Minutes per game from the opening rotation, scaled by projected
         # availability over the full season.
@@ -161,8 +250,6 @@ def project_team_ratings(
             return pd.DataFrame()
         av_map = av.set_index("player_id")["proj_availability"].to_dict()
 
-        roster["early_mpg"] = roster["early_minutes"] / roster["early_games"].clip(
-            lower=1)
         team_games = team_seasons[
             team_seasons["season_start"] == target_season
         ].set_index("team_id")["games"].to_dict()

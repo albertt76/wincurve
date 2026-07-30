@@ -20,7 +20,7 @@ from nba_api.stats.endpoints import (
     leaguehustlestatsplayer,
 )
 
-from .cache import cached_fetch, seasons
+from .cache import cached_fetch, season_str, seasons
 
 log = logging.getLogger(__name__)
 
@@ -208,3 +208,49 @@ def pull_all(last_season: int = LAST_COMPLETE_SEASON) -> dict[str, pd.DataFrame]
         # Season-invariant: one row per player ever, no season loop.
         "player_bio": player_bio(),
     }
+
+
+def team_roster(team_id: int, season: str) -> pd.DataFrame:
+    """One team's season roster, including players who never played.
+
+    Verified behaviour: this returns the **end-of-season** roster, not opening day.
+    Blake Griffin, traded from the Clippers to the Pistons in January 2018, appears on
+    Detroit's 2017-18 roster and not on the Clippers'. So it cannot be used raw for a
+    point-in-time backtest.
+
+    Its value is that it lists players who logged no minutes -- notably a star injured
+    on opening night, whom a game-log reconstruction misses entirely even though such a
+    player is well known before the season. Combined with game logs to strip midseason
+    arrivals (see project.roster_opening_day), it gives a far better opening-day roster
+    than either source alone.
+
+    ``HOW_ACQUIRED`` is populated only for draft picks and carries no trade dates, so it
+    cannot be used to identify midseason acquisitions.
+    """
+    from nba_api.stats.endpoints import commonteamroster
+    return cached_fetch(
+        "team_roster",
+        commonteamroster.CommonTeamRoster,
+        {"team_id": team_id, "season": season, "timeout": TIMEOUT},
+    )
+
+
+def pull_rosters(first: int, last: int) -> pd.DataFrame:
+    """Rosters for every team across a season range (30 calls per season)."""
+    from nba_api.stats.static import teams as static_teams
+    team_ids = [t["id"] for t in static_teams.get_teams()]
+    frames = []
+    for start in range(first, last + 1):
+        season = season_str(start)
+        for tid in team_ids:
+            df = team_roster(tid, season)
+            if df.empty:
+                continue
+            df = df.copy()
+            df["SEASON"] = season
+            df["SEASON_START"] = start
+            frames.append(df)
+        log.info("rosters: finished %s", season)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
