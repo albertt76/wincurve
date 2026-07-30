@@ -44,6 +44,10 @@ def main() -> int:
             print(f"{name:<18} {'EMPTY':>8}")
             continue
         df.to_parquet(out_dir / f"{name}.parquet", index=False)
+        if "SEASON" not in df.columns:
+            # Season-invariant datasets (e.g. the player directory) have no span.
+            print(f"{name:<18} {len(df):>8,} {'-':>8}  (all seasons)")
+            continue
         span = f"{df['SEASON'].min()} .. {df['SEASON'].max()}"
         print(f"{name:<18} {len(df):>8,} {df['SEASON'].nunique():>8}  {span}")
 

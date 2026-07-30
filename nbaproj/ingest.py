@@ -12,6 +12,7 @@ import logging
 
 import pandas as pd
 from nba_api.stats.endpoints import (
+    commonallplayers,
     leaguedashplayerstats,
     leaguedashptdefend,
     leaguedashteamstats,
@@ -96,6 +97,33 @@ def game_log(season: str) -> pd.DataFrame:
     )
 
 
+def player_game_log(season: str) -> pd.DataFrame:
+    """Every player-game row for the regular season.
+
+    This is the backbone of the whole system, and the season-level player table
+    cannot replace it. ``LeagueDashPlayerStats`` returns exactly one row per player
+    per season attributed to a *single* team, so a traded player's full-season
+    production lands entirely on one of his teams. Team minute totals under that
+    table range 17,248-21,960 against a true 19,680 (240 min x 82 games); from game
+    logs they come in at 19,696-19,945, with the small excess correctly explained
+    by overtime.
+
+    Also supplies, for later stages:
+      - games missed / availability (Stage 3)
+      - opening-night roster reconstruction for point-in-time correctness
+    """
+    return cached_fetch(
+        "player_game_log",
+        leaguegamelog.LeagueGameLog,
+        {
+            "season": season,
+            "season_type_all_star": "Regular Season",
+            "player_or_team_abbreviation": "P",
+            "timeout": TIMEOUT,
+        },
+    )
+
+
 def rim_defense(season: str) -> pd.DataFrame:
     """Opponent FG% when this player defends shots inside 6ft -- rim deterrence.
 
@@ -121,6 +149,21 @@ def hustle(season: str) -> pd.DataFrame:
         "hustle",
         leaguehustlestatsplayer.LeagueHustleStatsPlayer,
         {"season": season, "timeout": TIMEOUT},
+    )
+
+
+def player_bio() -> pd.DataFrame:
+    """League-wide player directory with debut year (``FROM_YEAR``).
+
+    Needed because experience is left-censored in our window: a player whose first
+    observed season is 2005-06 may well have debuted in 1998. Deriving experience
+    from our own data alone would understate it for every pre-2005 holdover and
+    silently corrupt the aging model. One call covers all players.
+    """
+    return cached_fetch(
+        "player_bio",
+        commonallplayers.CommonAllPlayers,
+        {"is_only_current_season": 0, "league_id": "00", "timeout": TIMEOUT},
     )
 
 
@@ -156,8 +199,12 @@ def pull_all(last_season: int = LAST_COMPLETE_SEASON) -> dict[str, pd.DataFrame]
             "team_advanced", team_advanced, FIRST_BOX_SEASON, last_season),
         "game_log": _pull_range(
             "game_log", game_log, FIRST_BOX_SEASON, last_season),
+        "player_game_log": _pull_range(
+            "player_game_log", player_game_log, FIRST_BOX_SEASON, last_season),
         "rim_defense": _pull_range(
             "rim_defense", rim_defense, FIRST_TRACKING_SEASON, last_season),
         "hustle": _pull_range(
             "hustle", hustle, FIRST_HUSTLE_SEASON, last_season),
+        # Season-invariant: one row per player ever, no season loop.
+        "player_bio": player_bio(),
     }

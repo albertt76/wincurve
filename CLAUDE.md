@@ -189,7 +189,13 @@ scripts/
 - ✅ **Stage 0** — Data layer: cached, throttled, point-in-time-correct pulls, 21 seasons
 - ✅ **Stage 1** — Baselines: naive + market + noise floor. **Bar = 8.07 MAE naive,
   6.67 MAE market**
-- ⬜ **Stage 2** — Player impact metric + per-skill aging curves + shrinkage
+- 🟡 **Stage 2** — Player impact metric **built**; aging curves + shrinkage still to do.
+  Offense calibrates well (r-squared 0.88); defense does not (0.45) and its player-level
+  values are close to a restatement of rebounding (corr 0.89), i.e. it partly measures
+  *being a centre* rather than defending. Aggregates acceptably at team level
+  (net-rating r-squared 0.84) because every team plays centres ~48 min/game.
+  **Known defect:** aggregation slope is 7.7 where algebra predicts 5, because
+  sub-threshold players get no estimate — replacement level in Stage 3 is the fix.
 - ⬜ **Stage 3** — Minutes & availability model (injury history, 240-min budget,
   replacement level)
 - ⬜ **Stage 4** — Additive team aggregation → off/def rating
@@ -197,6 +203,14 @@ scripts/
 - ⬜ **Stage 6** — Fit as residual structure (diminishing returns). *Gate may reject.*
 - ⬜ **Stage 7** — Coaching / roster continuity as shrunk effects. *Gate may reject.*
 - ⬜ **Stage 8** — Live Kalshi/Polymarket comparison + contract-year hypothesis test
+
+### Decisions pending user input
+
+- ⬜ **Defense estimation.** Box-score defense is positionally biased and cannot be
+  fixed by adding more box features. The real fix is RAPM (regularized adjusted
+  plus/minus) from play-by-play: ~25,000 games to pull and cache, plus ridge
+  regression on stint-level data. Roughly an overnight data pull. Worth it only if
+  defensive *personnel* questions matter to the user beyond aggregate team projection.
 
 ### Open items
 

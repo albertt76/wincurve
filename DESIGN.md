@@ -13,24 +13,24 @@ market. Research tool, not a betting system.
 
 This is the single most important design fact, and it dictates the architecture.
 
-| Level | Rows available (20 seasons) |
+| Level | Rows available (21 seasons, 2005-06 → 2025-26) |
 |---|---|
-| Team-seasons | **600** (20 × 30) |
-| Player-seasons | ~10,000 (450–570/season) |
-| Player-season transitions (year N → N+1) | ~8,000 |
-| Team-seasons with tracking data | **360** (12 × 30) |
-| Team-seasons with hustle data | **270** (9 × 30) |
+| Team-seasons | **630** (21 × 30) |
+| Player-seasons | **10,595** (458–569/season) |
+| Player-season transitions (year N → N+1) | ~8,500 |
+| Team-seasons with tracking data | **390** (13 × 30) |
+| Team-seasons with hustle data | **300** (10 × 30) |
 
 Every team-level feature in the original spec — positional balance, defensive/offensive
 balance, rebounding balance, pace, turnover type, coaching quality, fit — competes for the
-same **600 rows**. And the target is noisy: an 82-game record at p≈0.5 carries roughly
-±4.5 wins of pure binomial noise before injuries, which add more. So the irreducible error
-floor is somewhere around 5 wins, and sportsbook closing win totals are already close to it.
+same **630 rows**. And the target is noisy: an 82-game record at p≈0.5 carries roughly
+±4.3 wins of pure binomial noise before injuries, which add more (both figures measured in
+Stage 1, not assumed).
 
 **Consequence:** a team-level model with 30+ features cannot be fit here. It will overfit and
 backtest beautifully in-sample while being worthless out-of-sample.
 
-**Therefore:** all heavy lifting happens at the **player level** (~10,000 rows), and the
+**Therefore:** all heavy lifting happens at the **player level** (~10,600 rows), and the
 team layer must be nearly parameter-free — mechanical aggregation plus simulation. Fit and
 coaching enter as a *small* number of tightly-constrained parameters that must earn their
 place in a backtest.
@@ -72,7 +72,7 @@ place in a backtest.
 ```
 
 The critical property: **C is almost parameter-free.** Minute-weighted sums of player impact
-predict team net rating remarkably well. That linearity is what makes the 600-row problem
+predict team net rating remarkably well. That linearity is what makes the 630-row problem
 tractable.
 
 ### D is a simulation, not a regression
@@ -149,7 +149,7 @@ on a few skill dimensions:
 | Floor spacing / 3P shooting | **Increasing** (complementary) — spacing amplifies rim pressure |
 | Perimeter on-ball defense | Mildly diminishing |
 
-That's ~5–8 parameters (one curvature term per dimension), which 600 team-seasons *can*
+That's ~5–8 parameters (one curvature term per dimension), which 630 team-seasons *can*
 support. A full interaction matrix cannot. This is the tractable version of the fit idea.
 
 ---
