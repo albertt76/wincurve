@@ -312,6 +312,36 @@ tune against measured end-to-end error.
   projected aggregates from earlier folds. Worth 0.7-1.1 wins of MAE.
   **Lesson: fit a calibration on the same kind of quantity you apply it to.**
 
+### 🟡 Defensive metric / RAPM — pipeline + estimator done, integration gated on data
+
+The box-score metric captures only ~12-14% of franchise-level defensive variance; RAPM is
+the documented fix. Built and validated this session:
+
+- **Stint reconstruction** (`nbaproj/pbp.py`): use GameRotation for exact IN/OUT times
+  (0.000 min error vs box score), play-by-play only for the score. Segment margins sum to
+  the final score exactly on 5/6 test games.
+- **RAPM estimator** (`nbaproj/rapm.py`): offense/defense ridge. Validated on synthetic data
+  with known skills -- recovers offense (corr 0.92) AND defense (corr 0.90).
+- **Box-informed RAPM** is the right architecture. Plain ridge over-shrinks anchors on
+  partial data (rated Wembanyama's D at +1.2 vs box +4.3); shrinking toward the box prior
+  fixes it (Wemby +4.65, AD +2.33) while still moving off it where stint data has signal.
+  Team-defense reconstruction (in-sample, 350 games): box alone 0.44, plain RAPM 0.67,
+  **box-informed RAPM 0.69**.
+
+**Data is the blocker.** GameRotation is hard rate-limited by stats.nba.com; this session
+pulled only 350/1230 games of 2024-25 before being throttled to a standstill. The pull is
+resumable (`scripts/fetch_pbp.py --season 2024`, caches per game, skips done games) -- run
+it overnight when the limit resets.
+
+**Still to do (needs the full multi-season pull):**
+1. Complete 2024-25, then pull 2023-24 (or more) -- single-season RAPM has team-defense
+   bleed that multi-season data reduces.
+2. Clean predictive test: does this season's box-informed RAPM predict NEXT season's team
+   defense better than the box metric? (The 0.69 above is in-sample and partly circular.)
+3. Integration test: swap the impact metric's defensive component for box-informed RAPM and
+   check whether end-to-end win-projection MAE improves. This is the only test that decides
+   whether RAPM ships.
+
 ### Measured negative results (do not re-attempt blind)
 
 All of these were well-motivated ideas that **failed their gate**. Recorded so the effort
