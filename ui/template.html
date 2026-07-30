@@ -1,0 +1,529 @@
+<title>NBA 2026-27 Win Projections</title>
+
+<style>
+  /* ---- tokens: slate-cool neutrals, uncertainty carried in hue ---- */
+  :root {
+    --ground: #f5f6f9;
+    --surface: #ffffff;
+    --surface-2: #eef0f5;
+    --line: #dfe3ec;
+    --line-soft: #e9ecf3;
+    --ink: #111725;
+    --ink-2: #47506510;
+    --muted: #5d6779;
+    --faint: #8b94a6;
+
+    --tight: #0f766e;      /* low uncertainty */
+    --tight-fill: #0f766e26;
+    --wide: #b45309;       /* high uncertainty */
+    --wide-fill: #b4530926;
+    --pos: #15803d;
+    --neg: #b91c1c;
+    --edit: #6d28d9;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+    --r: 5px;
+    --shadow: 0 1px 2px #0b112008, 0 4px 16px #0b112008;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0e1218; --surface: #151a22; --surface-2: #1b212b;
+      --line: #262d3a; --line-soft: #1f2530;
+      --ink: #e7ecf5; --muted: #98a2b6; --faint: #6b7688;
+      --tight: #2dd4bf; --tight-fill: #2dd4bf24;
+      --wide: #f59e0b; --wide-fill: #f59e0b24;
+      --pos: #4ade80; --neg: #f87171; --edit: #a78bfa;
+      --shadow: 0 1px 2px #0006, 0 6px 20px #0004;
+    }
+  }
+  /* viewer toggle must beat the media query in both directions */
+  :root[data-theme="dark"] {
+    --ground: #0e1218; --surface: #151a22; --surface-2: #1b212b;
+    --line: #262d3a; --line-soft: #1f2530;
+    --ink: #e7ecf5; --muted: #98a2b6; --faint: #6b7688;
+    --tight: #2dd4bf; --tight-fill: #2dd4bf24;
+    --wide: #f59e0b; --wide-fill: #f59e0b24;
+    --pos: #4ade80; --neg: #f87171; --edit: #a78bfa;
+    --shadow: 0 1px 2px #0006, 0 6px 20px #0004;
+  }
+  :root[data-theme="light"] {
+    --ground: #f5f6f9; --surface: #ffffff; --surface-2: #eef0f5;
+    --line: #dfe3ec; --line-soft: #e9ecf3;
+    --ink: #111725; --muted: #5d6779; --faint: #8b94a6;
+    --tight: #0f766e; --tight-fill: #0f766e26;
+    --wide: #b45309; --wide-fill: #b4530926;
+    --pos: #15803d; --neg: #b91c1c; --edit: #6d28d9;
+    --shadow: 0 1px 2px #0b112008, 0 4px 16px #0b112008;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  /* ---- header ---- */
+  header { margin-bottom: 28px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: 8px;
+  }
+  h1 {
+    font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 0 10px;
+    letter-spacing: -.02em; font-weight: 650; text-wrap: balance;
+  }
+  .sub { color: var(--muted); max-width: 66ch; margin: 0; }
+
+  .caveat {
+    margin-top: 18px; padding: 12px 14px; border-radius: var(--r);
+    background: var(--surface); border: 1px solid var(--line);
+    border-left: 3px solid var(--wide);
+    font-size: 13.5px; color: var(--muted); max-width: 78ch;
+  }
+  .caveat strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- axis + legend ---- */
+  .axis-head {
+    display: grid; grid-template-columns: 190px 1fr 108px; gap: 14px;
+    align-items: end; margin: 26px 0 6px; padding: 0 2px;
+  }
+  .col-label {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--faint);
+  }
+  .axis { position: relative; height: 15px; }
+  .axis .tick {
+    position: absolute; top: 0; transform: translateX(-50%);
+    font-family: var(--mono); font-size: 10.5px; color: var(--faint);
+  }
+
+  /* ---- team rows ---- */
+  .rows {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r); overflow: hidden; box-shadow: var(--shadow);
+  }
+  .row {
+    display: grid; grid-template-columns: 190px 1fr 108px; gap: 14px;
+    align-items: center; padding: 9px 12px; width: 100%; border: 0;
+    background: none; color: inherit; font: inherit; text-align: left;
+    cursor: pointer; border-top: 1px solid var(--line-soft);
+  }
+  .row:first-child { border-top: 0; }
+  .row:hover, .row:focus-visible { background: var(--surface-2); }
+  .row:focus-visible { outline: 2px solid var(--tight); outline-offset: -2px; }
+  .row[aria-expanded="true"] { background: var(--surface-2); }
+
+  .team { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .abbr {
+    font-family: var(--mono); font-weight: 650; font-size: 13px;
+    letter-spacing: .04em; width: 3.4ch;
+  }
+  .tname {
+    font-size: 13.5px; color: var(--muted); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .edited-dot { color: var(--edit); font-family: var(--mono); }
+
+  /* the range bar: shared axis makes widths comparable across teams */
+  .track { position: relative; height: 22px; }
+  .track .mid {
+    position: absolute; top: -1px; bottom: -1px; width: 1px;
+    background: var(--line);
+  }
+  .band {
+    position: absolute; top: 7px; height: 8px; border-radius: 4px;
+    background: var(--tight-fill); border: 1px solid var(--tight);
+    transition: left .35s cubic-bezier(.4,0,.2,1), width .35s cubic-bezier(.4,0,.2,1);
+  }
+  .band.inner {
+    top: 5px; height: 12px; border-radius: 3px;
+    background: var(--tight); border: 0; opacity: .5;
+  }
+  .band.w { background: var(--wide-fill); border-color: var(--wide); }
+  .band.inner.w { background: var(--wide); }
+  .mean {
+    position: absolute; top: 2px; height: 18px; width: 2px;
+    background: var(--ink); border-radius: 1px;
+    transition: left .35s cubic-bezier(.4,0,.2,1);
+  }
+  .ghost {
+    position: absolute; top: 2px; height: 18px; width: 2px;
+    background: var(--faint); opacity: .55;
+  }
+
+  .nums {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    text-align: right; font-size: 13px;
+  }
+  .wins { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+  .rng { color: var(--faint); font-size: 11px; }
+  .delta { font-size: 11px; font-weight: 600; }
+  .delta.up { color: var(--pos); } .delta.down { color: var(--neg); }
+
+  /* ---- roster editor ---- */
+  .panel {
+    display: none; padding: 4px 12px 18px; background: var(--surface-2);
+    border-top: 1px solid var(--line-soft);
+  }
+  .panel.open { display: block; }
+  .panel-head {
+    display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center;
+    padding: 10px 0 12px;
+  }
+  .stat { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .stat b { color: var(--ink); font-weight: 650; }
+  .spacer { flex: 1; }
+  button.act {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .04em;
+    padding: 5px 10px; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  }
+  button.act:hover { border-color: var(--tight); color: var(--tight); }
+  button.act:focus-visible { outline: 2px solid var(--tight); outline-offset: 1px; }
+  button.act[disabled] { opacity: .4; cursor: default; }
+
+  .tbl-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
+  th {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--faint); font-weight: 500;
+    text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--line);
+  }
+  th:first-child, td:first-child { text-align: left; }
+  td {
+    padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--line-soft);
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+  }
+  td:first-child { font-family: var(--sans); }
+  tr.off td { opacity: .38; text-decoration: line-through; }
+  tr.added td:first-child { color: var(--edit); font-weight: 600; }
+  .tag {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em;
+    padding: 1px 4px; border-radius: 3px; border: 1px solid var(--line);
+    color: var(--faint); margin-left: 6px; text-transform: uppercase;
+  }
+  .imp.p { color: var(--pos); } .imp.n { color: var(--neg); }
+  td button {
+    font-family: var(--mono); font-size: 14px; line-height: 1; width: 22px;
+    height: 22px; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  }
+  td button:hover { border-color: var(--neg); color: var(--neg); }
+  tr.off td button:hover { border-color: var(--pos); color: var(--pos); }
+  td button:focus-visible { outline: 2px solid var(--tight); outline-offset: 1px; }
+
+  .add-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+  input[type="search"] {
+    flex: 1; max-width: 320px; font-family: var(--sans); font-size: 13px;
+    padding: 6px 9px; border-radius: 4px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink);
+  }
+  input[type="search"]:focus-visible { outline: 2px solid var(--tight); outline-offset: 1px; }
+  .results {
+    margin-top: 6px; max-height: 190px; overflow-y: auto; border-radius: 4px;
+    border: 1px solid var(--line); background: var(--surface);
+  }
+  .results:empty { display: none; }
+  .res {
+    display: flex; gap: 10px; align-items: baseline; width: 100%; border: 0;
+    background: none; color: inherit; font: inherit; text-align: left;
+    padding: 5px 9px; cursor: pointer; border-bottom: 1px solid var(--line-soft);
+  }
+  .res:last-child { border-bottom: 0; }
+  .res:hover, .res:focus-visible { background: var(--surface-2); }
+  .res .rn { flex: 1; font-size: 13px; }
+  .res .rm {
+    font-family: var(--mono); font-size: 11px; color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  footer {
+    margin-top: 30px; font-size: 12.5px; color: var(--faint);
+    max-width: 76ch; line-height: 1.6;
+  }
+  footer code {
+    font-family: var(--mono); font-size: 11.5px; background: var(--surface-2);
+    padding: 1px 4px; border-radius: 3px;
+  }
+
+  @media (max-width: 720px) {
+    .axis-head, .row { grid-template-columns: 108px 1fr 88px; gap: 10px; }
+    .tname { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Bottom-up roster model &middot; snapshot <span id="snap"></span></div>
+    <h1>NBA <span id="season"></span> projected records</h1>
+    <p class="sub">
+      Built from each team's current roster: every player's impact per 100 possessions is
+      projected from his own history with age curves applied, weighted by expected minutes,
+      then the season is simulated game by game on a real schedule.
+    </p>
+    <div class="caveat">
+      <strong>Read the ranges, not the numbers.</strong> This model's average miss in
+      backtesting is <strong id="mae"></strong> wins, against <strong id="mmae"></strong>
+      for sportsbook preseason lines &mdash; so it does <em>not</em> beat the market on
+      aggregate accuracy, and the point estimates deserve less trust than the intervals.
+      Bars show the 80% and 50% ranges; those are calibrated (a nominal 80% range contained
+      the true result 79.6% of the time). Ranges widen with roster turnover, which measurably
+      predicts larger errors.
+    </div>
+    <div class="caveat" style="border-left-color:var(--edit)">
+      <strong>On the what-if tool.</strong> Roster edits are computed the same way the model
+      computes a team, but the model was validated on whole rosters, not on single-player
+      swaps. The impact-to-rating slope is fitted to map a team's <em>aggregate</em> talent
+      onto its rating, and it absorbs some compression in the underlying player metric, so
+      one-player counterfactuals extrapolate it further than the backtest checked. Treat the
+      direction and rough scale as meaningful and the exact number as indicative.
+    </div>
+  </header>
+
+  <div class="axis-head">
+    <div class="col-label">Team</div>
+    <div>
+      <div class="col-label" style="margin-bottom:3px">Projected wins &mdash; 80% range, 50% range, median</div>
+      <div class="axis" id="axis"></div>
+    </div>
+    <div class="col-label" style="text-align:right">Wins</div>
+  </div>
+
+  <div class="rows" id="rows"></div>
+
+  <footer>
+    <p>
+      Click any team to add or remove players and watch the projection move. The
+      recomputation is exact, not an approximation: team strength is a minute-weighted mean
+      of player impact, so removing a player reallocates his minutes and reprices the team
+      the same way the model does. Minutes freed below the 240-per-game budget are charged
+      at replacement level (<code id="rep"></code> per 100 possessions).
+    </p>
+    <p id="meta-line"></p>
+  </footer>
+</div>
+
+<script>
+const DATA = __DATA__;
+
+const M = DATA.meta;
+const AX_LO = 12, AX_HI = 70;            // win axis bounds
+const pct = w => ((Math.min(Math.max(w, AX_LO), AX_HI) - AX_LO) / (AX_HI - AX_LO)) * 100;
+
+document.getElementById('season').textContent = M.season;
+document.getElementById('snap').textContent = M.snapshot_date;
+document.getElementById('mae').textContent = M.backtest_mae.toFixed(1);
+document.getElementById('mmae').textContent = M.market_mae.toFixed(2);
+document.getElementById('rep').textContent = M.replacement_impact.toFixed(2);
+document.getElementById('meta-line').textContent =
+  `Impact-to-rating slope ${M.rating_slope}. Base rating uncertainty ` +
+  `${M.sigma_base} points per 100, scaled per team by roster turnover. ` +
+  `Projections are only as current as the snapshot date — trades after it are not reflected.`;
+
+// axis ticks
+const axis = document.getElementById('axis');
+[15, 25, 35, 41, 50, 60, 68].forEach(v => {
+  const t = document.createElement('span');
+  t.className = 'tick'; t.style.left = pct(v) + '%';
+  t.textContent = v === 41 ? '.500' : v;
+  axis.appendChild(t);
+});
+
+// ---- state: which players are off, and which have been added, per team ----
+const state = new Map();  // teamId -> {off:Set, added:[player]}
+const byId = new Map();
+const allPlayers = [];
+DATA.teams.forEach(t => {
+  state.set(t.id, { off: new Set(), added: [] });
+  t.players.forEach(p => {
+    byId.set(p.id, p);
+    allPlayers.push({ ...p, from: t.abbr, fromId: t.id });
+  });
+});
+
+/* Recompute a team exactly as the model does: minute-weighted mean of player impact,
+   with the shortfall against the 240-per-game budget charged at replacement level. */
+function computeRating(team) {
+  const st = state.get(team.id);
+  const roster = team.players.filter(p => !st.off.has(p.id)).concat(st.added);
+  const budget = M.minutes_budget;
+  let mins = roster.map(p => p.mpg * p.avail * M.full_season_games);
+  let used = mins.reduce((a, b) => a + b, 0);
+  if (used > budget) { const k = budget / used; mins = mins.map(m => m * k); used = budget; }
+  const paid = roster.reduce((a, p, i) => a + mins[i] * p.impact, 0);
+  const leftover = Math.max(budget - used, 0);
+  const agg = (paid + leftover * M.replacement_impact) / budget;
+  return { rating: M.rating_slope * agg + M.rating_intercept, n: roster.length };
+}
+
+/* Interpolate the precomputed win distribution at this team's rating offset. The grid was
+   produced by simulating the real schedule, so this keeps schedule strength intact. */
+function winsAt(team, rating) {
+  const grid = DATA.grid[String(team.id)];
+  const off = rating - team.rating;
+  if (off <= grid[0].offset) return grid[0];
+  if (off >= grid[grid.length - 1].offset) return grid[grid.length - 1];
+  for (let i = 0; i < grid.length - 1; i++) {
+    const a = grid[i], b = grid[i + 1];
+    if (off >= a.offset && off <= b.offset) {
+      const f = (off - a.offset) / (b.offset - a.offset);
+      const mix = k => a[k] + f * (b[k] - a[k]);
+      return { mean: mix('mean'), p10: mix('p10'), p25: mix('p25'),
+               p75: mix('p75'), p90: mix('p90') };
+    }
+  }
+  return grid[Math.floor(grid.length / 2)];
+}
+
+const WIDE_TURNOVER = 0.30;   // above this, the range is drawn in the uncertainty hue
+const fmt1 = x => x.toFixed(1);
+
+function render() {
+  const host = document.getElementById('rows');
+  host.innerHTML = '';
+  const rowsData = DATA.teams.map(t => {
+    const { rating } = computeRating(t);
+    const w = winsAt(t, rating);
+    const st = state.get(t.id);
+    return { t, w, rating, edited: st.off.size > 0 || st.added.length > 0 };
+  }).sort((a, b) => b.w.mean - a.w.mean);
+
+  rowsData.forEach(({ t, w, edited }) => {
+    const wide = t.turnover >= WIDE_TURNOVER;
+    const wc = wide ? ' w' : '';
+    const delta = w.mean - t.wins;
+
+    const btn = document.createElement('button');
+    btn.className = 'row';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.innerHTML = `
+      <span class="team">
+        <span class="abbr">${t.abbr}</span>
+        <span class="tname">${t.name.replace(/^(Los Angeles|LA|New York|New Orleans|Golden State|Oklahoma City|San Antonio|Portland|Minnesota|Philadelphia|Washington|Sacramento|Cleveland|Milwaukee|Charlotte|Memphis|Brooklyn|Toronto|Houston|Orlando|Chicago|Atlanta|Detroit|Indiana|Boston|Denver|Dallas|Phoenix|Miami|Utah)\\s+/, '')}${edited ? ' <span class="edited-dot" title="roster edited">&#9679;</span>' : ''}</span>
+      </span>
+      <span class="track">
+        <span class="mid" style="left:${pct(41)}%"></span>
+        <span class="band${wc}" style="left:${pct(w.p10)}%;width:${pct(w.p90) - pct(w.p10)}%"></span>
+        <span class="band inner${wc}" style="left:${pct(w.p25)}%;width:${pct(w.p75) - pct(w.p25)}%"></span>
+        ${edited ? `<span class="ghost" style="left:${pct(t.wins)}%" title="original projection"></span>` : ''}
+        <span class="mean" style="left:${pct(w.mean)}%"></span>
+      </span>
+      <span class="nums">
+        <span class="wins">${fmt1(w.mean)}</span>
+        ${edited ? `<span class="delta ${delta >= 0 ? 'up' : 'down'}"> ${delta >= 0 ? '+' : ''}${fmt1(delta)}</span>` : ''}
+        <br><span class="rng">${fmt1(w.p10)}&ndash;${fmt1(w.p90)}</span>
+      </span>`;
+
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.innerHTML = renderPanel(t, w);
+
+    btn.addEventListener('click', () => {
+      const open = panel.classList.toggle('open');
+      btn.setAttribute('aria-expanded', String(open));
+    });
+
+    host.appendChild(btn);
+    host.appendChild(panel);
+    wirePanel(panel, t);
+  });
+}
+
+function renderPanel(t, w) {
+  const st = state.get(t.id);
+  const roster = t.players.map(p => ({ p, off: st.off.has(p.id), added: false }))
+    .concat(st.added.map(p => ({ p, off: false, added: true })));
+  const rows = roster.map(({ p, off, added }) => `
+    <tr class="${off ? 'off' : ''}${added ? ' added' : ''}">
+      <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}</td>
+      <td>${p.pos || '&mdash;'}</td>
+      <td>${p.age ?? '&mdash;'}</td>
+      <td class="imp ${p.impact >= 0 ? 'p' : 'n'}">${p.impact >= 0 ? '+' : ''}${p.impact.toFixed(2)}</td>
+      <td>${p.mpg.toFixed(1)}</td>
+      <td>${(p.avail * 100).toFixed(0)}%</td>
+      <td><button data-pid="${p.id}" data-added="${added}"
+            aria-label="${off ? 'Restore' : 'Remove'} ${p.name}">${off || added ? '+' : '&minus;'}</button></td>
+    </tr>`).join('');
+
+  return `
+    <div class="panel-head">
+      <span class="stat">Coach <b>${t.coach}</b></span>
+      <span class="stat">Roster turnover <b>${(t.turnover * 100).toFixed(0)}%</b></span>
+      <span class="stat">Range width <b>&plusmn;${((w.p90 - w.p10) / 2).toFixed(1)}</b> wins</span>
+      <span class="spacer"></span>
+      <button class="act" data-reset="${t.id}"
+        ${st.off.size || st.added.length ? '' : 'disabled'}>Reset roster</button>
+    </div>
+    <div class="tbl-scroll">
+      <table>
+        <thead><tr>
+          <th>Player</th><th>Pos</th><th>Age</th><th>Impact</th>
+          <th>MPG</th><th>Avail</th><th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="add-row">
+      <input type="search" placeholder="Add a player from another team&hellip;"
+             data-search="${t.id}" aria-label="Search players to add">
+    </div>
+    <div class="results" data-results="${t.id}"></div>`;
+}
+
+function wirePanel(panel, t) {
+  const st = state.get(t.id);
+
+  panel.querySelectorAll('td button').forEach(b => {
+    b.addEventListener('click', () => {
+      const pid = Number(b.dataset.pid);
+      if (b.dataset.added === 'true') {
+        st.added = st.added.filter(p => p.id !== pid);
+      } else if (st.off.has(pid)) {
+        st.off.delete(pid);
+      } else {
+        st.off.add(pid);
+      }
+      render();
+    });
+  });
+
+  const reset = panel.querySelector('[data-reset]');
+  if (reset) reset.addEventListener('click', () => {
+    st.off.clear(); st.added = []; render();
+  });
+
+  const input = panel.querySelector('[data-search]');
+  const results = panel.querySelector('[data-results]');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    results.innerHTML = '';
+    if (q.length < 2) return;
+    const onTeam = new Set(t.players.map(p => p.id).concat(st.added.map(p => p.id)));
+    allPlayers
+      .filter(p => !onTeam.has(p.id) && p.name.toLowerCase().includes(q))
+      .sort((a, b) => b.impact - a.impact)
+      .slice(0, 12)
+      .forEach(p => {
+        const r = document.createElement('button');
+        r.className = 'res';
+        r.innerHTML = `<span class="rn">${p.name}</span>
+          <span class="rm">${p.from} &middot; ${p.impact >= 0 ? '+' : ''}${p.impact.toFixed(2)} &middot; ${p.mpg.toFixed(0)} mpg</span>`;
+        r.addEventListener('click', () => {
+          st.added.push(p);
+          render();
+        });
+        results.appendChild(r);
+      });
+  });
+}
+
+render();
+</script>

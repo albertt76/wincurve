@@ -152,6 +152,29 @@ team-seasons), roughly half the backbone's coverage.
 
 ---
 
+## UI
+
+`ui/template.html` + `ui/build.py` -> `ui/projections.html` (self-contained, data inlined).
+Rebuild after regenerating projections:
+
+```
+python scripts/project_current.py && python ui/build.py
+```
+
+Design decisions: 30 team rows on a **shared win axis**, so range widths are directly
+comparable across teams — that comparability is the whole point, since range width carries
+information. Uncertainty is encoded twice, in bar width and in hue (teal = tight, amber =
+high turnover). Monospace for all data, system sans for prose.
+
+Roster edits recompute in the browser, and this is exact rather than approximate: the
+aggregation is a minute-weighted mean, so it can be reproduced client-side. A precomputed
+per-team grid of simulated win distributions across rating offsets is interpolated, which
+keeps real schedule strength intact without running a simulation in the browser.
+
+**Two caveats are stated in the page itself, deliberately:** that the model does not beat
+the market on aggregate accuracy (8.36 vs 6.88 MAE), and that single-player what-ifs
+extrapolate the calibration slope further than the backtest validated. Do not remove them.
+
 ## Layout
 
 ```
@@ -301,6 +324,7 @@ is not repeated.
 | Hybrid: canonical curve for newcomers only | 8.44 → 8.61 (worse) |
 | Talent concentration / depth features | Null after controlling for quality; sign **opposite** to hypothesis |
 | Coach rotation-concentration reshape | 8.34 → 8.54 (worse) |
+| Absence-absorption adjustment (both forms) | worse; likely already in the calibration |
 | Tanking adjustment from lottery reform | 2019 reform *tripled* tanking, not reduced it |
 
 **The recurring lesson:** three of these failed the same way — replacing team-specific
