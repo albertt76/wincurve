@@ -153,3 +153,71 @@ def historical_allocation(
             ) / total_min
         rows.append(rec)
     return pd.DataFrame(rows)
+
+
+# --- Rank-based minute projection ---------------------------------------------
+
+MAX_ROTATION_RANK = 15
+
+
+def fit_canonical_minutes(player_team_seasons: pd.DataFrame,
+                          team_seasons: pd.DataFrame,
+                          *, before_season: int) -> dict[int, float]:
+    """Average minutes per TEAM game by a player's minutes rank within his team.
+
+    NBA rotations are far more canonical than they look: measured over 2013-2025 the
+    top-ranked player averages 30.9 minutes per team game with a standard deviation of
+    just 3.25 (11% relative), and the top 14 ranks sum to 230.6 of the 240-minute budget.
+    That regularity makes rank a strong prior for a player whose role is changing -- a
+    star traded to a new team keeps a star's rank even though his prior minutes came in a
+    different context.
+
+    Expressed per TEAM game rather than per game played, so typical absence is already
+    baked into the curve. Applying a full availability multiplier on top would therefore
+    double-count it; scale only by availability *relative to* the league norm.
+
+    **MEASURED RESULT: this does not work, and is retained only as documentation.**
+    Substituting the canonical curve for prior-season minutes made end-to-end error
+    clearly worse (MAE 9.14 against 8.44), and a hybrid using the curve only for players
+    with no prior season was also worse (8.61). The curve's regularity is real but it is
+    an average, and averaging away how a *particular* team distributes minutes discards
+    genuine signal -- some teams really do run a 36-minute star while others spread the
+    load, and that difference changes team strength. Prior-season minutes-per-game with a
+    flat default for newcomers remains the best measured option.
+    """
+    tg = team_seasons[["team_id", "season_start", "games"]].rename(
+        columns={"games": "team_games"})
+    d = player_team_seasons.merge(tg, on=["team_id", "season_start"], how="inner")
+    d = d[(d["season_start"] < before_season) & (d["team_games"] > 0)]
+    if d.empty:
+        return {}
+    d = d.copy()
+    d["mpg"] = d["minutes"] / d["team_games"]
+    d["rank"] = d.groupby(["team_id", "season_start"])["minutes"].rank(
+        ascending=False, method="first")
+    curve = d[d["rank"] <= MAX_ROTATION_RANK].groupby("rank")["mpg"].mean()
+    return {int(k): float(v) for k, v in curve.items()}
+
+
+def assign_rank_minutes(roster: pd.DataFrame, curve: dict[int, float],
+                        *, rank_col: str, team_games: float,
+                        mean_availability: float = 0.85) -> pd.Series:
+    """Minutes for each player from the canonical curve, by within-team rank.
+
+    Players beyond the rotation depth get the deepest rank's value, not zero: a 16th man
+    does play occasionally, and zeroing him would push his minutes into the
+    replacement-level pool where they are valued slightly differently.
+    """
+    if not curve:
+        return pd.Series(0.0, index=roster.index)
+    deepest = min(curve.values())
+    ranks = roster.groupby("team_id")[rank_col].rank(
+        ascending=False, method="first")
+    mpg = ranks.map(lambda r: curve.get(int(r), deepest))
+
+    if "proj_availability" in roster:
+        # Relative to the league norm only -- the curve already contains average absence.
+        adj = (roster["proj_availability"] / mean_availability).clip(0.4, 1.15)
+    else:
+        adj = 1.0
+    return mpg * adj * team_games

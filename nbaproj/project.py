@@ -36,7 +36,9 @@ import pandas as pd
 
 from .aging import aging_curves, build_transitions, project_next_season, replacement_level
 from .availability import build_availability, build_features, fit_predict
-from .minutes import MINUTES_PER_GAME
+from .minutes import (
+    MINUTES_PER_GAME, assign_rank_minutes, fit_canonical_minutes,
+)
 
 log = logging.getLogger(__name__)
 
@@ -219,9 +221,6 @@ def project_team_ratings(
             base = roster_opening_day(team_rosters, player_game_log, target_season)
             if base.empty:
                 return pd.DataFrame()
-            # Minutes-per-game history comes from the player's PRIOR season, since an
-            # opening-day roster carries players who have not played for this team yet
-            # (new signings, and anyone injured on opening night).
             prior = player_team_seasons[
                 player_team_seasons["season_start"] == target_season - 1
             ].groupby("player_id", as_index=False).agg(
@@ -229,10 +228,11 @@ def project_team_ratings(
             prior["prior_mpg"] = prior["pm"] / prior["pg"].clip(lower=1)
             roster = base.merge(prior[["player_id", "prior_mpg"]], on="player_id",
                                 how="left")
-            # A player with no prior season is a rookie or returnee; give him a modest
-            # default rather than dropping him, so his minutes still consume budget.
+            # A player with no prior season (rookie, returnee) gets a modest default
+            # rather than being dropped, so his minutes still consume team budget.
             roster["early_mpg"] = roster["prior_mpg"].fillna(12.0)
             roster["early_games"] = 1
+
         else:
             roster = roster_from_early_games(player_game_log, target_season)
             if roster.empty:
@@ -256,6 +256,9 @@ def project_team_ratings(
 
         roster["avail"] = roster["player_id"].map(av_map).fillna(0.85)
         roster["tg"] = roster["team_id"].map(team_games).fillna(82.0)
+        # Prior-season minutes-per-game, scaled by projected availability. Two
+        # rank-based alternatives were tried and BOTH measured worse -- see the note on
+        # fit_canonical_minutes in minutes.py. Kept simple because simple won.
         roster["minutes"] = roster["early_mpg"] * roster["avail"] * roster["tg"]
 
         # Enforce the team minute budget: scale down when over, never up when under.
