@@ -315,9 +315,11 @@ scripts/
   win distributions and shown beside ours in the UI (hollow ring + `mkt N · ±diff`). Vegas
   (bbref) not yet posted (404); Polymarket has no per-team win-total market. Still to do:
   the contract-year hypothesis test. **Downstream-only, never a feature.**
-- 🟡 **Defensive metric / RAPM** — pipeline + box-informed estimator built and validated;
-  integration gated on the (overnight) multi-season play-by-play pull. See the RAPM
-  section below.
+- 🟡 **Defensive metric / RAPM** — pipeline, box-informed estimator, and the **deciding
+  end-to-end integration test all done** (RAPM pulled 2013–2024). Verdict: RAPM is the better
+  defensive metric but the one-year carryover already substitutes for it, so the blanket swap
+  is MAE-neutral; a turnover-weighted blend gains a modest +0.16 wins. **Not shipped** — see
+  the RAPM section below. Blocked from live use until the bulk mirror adds 2025-26 PBP.
 
 ### Offseason movement & absences — how each is handled
 
@@ -386,7 +388,7 @@ tune against measured end-to-end error.
   projected aggregates from earlier folds. Worth 0.7-1.1 wins of MAE.
   **Lesson: fit a calibration on the same kind of quantity you apply it to.**
 
-### 🟡 Defensive metric / RAPM — pipeline + estimator done, integration gated on data
+### 🟡 Defensive metric / RAPM — pipeline + estimator + integration test all done; not shipped
 
 The box-score metric captures only ~12-14% of franchise-level defensive variance; RAPM is
 the documented fix. Built and validated this session:
@@ -424,14 +426,33 @@ defensive metric: RAPM beats the box score in all 3 transitions -- mean correlat
 predictor of future team defense. Indicative not decisive (only 3 transitions; the bulk
 mirror has nbastats through 2024-25). Script: `scripts/rapm_predict.py`.
 
-**Still to do**Still to do (needs the full multi-season pull):**
-1. Complete 2024-25, then pull 2023-24 (or more) -- single-season RAPM has team-defense
-   bleed that multi-season data reduces.
-2. Clean predictive test: does this season's box-informed RAPM predict NEXT season's team
-   defense better than the box metric? (The 0.69 above is in-sample and partly circular.)
-3. Integration test: swap the impact metric's defensive component for box-informed RAPM and
-   check whether end-to-end win-projection MAE improves. This is the only test that decides
-   whether RAPM ships.
+**✅ Integration test DONE — the deciding one. Verdict: RAPM did NOT ship (yet).**
+(`scripts/rapm_integration_test.py`; box-informed RAPM pulled for 2013–2024, swapped for the
+box `def_impact`, run through the full walk-forward gate. Box-informed RAPM is anchored on the
+box prior, so it is scale-compatible and the swap is well-posed.)
+
+- **Blanket swap is MAE-neutral: 7.96 → 7.92 (+0.04 wins, not significant), and 80% coverage
+  slips 81% → 77%.** Yet RAPM *is* the better defensive metric. The reason it doesn't move the
+  headline: the **one-year carryover is ~70% defensive and already absorbs the team-level
+  defensive error RAPM would fix — they are SUBSTITUTES.** Turn the carryover OFF and RAPM
+  improves MAE by **+0.32 (5/6 folds)**; turn it ON and the gain collapses to +0.04.
+- **Complementary by DOMAIN, though.** The carryover persists a *team's* prior residual, so it
+  is weak exactly when a roster turns over; RAPM attaches value to *players*, so it travels.
+  By roster turnover (carryover ON): RAPM helps **high-turnover teams +0.31**, mildly hurts
+  **stable rosters −0.36**. That is precisely the "Atlanta looks too low" case — a max-turnover
+  team whose carryover is ~0, where the defensive metric (not roster bloat) is the real gap.
+- **A blend weighting RAPM defense by each team's new-minute share** (a preseason quantity, not
+  fitted): **7.96 → 7.80, +0.16 wins, 5/6 folds.** Robust to the weight (flat 50/50 ≈ 7.80),
+  so it is largely generic ensemble benefit from two imperfectly-correlated defensive signals,
+  with turnover-weighting as the mechanistic story. Modest and borderline (fold-level t≈3,
+  team-level t≈1.45), about half the carryover's own +0.35.
+
+**Why not shipped:** (1) blanket swap fails the aggregate gate; (2) the blend is real but
+borderline and adds a second full pipeline arm; (3) **live blocker** — the bulk PBP mirror
+reaches only 2024-25, so RAPM cannot inform the LIVE 2026-27 projection's most-recent,
+recency-weighted season. Backtest-ready, not live-deployable until 2025-26 PBP is mirrored.
+RAPM stays a **documented, validated candidate**. The turnover-weighted blend is the natural
+next step once 2025-26 lands and if it clears a coverage check.
 
 ### Measured negative results (do not re-attempt blind)
 
@@ -447,6 +468,23 @@ is not repeated.
 | Coach rotation-concentration reshape | 8.34 → 8.54 (worse) |
 | Absence-absorption adjustment (both forms) | worse; likely already in the calibration |
 | Tanking adjustment from lottery reform | 2019 reform *tripled* tanking, not reduced it |
+| Trimming "bloated" current rosters before aggregation | Fails the gate: any roster cap raises MAE (7.95 → 8.04 at cap-18); the minute-weighted mean already down-weights camp bodies, and the tail carries real signal |
+
+**On the roster-"bloat" hypothesis (investigated, rejected).** The live July roster snapshot
+carries 20–24 players and >290 mpg of prior-team minutes for ~8 teams (ATL 465 raw / 353
+availability-weighted), which *looks* like it should drag those teams down. It does not, in
+any fixable way: (1) the historical opening-day rosters the model trained on are *also* over
+budget (median 272 mpg, 27–28/30 over) — the "bloat" is not unique to the current snapshot;
+(2) the aggregation is a minute-weighted **mean** with a budget cap, so low-minute camp bodies
+carry little weight — excluding the 3 `SUPPLEMENTAL_STATUS` players moves ATL only +1.6 wins,
+and since every team has ~3 the *relative* effect is ~0; (3) capping the roster **fails the
+walk-forward gate** (above); (4) the current aggregate distribution (mean −0.24, SD 0.33)
+already matches the training distribution (−0.26, 0.33), so there is no scale artifact; (5)
+no data bug — 587 roster rows are 587 unique players, zero cross-team double-counting. **ATL
+31 vs market 45 is the defensive-metric weakness** (Dyson Daniels −0.41, Dort −2.01, NAW −0.45
+— elite perimeter defenders the box score misses), i.e. a legitimate, explainable per-team
+disagreement, which is the tool's actual deliverable — not a bug to trim away. This is what
+motivated the RAPM integration test above.
 
 **The recurring lesson:** three of these failed the same way — replacing team-specific
 information with a league or career *average*. Prior-season minutes already encode a
