@@ -34,26 +34,59 @@ DEFAULT_SIMS = 5000
 
 
 def extract_schedule(game_log: pd.DataFrame, season_start: int) -> pd.DataFrame:
-    """Home/away pairs for one season's real regular-season schedule."""
+    """Home/away pairs for one season's real regular-season schedule.
+
+    Returns a ``neutral`` flag. Neutral-site games (the league's Mexico City and European
+    games) show '@' in BOTH teams' MATCHUP strings, so a naive home/away split drops them
+    entirely -- 5 games per season in 2024-25 and 2025-26. They are included here with
+    ``neutral=True`` so the simulation can correctly apply no home-court advantage,
+    rather than being silently discarded.
+    """
     gl = game_log[game_log["SEASON_START"] == season_start].copy()
     if gl.empty:
         return pd.DataFrame()
     gl["is_home"] = ~gl["MATCHUP"].str.contains("@", na=False)
-    home = gl[gl["is_home"]][["GAME_ID", "TEAM_ID"]].rename(
+
+    home_count = gl.groupby("GAME_ID")["is_home"].transform("sum")
+    neutral_ids = set(gl.loc[home_count != 1, "GAME_ID"].unique())
+
+    normal = gl[~gl["GAME_ID"].isin(neutral_ids)]
+    home = normal[normal["is_home"]][["GAME_ID", "TEAM_ID"]].rename(
         columns={"TEAM_ID": "home_id"})
-    away = gl[~gl["is_home"]][["GAME_ID", "TEAM_ID"]].rename(
+    away = normal[~normal["is_home"]][["GAME_ID", "TEAM_ID"]].rename(
         columns={"TEAM_ID": "away_id"})
-    return home.merge(away, on="GAME_ID", how="inner")
+    pairs = home.merge(away, on="GAME_ID", how="inner")
+    pairs["neutral"] = False
+
+    # For a neutral game the two rows are symmetric, so either team can take the
+    # nominal home slot; the neutral flag zeroes out the advantage either way.
+    if neutral_ids:
+        neu = gl[gl["GAME_ID"].isin(neutral_ids)].sort_values(["GAME_ID", "TEAM_ID"])
+        first = neu.groupby("GAME_ID")["TEAM_ID"].first().rename("home_id")
+        second = neu.groupby("GAME_ID")["TEAM_ID"].last().rename("away_id")
+        extra = pd.concat([first, second], axis=1).reset_index()
+        extra = extra[extra["home_id"] != extra["away_id"]]
+        extra["neutral"] = True
+        pairs = pd.concat([pairs, extra], ignore_index=True)
+    return pairs
 
 
 def estimate_game_params(game_log: pd.DataFrame, *, before_season: int,
                          lookback: int = 5) -> tuple[float, float]:
-    """Estimate home advantage and game-margin spread from recent seasons only.
+    """Estimate home advantage and RESIDUAL game-margin spread from recent seasons.
 
-    Both have drifted materially -- home advantage from about +3.1 points in the late
-    2000s to under +2 recently, while margin spread rose from ~13 to ~16 -- so a
-    constant fitted on the full history would misprice both ends of the window. Only
-    seasons before `before_season` are used, keeping this walk-forward safe.
+    Both drift materially -- home advantage from about +3.1 points in the late 2000s to
+    under +2 recently, while raw margin spread rose from ~13 to ~16 -- so a constant
+    fitted on the full history would misprice both ends of the window. Only seasons
+    before `before_season` are used, keeping this walk-forward safe.
+
+    **The returned spread is the residual SD, not the raw SD of realised margins.** This
+    was a real bug: ``simulate_season`` uses this value as the denominator converting an
+    *expected* margin into a win probability, so it must be the spread of margins AROUND
+    their expectation. The raw SD also contains the variation caused by teams differing in
+    strength, which the simulation models separately -- double-counting it made the
+    rating-to-wins conversion roughly 1.13x too shallow and left the simulated win
+    intervals too narrow (nominal 80% delivering 73.7% coverage).
     """
     gl = game_log[
         (game_log["SEASON_START"] < before_season)
@@ -62,11 +95,33 @@ def estimate_game_params(game_log: pd.DataFrame, *, before_season: int,
     if gl.empty:
         return 2.5, 14.0
     gl["is_home"] = ~gl["MATCHUP"].str.contains("@", na=False)
-    home = gl[gl["is_home"]][["GAME_ID", "PTS"]].rename(columns={"PTS": "hp"})
-    away = gl[~gl["is_home"]][["GAME_ID", "PTS"]].rename(columns={"PTS": "ap"})
+    home = gl[gl["is_home"]][["GAME_ID", "TEAM_ID", "PTS", "SEASON_START"]].rename(
+        columns={"TEAM_ID": "home_id", "PTS": "hp"})
+    away = gl[~gl["is_home"]][["GAME_ID", "TEAM_ID", "PTS"]].rename(
+        columns={"TEAM_ID": "away_id", "PTS": "ap"})
     g = home.merge(away, on="GAME_ID")
+    if g.empty:
+        return 2.5, 11.0
     margin = (g["hp"] - g["ap"]).astype(float)
-    return float(margin.mean()), float(margin.std())
+    hca = float(margin.mean())
+
+    # Each team's average point margin that season is a serviceable strength estimate.
+    # Subtracting the implied expected margin leaves the residual spread we actually need.
+    per_team = pd.concat([
+        pd.DataFrame({"season_start": g["SEASON_START"], "team_id": g["home_id"],
+                      "m": margin}),
+        pd.DataFrame({"season_start": g["SEASON_START"], "team_id": g["away_id"],
+                      "m": -margin}),
+    ])
+    strength = per_team.groupby(["season_start", "team_id"])["m"].mean()
+
+    hs = pd.MultiIndex.from_arrays([g["SEASON_START"], g["home_id"]])
+    as_ = pd.MultiIndex.from_arrays([g["SEASON_START"], g["away_id"]])
+    exp_margin = (strength.reindex(hs).to_numpy()
+                  - strength.reindex(as_).to_numpy() + hca)
+    resid = margin.to_numpy() - exp_margin
+    resid = resid[~np.isnan(resid)]
+    return hca, float(resid.std())
 
 
 def fit_rating_sigma(predictions: pd.DataFrame, actuals: pd.DataFrame,
@@ -115,7 +170,10 @@ def simulate_season(
     true_ratings = base[None, :] + rng.normal(0.0, sigma_rating, (n_sims, len(teams)))
 
     # Expected margin per game per simulation, then a coin flip weighted by it.
-    exp_margin = true_ratings[:, home] - true_ratings[:, away] + hca
+    # Neutral-site games get no home-court advantage.
+    game_hca = np.where(
+        schedule["neutral"].to_numpy() if "neutral" in schedule else False, 0.0, hca)
+    exp_margin = true_ratings[:, home] - true_ratings[:, away] + game_hca
     win_prob = 0.5 * (1.0 + _erf(exp_margin / (margin_sd * np.sqrt(2.0))))
     home_wins = rng.random(exp_margin.shape) < win_prob
 

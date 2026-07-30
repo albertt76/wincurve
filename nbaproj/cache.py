@@ -41,11 +41,18 @@ def _throttle() -> None:
     _last_call_at = time.monotonic()
 
 
-def _key(endpoint: str, params: dict) -> str:
-    """Stable cache key. Params are sorted so key order can't split the cache."""
+def _key(endpoint: str, params: dict, frame: int = 0) -> str:
+    """Stable cache key. Params are sorted so key order can't split the cache.
+
+    ``frame`` is part of the key because several endpoints return multiple tables for
+    identical parameters -- ``commonteamroster`` returns players in frame 0 and coaches
+    in frame 1. Without it, requesting frame 1 would silently return frame 0's cached
+    data, which is a wrong answer rather than a miss.
+    """
     blob = json.dumps(params, sort_keys=True, default=str)
     digest = hashlib.sha1(blob.encode()).hexdigest()[:12]
-    return f"{endpoint}__{digest}"
+    suffix = "" if frame == 0 else f"__f{frame}"
+    return f"{endpoint}__{digest}{suffix}"
 
 
 def cached_fetch(
@@ -66,7 +73,7 @@ def cached_fetch(
     do not want to re-request it on every run.
     """
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path = CACHE_DIR / f"{_key(endpoint, params)}.parquet"
+    path = CACHE_DIR / f"{_key(endpoint, params, frame)}.parquet"
 
     if path.exists() and not refresh:
         return pd.read_parquet(path)

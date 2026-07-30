@@ -270,38 +270,79 @@ right to trust it.
 
 ---
 
-## 7b. Regime change: the draft lottery reform (no historical analogue)
+## 7b. Regime change: the "3-2-1" draft lottery reform (verified, no historical analogue)
 
-The draft lottery odds have been substantially revised for the upcoming season. The
-expected behavioural consequence is that losing games buys less draft position, so the
-incentive to tank weakens, and the bottom of the league should be more competitive --
-fewer teams with very low win totals, and a compressed lower tail overall.
+Source: [nba.com, "Inside the NBA's plan to revamp the Draft Lottery"](https://www.nba.com/news/what-nba-had-in-mind-with-draft-lottery-reform),
+updated 6 June 2026. Approved by the Board of Governors on **28 May 2026**, effective for
+the **2027, 2028 and 2029 drafts** — a three-year trial.
 
-**This cannot be backtested.** There is no historical season under the new rules. That
-makes it categorically different from every other component in this project, all of which
-must clear a walk-forward gate. So it gets different treatment:
+**This makes 2026-27 the first season played under the new incentives**, since the
+2026-27 standings determine the 2027 draft. It is exactly our projection target.
 
-1. **It must be an explicit, separately-reported adjustment**, never folded silently into
-   the projection. A user must be able to see the projection with and without it.
-2. **Its size should be anchored on the measured historical tanking effect** rather than
-   invented. We can estimate how much tanking currently costs affected teams by
-   difference-in-differences: late-season versus early-season performance for teams out of
-   contention, relative to the same change for teams still competing. That gives an upper
-   bound on what removing the incentive could recover.
-3. **The 2019 reform is the closest available evidence.** Top-3 lottery odds were
-   flattened then. If tanking measurably declined afterwards, that quantifies how much a
-   further flattening might matter -- and if it did *not* decline, that is strong evidence
-   the new reform will do less than expected.
-4. **Direction of the adjustment:** compress the lower tail toward the mean. It should
-   affect projected *bad* teams and leave contenders alone, which means it is not a
-   uniform shrinkage.
+### What actually changed
 
-The user's proposed observable proxy -- reduced minutes for rookies and very
-low-experience players -- is worth testing, since if tanking teams currently hand minutes
-to unproven players, that is both a mechanism and a measurable signature.
+Each of the 16 lottery teams gets three, two, or one lottery balls:
 
-**Standing caution:** this is the one place in the model where we are extrapolating beyond
-the data. Any projection that leans on it should say so.
+| Group | Balls | Odds of #1 pick | Top-5 | Top-10 |
+|---|---|---|---|---|
+| **Three worst records** | **2** | **5.4%** | 28% | 61% |
+| Next seven non-play-in teams | **3** | **8.1%** | 39% | 73% |
+| Play-in seeds 9-10 | 2 | 5.4% | 28% | 59% |
+| Losers of 7-8 play-in games | 1 | 2.7% | 15% | 35% |
+
+**The critical feature is that the incentive is inverted, not merely flattened.** The three
+worst teams now have *worse* odds (5.4%) than teams with the 4th-10th worst records (8.1%).
+Being the very worst team is now actively harmful. Additional provisions:
+
+- The bottom three are **"draft relegated"** — their pick can fall as far as #12
+  (everyone else is capped at #16).
+- No pick may be **#1 in two consecutive drafts**, or **top-5 in three consecutive**.
+- Newly traded picks cannot carry top-12 through top-15 protections.
+- The commissioner gains authority to **reduce lottery odds, modify draft positions, and
+  fine** teams for tanking behaviour.
+
+Context on how real the prior behaviour was: in February 2026 the league fined **Utah
+$500,000 and Indiana $100,000** for benching players who could have helped them win.
+
+### What this implies for the projection — and it is not a uniform shrinkage
+
+The game theory is genuinely non-monotonic, and this is the part a naive "compress the
+bottom" adjustment would get wrong:
+
+- **Teams projected in the bottom 3** now have a strong incentive to *win more*, to escape
+  relegation and reach the 3-ball group. Adjust their projections **upward**.
+- **Teams projected 4th-10th worst** sit in the group with the league's *best* odds and
+  have no reason to tank further — indeed tanking risks falling into the penalised bottom
+  three. Expect **little or no change**, possibly a slight incentive to stay put.
+- **Everyone else** is unaffected.
+
+So the expected shape is a **rising floor**: materially fewer sub-20-win teams, with the
+middle and top of the league largely untouched. League-average wins is fixed at 41 by
+construction, so any upward adjustment at the bottom must be offset somewhere — most
+plausibly spread thinly across the teams that beat up on tanking opponents.
+
+### Discipline for something that cannot be backtested
+
+There is no historical season under these rules, so this is the one component that cannot
+clear a walk-forward gate. Therefore:
+
+1. It must be an **explicit, separately-reported adjustment**, never silently folded in.
+   Projections should be available with and without it.
+2. Its **size should be anchored on the measured historical tanking effect** — how much
+   late-season underperformance out-of-contention teams currently show, by
+   difference-in-differences against teams still competing. That is an upper bound on what
+   removing the incentive can recover.
+3. **The 2019 reform is the natural experiment.** It flattened top-3 odds to 14/14/14%.
+   If tanking measurably fell afterwards, that calibrates how much this larger change
+   might do; if it did not, that is evidence this reform will also underdeliver. Note this
+   reform is considerably stronger than 2019's — inverting an incentive is not the same as
+   flattening it — so 2019 likely gives a *lower* bound.
+4. Watch the **observable signature**: minutes given to rookies and very low-experience
+   players by out-of-contention teams. If that share falls in 2026-27, the reform is
+   working; it is both a mechanism and a mid-season validation check.
+
+**Standing caution:** this is the only place in the model extrapolating beyond the data.
+Any projection leaning on it must say so.
 
 ## 7c. Depth, talent concentration, and star reliability
 

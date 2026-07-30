@@ -254,3 +254,41 @@ def pull_rosters(first: int, last: int) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
+
+
+def team_coaches(team_id: int, season: str) -> pd.DataFrame:
+    """Coaching staff for one team-season (frame 1 of the roster endpoint).
+
+    Note ``IS_ASSISTANT`` is NOT a boolean -- it is a rank code (1 = head coach,
+    9 = associate head coach, 2 = assistant, and so on). Filter on
+    ``COACH_TYPE == 'Head Coach'`` instead.
+
+    ``SEASON`` here is the season *start* year as a string, unlike the roster frame.
+    """
+    from nba_api.stats.endpoints import commonteamroster
+    return cached_fetch(
+        "team_coaches",
+        commonteamroster.CommonTeamRoster,
+        {"team_id": team_id, "season": season, "timeout": TIMEOUT},
+        frame=1,
+    )
+
+
+def pull_coaches(first: int, last: int) -> pd.DataFrame:
+    """Head-coach assignments across a season range (30 calls per season)."""
+    from nba_api.stats.static import teams as static_teams
+    team_ids = [t["id"] for t in static_teams.get_teams()]
+    frames = []
+    for start in range(first, last + 1):
+        season = season_str(start)
+        for tid in team_ids:
+            df = team_coaches(tid, season)
+            if df.empty:
+                continue
+            df = df.copy()
+            df["SEASON_START"] = start
+            frames.append(df)
+        log.info("coaches: finished %s", season)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
