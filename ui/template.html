@@ -20,6 +20,8 @@
     --pos: #15803d;
     --neg: #b91c1c;
     --edit: #6d28d9;
+    --mkt: #1d4ed8;         /* prediction-market comparison accent */
+    --mkt-soft: #1d4ed822;
 
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -35,6 +37,7 @@
       --tight: #2dd4bf; --tight-fill: #2dd4bf24;
       --wide: #f59e0b; --wide-fill: #f59e0b24;
       --pos: #4ade80; --neg: #f87171; --edit: #a78bfa;
+      --mkt: #60a5fa; --mkt-soft: #60a5fa2e;
       --shadow: 0 1px 2px #0006, 0 6px 20px #0004;
     }
   }
@@ -55,6 +58,7 @@
     --tight: #0f766e; --tight-fill: #0f766e26;
     --wide: #b45309; --wide-fill: #b4530926;
     --pos: #15803d; --neg: #b91c1c; --edit: #6d28d9;
+    --mkt: #1d4ed8; --mkt-soft: #1d4ed822;
     --shadow: 0 1px 2px #0b112008, 0 4px 16px #0b112008;
   }
 
@@ -117,6 +121,18 @@
   .anum { color: var(--muted); font-size: 11px; }
   .anum b { color: var(--ink); font-weight: 650; }
   .hit { color: var(--pos); } .miss-lo, .miss-hi { color: var(--neg); }
+
+  /* prediction-market line: a hollow marker on the shared axis, current season only */
+  .market {
+    position: absolute; top: 3px; width: 9px; height: 9px; border-radius: 50%;
+    transform: translateX(-50%);
+    background: var(--surface); border: 2px solid var(--mkt);
+    box-shadow: 0 0 0 1.5px var(--surface);
+  }
+  .mktnum { color: var(--muted); font-size: 11px; }
+  .mktnum b { color: var(--mkt); font-weight: 650; }
+  .agree { color: var(--faint); }
+  .above-mkt { color: var(--pos); } .below-mkt { color: var(--neg); }
 
   /* ---- axis + legend ---- */
   .axis-head {
@@ -219,7 +235,7 @@
   button.act[disabled] { opacity: .4; cursor: default; }
 
   .tbl-scroll { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 560px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 620px; }
   th {
     font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
     text-transform: uppercase; color: var(--faint); font-weight: 500;
@@ -239,6 +255,10 @@
     color: var(--faint); margin-left: 6px; text-transform: uppercase;
   }
   .imp.p { color: var(--pos); } .imp.n { color: var(--neg); }
+  .winval { color: var(--muted); }
+  .winval.p { color: var(--pos); } .winval.n { color: var(--neg); }
+  .mins-flag { color: var(--wide); font-weight: 650; }
+  th[title], .help { cursor: help; border-bottom: 1px dotted currentColor; }
   td button {
     font-family: var(--mono); font-size: 14px; line-height: 1; width: 22px;
     height: 22px; border-radius: 4px; cursor: pointer;
@@ -282,6 +302,36 @@
     padding: 1px 4px; border-radius: 3px;
   }
 
+  /* plain-English glossary of every number on the page */
+  details.legend {
+    margin: 22px 0 0; border: 1px solid var(--line); border-radius: var(--r);
+    background: var(--surface); overflow: hidden;
+  }
+  details.legend > summary {
+    cursor: pointer; padding: 11px 14px; font-family: var(--mono); font-size: 11.5px;
+    letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+    list-style: none; user-select: none;
+  }
+  details.legend > summary::-webkit-details-marker { display: none; }
+  details.legend > summary::before { content: "▸ "; color: var(--faint); }
+  details.legend[open] > summary::before { content: "▾ "; }
+  details.legend > summary:hover { color: var(--ink); }
+  .gloss { padding: 4px 14px 16px; display: grid; gap: 12px; }
+  .gloss dl {
+    margin: 0; display: grid; grid-template-columns: 132px 1fr; gap: 4px 14px;
+    font-size: 13.5px;
+  }
+  .gloss dt {
+    font-family: var(--mono); font-size: 12px; color: var(--ink); font-weight: 600;
+  }
+  .gloss dd { margin: 0; color: var(--muted); }
+  .gloss dd b { color: var(--ink); font-weight: 600; }
+  .swatch {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    vertical-align: baseline; margin-right: 5px;
+    background: var(--surface); border: 2px solid var(--mkt);
+  }
+
   @media (max-width: 720px) {
     .axis-head, .row { grid-template-columns: 108px 1fr 88px; gap: 10px; }
     .tname { display: none; }
@@ -317,6 +367,15 @@
       the true result 79.6% of the time). Ranges widen with roster turnover, which measurably
       predicts larger errors.
     </div>
+    <div class="caveat" id="cav-market" style="display:none;border-left-color:var(--mkt)">
+      <strong>The hollow blue ring <span class="swatch"></span> is the market.</strong> It marks
+      each team's win total implied by <span id="mkt-src">the prediction market</span> right now,
+      reconstructed from its "20+ / 25+ / 30+ wins" price ladder. The number beside each bar is
+      <em>our projection minus the market</em>: where we disagree, and by how much, is the whole
+      point of this tool &mdash; open a team to see the roster reason. The market is shown only,
+      never used to build the projection. (No Vegas over/under line is posted this early, and
+      Polymarket has no per-team win-total market, so this is the one live source.)
+    </div>
     <div class="caveat" id="cav-hist" style="display:none;border-left-color:var(--pos)">
       <strong>Hindsight view.</strong> This is what the model <em>would have</em> projected
       before <span class="hyr"></span> tipped off, using only data available then &mdash; no
@@ -349,6 +408,60 @@
   </div>
 
   <div class="rows" id="rows"></div>
+
+  <details class="legend">
+    <summary>What every number means &mdash; plain-English glossary</summary>
+    <div class="gloss">
+      <dl>
+        <dt>Impact</dt>
+        <dd>Projected <b>net points per 100 possessions</b> a player adds versus an
+          average player &mdash; a <b>rate</b>, not a win count. About <b>0</b> is an
+          average rotation player, <b>+4</b> a star (SGA is +4.0), <b>&minus;1.1</b> is
+          replacement level (a freely-available end-of-bench body). It already contains his
+          scoring, rebounding, and defense, so "fit" is not added on top.</dd>
+
+        <dt>&asymp; Wins</dt>
+        <dd>The <b>WAR-like</b> (wins-above-replacement) translation of Impact: how many of
+          the team's wins the player accounts for versus a replacement-level player taking
+          his minutes. This is the closest thing here to a single "player value" number, and
+          it depends on Impact <em>and</em> minutes &mdash; a +1.3 Impact star playing 32
+          minutes is worth far more wins than a +2.4 Impact reserve playing 18.</dd>
+
+        <dt>Wins (big number)</dt>
+        <dd>The average of the simulated season &mdash; our single best guess. Trust the
+          range around it more than the exact figure.</dd>
+
+        <dt>80% / 50% range</dt>
+        <dd>The bars: the wide bar is the <b>80%</b> range (4 seasons out of 5 the real
+          result should land inside), the solid inner bar the <b>50%</b> range. Teal =
+          steady roster, amber = high turnover and a wider, less certain range.</dd>
+
+        <dt>Range width</dt>
+        <dd>Half the 80% range, in wins &mdash; a one-number summary of how uncertain a
+          team's season is.</dd>
+
+        <dt><span style="color:var(--pos)">green</span> / <span style="color:var(--neg)">red</span> &plusmn;</dt>
+        <dd>Appears only after you edit a roster: the <b>change in projected wins</b> caused
+          by your edit, versus this team's original projection. Removing a good player makes
+          it negative.</dd>
+
+        <dt><span class="swatch"></span> market</dt>
+        <dd>The hollow ring on the bar and the <span class="mktnum"><b>mkt</b></span> readout
+          (upcoming season only): the win total the prediction market implies right now. The
+          signed number is <b>our projection minus the market</b>. Comparison only &mdash; the
+          market never feeds the model.</dd>
+
+        <dt>MPG / Avail</dt>
+        <dd><b>MPG</b> = minutes per game from last season's role. <b>Avail</b> = projected
+          share of the season the player is available, from his games-missed history and age.</dd>
+
+        <dt>Minutes supplied</dt>
+        <dd>Inside a team: the active roster's total minutes-per-game. A real rotation
+          supplies <b>240</b>; a figure well above that (shown in amber) is an oversized
+          off-season roster the model scales back down.</dd>
+      </dl>
+    </div>
+  </details>
 
   <footer>
     <p>
@@ -410,8 +523,14 @@ function loadSeason(key) {
   document.getElementById('snap').textContent = cur
     ? ('snapshot ' + (DATA.snapshot_date || ''))
     : 'hindsight — projected before the season, shown against what happened';
+  const hasMarket = cur && DATA.teams.some(t => t.mkt_wins != null);
   document.getElementById('cav-current').style.display = cur ? '' : 'none';
+  document.getElementById('cav-market').style.display = hasMarket ? '' : 'none';
   document.getElementById('cav-hist').style.display = cur ? 'none' : '';
+  if (hasMarket && GMETA.market_source) {
+    document.getElementById('mkt-src').textContent =
+      GMETA.market_source.split(':')[0] === 'kalshi' ? 'Kalshi' : GMETA.market_source;
+  }
   if (cur) {
     document.getElementById('mae').textContent = CURRENT_MAE.toFixed(1);
   } else {
@@ -591,6 +710,29 @@ function actualReadout(t, w) {
   return `<span class="anum">actual <b>${fmt1(a)}</b> <span class="${cls}">&#9670; ${mark}</span></span>`;
 }
 
+// Live-market readout (upcoming season only): the crowd's implied wins and our gap to it.
+// gap > 0 means our model is HIGHER than the market on this team. This is a comparison, not
+// an input -- the market never touches the projection.
+function marketReadout(t, w) {
+  const gap = w.mean - t.mkt_wins;
+  const cls = Math.abs(gap) < 1.5 ? 'agree' : (gap > 0 ? 'above-mkt' : 'below-mkt');
+  return `<span class="mktnum" title="Kalshi market-implied wins; the second number is `
+    + `our projection minus the market (positive = we are higher than the crowd)">`
+    + `<span class="swatch"></span>mkt <b>${fmt1(t.mkt_wins)}</b> `
+    + `<span class="${cls}">${gap >= 0 ? '+' : ''}${fmt1(gap)}</span></span>`;
+}
+
+// A player's win value: how many of the team's wins he accounts for versus a freely-available
+// replacement-level player taking his minutes. This is the WAR-like ("wins above replacement")
+// translation of the per-100-possession Impact rate: Impact, scaled by minute share and by the
+// impact -> rating -> wins conversion the model uses. It answers "is Impact a win count?" --
+// no, THIS is; Impact is the underlying rate.
+const MPG_BUDGET = GMETA.minutes_budget / GMETA.full_season_games;   // 240 player-min/game
+function winVal(p) {
+  return GMETA.wins_per_rating_point * DATA.rating_slope
+    * (p.mpg * p.avail / MPG_BUDGET) * (p.impact - GMETA.replacement_impact);
+}
+
 function render() {
   const host = document.getElementById('rows');
   host.innerHTML = '';
@@ -621,11 +763,13 @@ function render() {
         ${edited ? `<span class="ghost" style="left:${pct(t.wins)}%" title="original projection"></span>` : ''}
         <span class="mean" style="left:${pct(w.mean)}%"></span>
         ${t.actual != null ? `<span class="actual" style="left:${pct(t.actual)}%" title="actual: ${fmt1(t.actual)} wins"></span>` : ''}
+        ${DATA.is_current && t.mkt_wins != null ? `<span class="market" style="left:${pct(t.mkt_wins)}%" title="market (Kalshi): ${fmt1(t.mkt_wins)} wins"></span>` : ''}
       </span>
       <span class="nums">
         <span class="wins">${fmt1(w.mean)}</span>
-        ${edited ? `<span class="delta ${delta >= 0 ? 'up' : 'down'}"> ${delta >= 0 ? '+' : ''}${fmt1(delta)}</span>` : ''}
+        ${edited ? `<span class="delta ${delta >= 0 ? 'up' : 'down'}" title="change from this team&rsquo;s original projected wins, caused by your roster edit"> ${delta >= 0 ? '+' : ''}${fmt1(delta)}</span>` : ''}
         <br>${t.actual != null ? actualReadout(t, w) : `<span class="rng">${fmt1(w.p10)}&ndash;${fmt1(w.p90)}</span>`}
+        ${DATA.is_current && t.mkt_wins != null ? `<br>${marketReadout(t, w)}` : ''}
       </span>`;
 
     const panel = document.createElement('div');
@@ -647,22 +791,34 @@ function renderPanel(t, w) {
   const st = state.get(t.id);
   const roster = t.players.map(p => ({ p, off: st.off.has(p.id), added: false }))
     .concat(st.added.map(p => ({ p, off: false, added: true })));
-  const rows = roster.map(({ p, off, added }) => `
+  const rows = roster.map(({ p, off, added }) => {
+    const wv = winVal(p);
+    return `
     <tr class="${off ? 'off' : ''}${added ? ' added' : ''}">
       <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}</td>
       <td>${p.pos || '&mdash;'}</td>
       <td>${p.age ?? '&mdash;'}</td>
       <td class="imp ${p.impact >= 0 ? 'p' : 'n'}">${p.impact >= 0 ? '+' : ''}${p.impact.toFixed(2)}</td>
+      <td class="winval ${wv >= 0 ? 'p' : 'n'}">${wv >= 0 ? '+' : ''}${wv.toFixed(1)}</td>
       <td>${p.mpg.toFixed(1)}</td>
       <td>${(p.avail * 100).toFixed(0)}%</td>
       <td><button data-pid="${p.id}" data-added="${added}"
             aria-label="${off ? 'Restore' : 'Remove'} ${p.name}">${off || added ? '+' : '&minus;'}</button></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
+
+  // Sum of minutes the active roster supplies per game. A real team supplies 240; well over
+  // that flags a bloated summer roster (camp invites, just-acquired players still carrying
+  // their old team's minutes) that the model has to scale back down to the budget.
+  const active = t.players.filter(p => !st.off.has(p.id)).concat(st.added);
+  const loadMpg = active.reduce((a, p) => a + p.mpg * p.avail, 0);
+  const loadCls = loadMpg > 290 ? ' class="mins-flag"' : '';
 
   return `
     <div class="panel-head">
       <span class="stat">Coach <b>${t.coach}</b></span>
       <span class="stat">Roster turnover <b>${(t.turnover * 100).toFixed(0)}%</b></span>
+      <span class="stat" title="Sum of every active player&rsquo;s minutes-per-game times availability. A real rotation supplies 240 player-minutes per game; well above 240 means an oversized off-season roster the model scales back down.">Minutes supplied <b${loadCls}>${loadMpg.toFixed(0)}</b>/240</span>
       <span class="stat">Range width <b>&plusmn;${((w.p90 - w.p10) / 2).toFixed(1)}</b> wins</span>
       <span class="spacer"></span>
       <button class="act" data-reset="${t.id}"
@@ -671,8 +827,12 @@ function renderPanel(t, w) {
     <div class="tbl-scroll">
       <table>
         <thead><tr>
-          <th>Player</th><th>Pos</th><th>Age</th><th>Impact</th>
-          <th>MPG</th><th>Avail</th><th></th>
+          <th>Player</th><th>Pos</th><th>Age</th>
+          <th class="help" title="Projected net points per 100 possessions the player adds versus an average player. About 0 is average, +4 a star, -1.1 replacement level. This is a RATE, not a win count.">Impact</th>
+          <th class="help" title="Wins the player accounts for versus a replacement-level player taking his minutes -- the WAR-like (wins-above-replacement) translation of Impact. Depends on Impact AND minutes.">&asymp;&nbsp;Wins</th>
+          <th class="help" title="Minutes per game, carried from last season's role.">MPG</th>
+          <th class="help" title="Projected share of the season available, from games-missed history and age.">Avail</th>
+          <th></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
