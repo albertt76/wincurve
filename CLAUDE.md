@@ -316,14 +316,62 @@ to reputation, is at 0.729 — slightly *more* distributed than average. The unt
 where it should help is a **coaching change**, where prior minutes reflect the departed
 coach.
 
-### The franchise effect — the strongest unexploited signal found so far
+### ⚠️ CORRECTED: the "franchise effect" is one-year memory, not organisational quality
 
-Residuals are autocorrelated **+0.356 within franchise**, with an implied true
-franchise-effect SD of **1.08 points per 100 ≈ 2.9 wins** — larger than any roster-shape
-feature tested. Over 2017-2025, OKC ran **+3.8** and Boston **+4.2** points per 100 above
-projection. This explains the OKC-depth and Boston-without-Tatum cases *better than roster
-shape does*, and it is where coaching and organisational quality would live. Worth
-0.41-0.63 wins of MAE out-of-sample in the analysis. **This is the next thing to pursue.**
+An earlier analysis claimed a persistent franchise effect (within-franchise residual
+autocorrelation +0.356, implied SD 1.08 points per 100 ≈ 2.9 wins, OKC +3.8 and BOS +4.2
+over 2017-2025). **Both adversarial verifiers refuted it.** Do not build on the original
+framing.
+
+What is actually true:
+
+- **The autocorrelation decays like AR(1), i.e. one-year memory.** Lags 1-5 measure
+  +0.356, +0.118, -0.099, -0.002, -0.059 against AR(1) predictions of +0.356, +0.127,
+  +0.045, +0.016, +0.006. A permanent franchise trait would stay roughly flat across lags.
+  **It is gone by lag 3.**
+- **OKC and Boston are max-of-30 selection artifacts.** Under a pure AR(1) null with no
+  franchise effect, the largest of 30 franchise means has p = 0.174 and the second largest
+  p = 0.066. Their values are unremarkable once you account for picking the top 2 of 30.
+- Permanent-franchise variance share measured **-0.022 (implied SD 0.000)**.
+- **What IS real and robust:** last season's residual predicts this season's, worth
+  **+5.3% to +7.1%** of rating MAE, leave-one-fold-out +4.4% to +7.9%, coefficient stable
+  0.93-1.32, surviving a control for last season's actual rating deviation. Worth using —
+  but as short-memory persistence, NOT as organisational quality.
+- **Not disproven, merely unsupported:** with 9 seasons per franchise the CI does not
+  exclude a true franchise SD up to ~1.75 points per 100. Absence of evidence at this
+  sample size is weak evidence of absence.
+
+### ⚠️ CORRECTED: the tanking era claim does not hold
+
+An earlier analysis claimed the 2019 lottery reform *tripled* tanking (-0.39 wins
+pre-reform vs -1.70 post). **Both verifiers refuted it.**
+
+- Era difference not reproducible: **-0.0044 +/- 0.0216 (t = -0.20, p = 0.84)** against the
+  claimed t = -2.08.
+- **The sign flips with an arbitrary cutoff** — bottom-4 gives *less* tanking post-reform
+  (t = +2.67), bottom-10 gives more (t = -2.70). Only 31.5% of 108 specifications reach
+  significance. A garden-of-forking-paths result.
+- "All 7 post-reform seasons negative" was false on replication.
+- No trade-deadline discontinuity — the test the mechanism specifically predicts — was run.
+
+What survives: tanking is real but **smaller (~-0.5 to -0.85 wins)**, and the **win-rate
+component is not distinguishable from zero**. The robust part is **margin** (-0.8 to -1.6
+points per game over the last 27 games), supporting "tanking teams lose worse, not more
+often." **The era comparison is a null: we cannot say whether the 2019 reform helped or
+hurt.** So there is no usable evidence either way on whether the 3-2-1 reform will reduce
+tanking — which still argues for a scenario switch rather than a baked-in adjustment.
+
+### Confirmed and unrefuted: teams absorb absence better than linear aggregation implies
+
+Zero refutations. Teams absorb a player's absence at **0.65-0.71** of what our linear
+minute-weighted aggregation predicts — and **identically for stars and rotation players**,
+so it is a general property of minute redistribution rather than anything special about
+stars. This confirms the Boston-without-Tatum intuition and is a **single-parameter fix to
+a real over-penalisation.** Highest-value pending change.
+
+Also unrefuted: concentration does **not** need to vary `sigma_rating` (justified spread is
+1.6% across quintiles; star-injury risk is only 9% of residual variance), but
+`sigma_rating` **is ~14% too narrow** from staleness, which matters ~10x more.
 
 ### Findings worth keeping
 
