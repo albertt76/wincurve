@@ -361,13 +361,46 @@ often." **The era comparison is a null: we cannot say whether the 2019 reform he
 hurt.** So there is no usable evidence either way on whether the 3-2-1 reform will reduce
 tanking — which still argues for a scenario switch rather than a baked-in adjustment.
 
-### Confirmed and unrefuted: teams absorb absence better than linear aggregation implies
+### IMPLEMENTED: interval calibration fixed
 
-Zero refutations. Teams absorb a player's absence at **0.65-0.71** of what our linear
-minute-weighted aggregation predicts — and **identically for stars and rotation players**,
-so it is a general property of minute redistribution rather than anything special about
-stars. This confirms the Boston-without-Tatum intuition and is a **single-parameter fix to
-a real over-penalisation.** Highest-value pending change.
+`fit_rating_sigma` is now recency-weighted (3-season half-life), because pooling all prior
+folds equally made the estimate stale and ~14% too narrow. Nominal 80% interval coverage:
+
+| Mode | Before | After |
+|---|---|---|
+| Opening-day roster | 73.7% | **78.5%** |
+| First-15-games | 73.7% | **80.7%** |
+| Leaky bound | 77.8% | **83.0%** |
+
+The 50% band also lands correctly (46-52% against nominal 50%). **Intervals can now be
+trusted**, which is the precondition for any meaningful market comparison. Point accuracy
+is unchanged, as expected — fixing interval *width* should not move the point estimate.
+
+One caution recorded in `simulate.py`: a first attempt additionally inflated by a
+season-level effective-sample-size correction, which overshot to 84.8%. Recency weighting
+alone is sufficient.
+
+### NOT IMPLEMENTED: absence absorption (real effect, no projection gain)
+
+The measurement is unrefuted: teams absorb a player's absence at **0.65-0.71** of what
+linear minute-weighted aggregation predicts, identically for stars and rotation players —
+a general property of minute redistribution, confirming the Boston-without-Tatum intuition.
+
+**But two faithful implementations both made projections worse**, so it is not applied:
+
+| Implementation | Result |
+|---|---|
+| Availability-blind minutes + per-player discount | Best 8.397 at 0.68, but restructuring cost more (1.00 → 8.415 vs 8.343 before) |
+| Availability-scaled minutes + upgraded filler value | Monotonically worse: 1.00 → 8.365, 0.68 → 8.427, 0.50 → 8.470 |
+
+**Likely cause: double-counting.** The impact-to-rating calibration is *fitted* on
+historical team-seasons in which players missed their normal share of games, so the fitted
+slope already embodies average absorption. Correcting again subtracts a penalty that was
+never applied.
+
+`ABSENCE_ABSORPTION` defaults to 1.0 but is retained as a parameter, because it should
+still matter for a **known long absence**, where a season-average calibration does not
+apply — precisely the "Luka out for months" case. Untested there for lack of data.
 
 Also unrefuted: concentration does **not** need to vary `sigma_rating` (justified spread is
 1.6% across quintiles; star-injury risk is only 9% of residual variance), but

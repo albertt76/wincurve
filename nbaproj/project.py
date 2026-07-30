@@ -37,8 +37,9 @@ import pandas as pd
 from .aging import aging_curves, build_transitions, project_next_season, replacement_level
 from .availability import build_availability, build_features, fit_predict
 from .minutes import (
-    MINUTES_PER_GAME, assign_rank_minutes, coach_concentration,
-    fit_canonical_minutes, reshape_to_concentration,
+    ABSENCE_ABSORPTION, MINUTES_PER_GAME, absence_adjusted_impact,
+    assign_rank_minutes, coach_concentration, fit_canonical_minutes,
+    reshape_to_concentration,
 )
 
 log = logging.getLogger(__name__)
@@ -189,6 +190,7 @@ def project_team_ratings(
     mode: str = "early",
     team_rosters: pd.DataFrame | None = None,
     coaches: pd.DataFrame | None = None,
+    absorption: float = ABSENCE_ABSORPTION,
 ) -> pd.DataFrame:
     """Projected net-rating deviation for every team in `target_season`.
 
@@ -258,9 +260,13 @@ def project_team_ratings(
 
         roster["avail"] = roster["player_id"].map(av_map).fillna(0.85)
         roster["tg"] = roster["team_id"].map(team_games).fillna(82.0)
-        # Prior-season minutes-per-game, scaled by projected availability. Two
-        # rank-based alternatives were tried and BOTH measured worse -- see the note on
-        # fit_canonical_minutes in minutes.py. Kept simple because simple won.
+        # Availability-scaled, which is what lets the freed minutes flow to teammates
+        # through the budget constraint. An availability-BLIND allocation was tried and was
+        # worse (8.415 vs 8.343): giving an injury-prone star his full slot squeezes
+        # teammates out of the budget, when reality is the reverse -- his minutes go TO
+        # them. Absence is priced instead in what the leftover minutes are worth, below.
+        # Two rank-based alternatives were tried for the minute shape and BOTH measured
+        # worse -- see the note on fit_canonical_minutes in minutes.py.
         roster["minutes"] = roster["early_mpg"] * roster["avail"] * roster["tg"]
 
         # Optionally reshape each team's minute curve toward its head coach's historical
@@ -309,10 +315,19 @@ def project_team_ratings(
         vals = grp["talent"].to_numpy(dtype=float)
         ok = ~np.isnan(vals)
         used = mins.sum()
-        # Any part of the budget not accounted for -- unfilled minutes, or players we
-        # cannot value -- is charged at replacement level rather than ignored.
+        # Any part of the budget not accounted for -- minutes freed by expected absence,
+        # or players we cannot value -- has to be priced. Charging it all at replacement
+        # level over-penalises absence: measured within-team, teams absorb a player's
+        # absence at only ~0.68 of what that implies, because the minutes go to the next
+        # man in an NBA rotation rather than to a replacement-level body. The same factor
+        # holds for stars and role players alike. So the filler is priced between
+        # replacement level and the team's own rotation quality.
         leftover = max(budget - used, 0.0) + mins[~ok].sum()
-        agg = (np.sum(mins[ok] * vals[ok]) + leftover * rep) / max(budget, used)
+        team_mean = (float(np.sum(mins[ok] * vals[ok]) / mins[ok].sum())
+                     if mins[ok].sum() > 0 else rep)
+        fill_value = rep + (1.0 - absorption) * (team_mean - rep)
+        agg = (np.sum(mins[ok] * vals[ok])
+               + leftover * fill_value) / max(budget, used)
         rows.append({
             "season_start": target_season,
             "team_id": team_id,

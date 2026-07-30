@@ -316,3 +316,62 @@ def reshape_to_concentration(minutes: np.ndarray, target_top8: float,
             hi = mid
     w = np.power(np.maximum(m, 1e-9), 0.5 * (lo + hi))
     return w / w.sum() * total
+
+
+# --- Absence absorption --------------------------------------------------------
+
+# Teams absorb a player's absence at roughly two thirds of what linear minute-weighted
+# aggregation implies. Measured 0.65-0.71 walk-forward over 2017-2025, and -- importantly
+# -- the SAME factor for stars and for rotation players, so this is a general property of
+# how minutes redistribute rather than anything special about stars.
+#
+# The mechanism is straightforward once stated: when a player sits, his minutes do not go
+# to a replacement-level body. They go to the next man in an NBA rotation, who is a real
+# player. Charging the whole shortfall at replacement level over-penalises every absence.
+#
+# This is the quantitative form of the Boston-without-Tatum observation: teams expected to
+# collapse without a star routinely do not.
+#
+# **MEASURED: the effect is real but applying it to our projection does NOT help.**
+# Two faithful implementations were tried and both were worse than leaving it alone:
+#   (a) availability-blind minutes + per-player discount: best 8.397 at 0.68, but the
+#       restructuring itself cost more (1.00 gives 8.415 against 8.343 before the change)
+#   (b) availability-scaled minutes + upgraded filler value for freed minutes:
+#       monotonically worse -- 1.00 -> 8.365, 0.85 -> 8.392, 0.68 -> 8.427, 0.50 -> 8.470
+#
+# The likely reason is double-counting. Our impact-to-rating calibration is FITTED on
+# historical team-seasons in which players missed their normal share of games, so the
+# fitted slope already embodies average absorption. Correcting for it again subtracts a
+# penalty that was never actually applied.
+#
+# Default is therefore 1.0 (charge freed minutes at replacement level, the old behaviour).
+# The parameter is retained so the finding is testable rather than merely asserted, and
+# because it would matter for a KNOWN long absence, where the season-average calibration
+# does not apply -- exactly the Luka-out-for-months case. Untested there for lack of data.
+ABSENCE_ABSORPTION = 1.0
+
+
+def absence_adjusted_impact(impact: np.ndarray | pd.Series,
+                            availability: np.ndarray | pd.Series,
+                            replacement: float,
+                            *, absorption: float = ABSENCE_ABSORPTION):
+    """Down-weight a player's value for expected absence, at the measured rate.
+
+    Derivation. Linear aggregation says missing a share (1-a) of games costs the team
+    (1-a) * (I - rep), charging the lost minutes at replacement level. The measured cost is
+    only ``absorption`` times that, so the minutes are effectively filled at
+    ``I - absorption * (I - rep)`` rather than at ``rep``. Folding that back in:
+
+        effective_impact = I - (1 - a) * absorption * (I - rep)
+
+    which correctly reduces to ``I`` for a player available all season, and to the filler
+    value for one who never plays. ``absorption = 1`` recovers the old behaviour exactly,
+    which is what makes this testable as a single parameter.
+
+    Note this replaces availability's role in *valuation* only. Minutes should now be
+    allocated availability-blind, because the shortfall is already priced here; scaling
+    minutes by availability as well would double-count the absence.
+    """
+    imp = np.asarray(impact, dtype=float)
+    avail = np.clip(np.asarray(availability, dtype=float), 0.0, 1.0)
+    return imp - (1.0 - avail) * absorption * (imp - replacement)

@@ -128,7 +128,19 @@ def main() -> int:
             # Rescale simulated wins to 82-game equivalent for shortened seasons.
             gp = j["games"].fillna(FULL_SEASON_GAMES)
             j["pred_wins_82"] = j["mean_wins"] * FULL_SEASON_GAMES / gp
+            # Interval coverage: does the nominal 80% band actually contain 80% of
+            # outcomes? Checked here rather than assumed, because a miscalibrated interval
+            # makes every "we disagree with the market" claim meaningless.
+            order = {t: i for i, t in enumerate(sim["team_id"])}
+            gp82 = FULL_SEASON_GAMES / j["games"].fillna(FULL_SEASON_GAMES)
+            cols = j["team_id"].map(order).to_numpy()
+            w82 = wins[:, cols] * gp82.to_numpy()[None, :]
+            act = j["actual_wins_82"].to_numpy()
+            lo10, hi90 = np.percentile(w82, 10, axis=0), np.percentile(w82, 90, axis=0)
+            lo25, hi75 = np.percentile(w82, 25, axis=0), np.percentile(w82, 75, axis=0)
             rows.append({
+                "cov80": float(((act >= lo10) & (act <= hi90)).mean()),
+                "cov50": float(((act >= lo25) & (act <= hi75)).mean()),
                 "mode": mode, "season": season, "n": len(j),
                 "sigma_rating": sigma, "hca": hca, "margin_sd": msd,
                 "slope": slope, "pred_sd": float(sub["pred_net_rating_dev"].std()),
@@ -156,7 +168,9 @@ def main() -> int:
             index=False, float_format=lambda v: f"{v:7.3f}"))
         clean = sub[~sub["season"].astype(str).isin(
             {s[:4] for s in MARKET_SUSPECT_SEASONS})]
-        print(f"\n  mean MAE model  {sub['MAE_model'].mean():6.3f}"
+        print(f"\n  interval coverage: nominal 80% -> actual "
+              f"{sub['cov80'].mean():.1%}   nominal 50% -> {sub['cov50'].mean():.1%}")
+        print(f"  mean MAE model  {sub['MAE_model'].mean():6.3f}"
               f"   (excl. 2019-20: {clean['MAE_model'].mean():6.3f})")
         print(f"  mean MAE market {sub['MAE_market'].mean():6.3f}"
               f"   (excl. 2019-20: {clean['MAE_market'].mean():6.3f})")
