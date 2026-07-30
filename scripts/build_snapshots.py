@@ -27,10 +27,11 @@ from nbaproj.aging import (  # noqa: E402
 from nbaproj.availability import build_availability, build_features, fit_predict  # noqa: E402
 from nbaproj.carryover import apply_carryover, fit_rho  # noqa: E402
 from nbaproj.minutes import MINUTES_PER_GAME  # noqa: E402
-from nbaproj.project import (  # noqa: E402
-    calibrate_projected_ratings, project_team_ratings, roster_opening_day,
+from nbaproj.project import roster_opening_day  # noqa: E402
+from nbaproj.rapm import box_vs_rapm_by_player, build_rapm_impact  # noqa: E402
+from nbaproj.rapm_blend import (  # noqa: E402
+    backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def,
 )
-from nbaproj.rapm import box_vs_rapm_by_player  # noqa: E402
 from nbaproj.simulate import (  # noqa: E402
     estimate_game_params, extract_schedule, fit_rating_sigma, roster_turnover,
     simulate_season, turnover_sigma_multiplier,
@@ -49,13 +50,16 @@ def build_historical(season: int, data: dict) -> dict:
     imp, pts, pgl, gl, ages, ts, rosters, coaches, abbr = (
         data[k] for k in ("imp", "pts", "pgl", "gl", "ages", "ts", "rosters",
                           "coaches", "abbr"))
+    rapm_imp = data["rapm_imp"]
     hist = imp[imp["season_start"] < season]
     rep = replacement_level(hist, "impact")
     rep_off = replacement_level(hist, "off_impact")
     rep_def = replacement_level(hist, "def_impact")
+    rep_def_rapm = replacement_level(rapm_imp[rapm_imp["season_start"] < season], "def_impact")
 
     # --- player talent, prior seasons only. Offense and defense projected separately
-    #     (decoupled): net-neutral, but yields a projected team offense and defense. ---
+    #     (decoupled), plus a RAPM-defense projection the team defense blends toward by
+    #     roster turnover (nbaproj.rapm_blend). ---
     curves = aging_curves(build_transitions(hist, min_minutes=500),
                           ["impact", "off_impact", "def_impact"], corrected=True)
     talent = project_next_season(hist, curves, target_season=season,
@@ -64,6 +68,7 @@ def build_historical(season: int, data: dict) -> dict:
                                      skill="off_impact").set_index("player_id")["proj_off_impact"]
     talent_def = project_next_season(hist, curves, target_season=season,
                                      skill="def_impact").set_index("player_id")["proj_def_impact"]
+    talent_def_rapm = project_rapm_def(rapm_imp, season)
 
     # --- opening-day roster, minutes from prior season, availability projected ---
     base = roster_opening_day(rosters, pgl, season)
@@ -81,6 +86,7 @@ def build_historical(season: int, data: dict) -> dict:
     base["proj_impact"] = base["player_id"].map(talent).fillna(rep)
     base["proj_off_impact"] = base["player_id"].map(talent_off).fillna(rep_off)
     base["proj_def_impact"] = base["player_id"].map(talent_def).fillna(rep_def)
+    base["proj_def_rapm"] = base["player_id"].map(talent_def_rapm).fillna(base["proj_def_impact"])
 
     avail = fit_predict(build_features(build_availability(pts, ts), ages),
                         target_season=season)
@@ -94,22 +100,26 @@ def build_historical(season: int, data: dict) -> dict:
 
     # --- team rating: aggregate DIRECTLY from the stored roster, exactly as the UI's
     # what-if editor recomputes it, so the unedited baseline reproduces the shown rating.
-    # (Using project_team_ratings' own aggregate here instead would diverge from the
-    # per-player values we store, by ~0.7 rating points.) Calibration still comes from the
-    # walk-forward backtest, offense and defense fitted separately.
-    backtest = _walk_forward_ratings(imp, pts, pgl, ts, ages, rosters, season)
-    off_slope, off_int = calibrate_projected_ratings(
-        backtest, ts, target_season=season, target="off_rating", agg_col="agg_off")
-    def_slope, def_int = calibrate_projected_ratings(
-        backtest, ts, target_season=season, target="def_rating", agg_col="agg_def")
-    slope, intercept = calibrate_projected_ratings(backtest, ts, target_season=season)
-    ratings = _aggregate_from_roster(base, rep, rep_off, rep_def)
+    # Calibration comes from the walk-forward backtest of BOTH arms (data["A_full"]);
+    # offense and the turnover-blended defense are fitted with their own slopes.
+    A = data["A_full"]
+    cal_c = calibrate_blend(A, ts, target_season=season)
+    off_slope, off_int = cal_c["off_slope"], cal_c["off_intercept"]
+    def_slope, def_int = cal_c["def_slope"], cal_c["def_intercept"]
+    slope, intercept = cal_c["rating_slope"], cal_c["rating_intercept"]
+    ratings = _aggregate_from_roster(base, rep, rep_off, rep_def, rep_def_rapm)
+    turnover = roster_turnover(pts, season_start=season)
+    ratings = ratings.merge(turnover, on="team_id", how="left")
+    ratings["new_minute_share"] = ratings["new_minute_share"].fillna(0.3)
+    w = blend_weight(ratings["new_minute_share"])
+    ratings["agg_def_used"] = (1 - w) * ratings["agg_def_box"] + w * ratings["agg_def_rapm"]
+    ratings["agg_impact"] = ratings["agg_off"] + ratings["agg_def_used"]
     ratings["off_rating"] = off_slope * ratings["agg_off"] + off_int
-    ratings["def_rating"] = def_slope * ratings["agg_def"] + def_int
+    ratings["def_rating"] = def_slope * ratings["agg_def_used"] + def_int
     ratings["pred_net_rating_dev"] = ratings["off_rating"] + ratings["def_rating"]
-    scored = backtest.copy()
+    scored = A.copy()
     scored["pred_net_rating_dev"] = (off_slope * scored["agg_off"] + off_int
-                                     + def_slope * scored["agg_def"] + def_int)
+                                     + def_slope * scored["agg_def_used"] + def_int)
     ratings["season_start"] = season
     ratings = apply_carryover(ratings, scored, ts, target_season=season)
     rho = fit_rho(scored, ts, before_season=season)
@@ -119,9 +129,6 @@ def build_historical(season: int, data: dict) -> dict:
     sigma_base = fit_rating_sigma(
         scored, actual[["team_id", "season_start", "net_rating_dev"]].assign(
             season_start=season), before_season=season)
-    turnover = roster_turnover(pts, season_start=season)
-    ratings = ratings.merge(turnover, on="team_id", how="left")
-    ratings["new_minute_share"] = ratings["new_minute_share"].fillna(0.3)
     ratings["sigma"] = sigma_base * ratings["new_minute_share"].map(
         turnover_sigma_multiplier)
 
@@ -129,18 +136,20 @@ def build_historical(season: int, data: dict) -> dict:
     def_cmp = box_vs_rapm_by_player(imp, PROC, last_season=season - 1)
     cal = {"off_slope": off_slope, "off_intercept": off_int,
            "def_slope": def_slope, "def_intercept": def_int,
-           "replacement_off": rep_off, "replacement_def": rep_def}
+           "replacement_off": rep_off, "replacement_def": rep_def,
+           "replacement_def_rapm": rep_def_rapm}
     games = int(actual["games"].mode().iloc[0]) if not actual.empty else FULL_SEASON_GAMES
     return _assemble(season, ratings, base, data, sigma_base, slope, intercept, rep,
                      rho, is_current=False, actual=actual, games=games,
                      cal=cal, def_cmp=def_cmp)
 
 
-def _aggregate_from_roster(base: pd.DataFrame, rep: float,
-                           rep_off: float, rep_def: float) -> pd.DataFrame:
-    """Team aggregate impact computed exactly as the UI recomputes it: minutes = mpg x
+def _aggregate_from_roster(base: pd.DataFrame, rep: float, rep_off: float,
+                           rep_def: float, rep_def_rapm: float) -> pd.DataFrame:
+    """Team aggregates computed exactly as the UI recomputes them: minutes = mpg x
     availability x 82, scaled down to the 240x82 budget when over, leftover at replacement.
-    Offense and defense are aggregated separately; they sum to the combined agg_impact.
+    Offense, box defense, and RAPM defense are each aggregated separately; the caller blends
+    the two defensive aggregates by roster turnover.
     """
     budget = MINUTES_PER_GAME * FULL_SEASON_GAMES
     rows = []
@@ -153,26 +162,18 @@ def _aggregate_from_roster(base: pd.DataFrame, rep: float,
         leftover = max(budget - used, 0.0)
         off_v = g["proj_off_impact"].to_numpy(dtype=float)
         def_v = g["proj_def_impact"].to_numpy(dtype=float)
+        def_r = g["proj_def_rapm"].to_numpy(dtype=float)
         agg_off = (float(np.sum(mins * off_v)) + leftover * rep_off) / budget
-        agg_def = (float(np.sum(mins * def_v)) + leftover * rep_def) / budget
-        rows.append({"team_id": tid, "agg_off": agg_off, "agg_def": agg_def,
-                     "agg_impact": agg_off + agg_def})
+        agg_def_box = (float(np.sum(mins * def_v)) + leftover * rep_def) / budget
+        agg_def_rapm = (float(np.sum(mins * def_r)) + leftover * rep_def_rapm) / budget
+        rows.append({"team_id": tid, "agg_off": agg_off, "agg_def_box": agg_def_box,
+                     "agg_def_rapm": agg_def_rapm})
     return pd.DataFrame(rows)
 
 
 def _age_lookup(ages: pd.DataFrame, season: int) -> dict:
     a = ages[ages["season_start"] == season - 1].set_index("player_id")["age"]
     return a.to_dict()
-
-
-def _walk_forward_ratings(imp, pts, pgl, ts, ages, rosters, before: int) -> pd.DataFrame:
-    frames = []
-    for s in range(2017, before + 1):
-        r = project_team_ratings(imp, pts, pgl, ts, ages, target_season=s,
-                                 mode="roster", team_rosters=rosters, decouple=True)
-        if not r.empty:
-            frames.append(r)
-    return pd.concat(frames, ignore_index=True)
 
 
 def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, rho,
@@ -233,6 +234,7 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
                 "impact": round(float(p["proj_impact"]), 5),
                 "off": round(float(p["proj_off_impact"]), 5),
                 "def": round(float(p["proj_def_impact"]), 5),
+                "defr": round(float(p["proj_def_rapm"]), 5),
                 "mpg": round(float(p["prior_mpg"]), 4),
                 "avail": round(float(p["proj_availability"]), 5),
                 "rookie": False, "override": False,
@@ -283,6 +285,7 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
         "def_intercept": round(cal["def_intercept"], 4),
         "replacement_off": round(cal["replacement_off"], 4),
         "replacement_def": round(cal["replacement_def"], 4),
+        "replacement_def_rapm": round(cal["replacement_def_rapm"], 4),
         "sigma_base": round(sigma_base, 3),
         "rho_carryover": round(rho, 3),
         "season_mae": mae,
@@ -340,6 +343,13 @@ def main() -> int:
         "season_start": pa["SEASON_START"].astype(int),
         "age": pd.to_numeric(pa["AGE"], errors="coerce")}).drop_duplicates()
 
+    # Both backtest arms (box + RAPM defense) computed once, walk-forward; each historical
+    # season calibrates its slopes from the folds strictly before it.
+    data["rapm_imp"] = build_rapm_impact(data["imp"], PROC)
+    data["A_full"] = backtest_aggregates(
+        data["imp"], data["rapm_imp"], data["pts"], data["pgl"], data["ts"], data["ages"],
+        data["rosters"], range(2017, max(HISTORICAL) + 1))
+
     snapshots = {}
     for season in HISTORICAL:
         b = build_historical(season, data)
@@ -366,6 +376,7 @@ def main() -> int:
             "def_intercept": cur["meta"].get("def_intercept"),
             "replacement_off": cur["meta"].get("replacement_off"),
             "replacement_def": cur["meta"].get("replacement_def"),
+            "replacement_def_rapm": cur["meta"].get("replacement_def_rapm"),
             "sigma_base": cur["meta"].get("sigma_base"),
             "rho_carryover": cur["meta"].get("rho_carryover"),
             "season_mae": None, "teams": teams, "grid": cur["grid"],
