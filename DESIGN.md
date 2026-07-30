@@ -224,20 +224,26 @@ Backtest protocol throughout: **walk-forward**, train on seasons ≤ N, predict 
 N = 2013…2024. Report MAE and RMSE in wins, plus calibration (are our 80% intervals
 actually 80%?). Compare against three baselines.
 
-| Stage | Deliverable | Gate |
-|---|---|---|
-| **0** | Data layer: cached, point-in-time-correct player-season table, 2005-06→present | Reproducible from scratch; no future leakage |
-| **1** | **Baselines.** (a) previous-season wins, (b) mean-reverted previous wins, (c) market closing line | Establishes the bar. *Nothing counts as progress until it beats (b).* |
-| **2** | Player impact metric + aging model + shrinkage | Player-level year-over-year predictive R² |
-| **3** | Minutes/availability model incl. injury history | Minutes MAE; must respect 240/game |
-| **4** | Additive team aggregation → net rating | Team net-rating MAE |
-| **5** | Monte Carlo season sim → win distributions | Beats baseline (b); intervals calibrated |
-| **6** | **Fit as residual structure** (§3) — diminishing-returns curves | Must improve stage-5 walk-forward MAE, else drop |
-| **7** | Coaching / continuity as shrunk effects | Same gate |
-| **8** | Market comparison dashboard; contract-year hypothesis test | — |
+Current outcomes below. See CLAUDE.md for the live numbers; this table records how each
+stage resolved against its gate.
 
-Stages 6 and 7 are the ones most likely to be **rejected by their own gate**. That's a
-successful outcome, not a failed one: it's the finding.
+| Stage | Deliverable | Outcome |
+|---|---|---|
+| **0** | Data layer, point-in-time-correct, 2005-06→2025-26 | ✅ 21 seasons, 10.6k player-seasons cached |
+| **1** | Baselines: prev wins, mean-reverted, market | ✅ Gate = mean-reverted (8.13 MAE); market = 6.88 |
+| **2** | Player impact + aging + shrinkage | ✅ Beats "reuse last season" by 9.4% year-over-year |
+| **3** | Minutes / availability incl. injury history | ✅ Availability MAE 0.186; replacement level −1.45 |
+| **4** | Additive team aggregation → net rating | ✅ Near-parameter-free; calibration fit per fold |
+| **5** | Monte Carlo sim → calibrated win distributions | ✅ Shipped; 80% intervals at 79.6% coverage |
+| **5b** | One-year residual carryover | ✅ **8.30 → 7.95 MAE**; the one verified win |
+| **6** | Fit as residual structure (diminishing returns) | ❌ **Rejected** — null out-of-sample, sign opposite hypothesis |
+| **7** | Coaching / continuity as shrunk effects | 🟡 Trait is real but hurt the backtest; blocked on mis-dated coach data |
+| **8** | Market comparison + contract-year test | 🟡 Historical + live projections done; live Kalshi/Polymarket pending |
+| **RAPM** | Play-by-play defensive plus-minus | 🟡 Pipeline + box-informed estimator validated; integration gated on overnight pull |
+
+Stage 6 was **rejected by its own gate** — a successful outcome, not a failure: it's the
+finding. The residual it was meant to explain turned out to be one-year memory (Stage 5b),
+not a diminishing-returns "fit" structure.
 
 ---
 

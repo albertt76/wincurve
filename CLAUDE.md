@@ -54,9 +54,14 @@ should carry their own legend.
 A. Player talent projection   (impact per 100 possessions, aging, shrinkage)
 B. Minutes & availability     (240 min/game budget, injuries, replacement level)
 C. Team aggregation           (minute-weighted sum -> off/def rating)
-D. Monte Carlo season sim     (real schedule, home court, rest -> win distribution)
-E. Market comparison          (downstream only)
+D. One-year carryover         (+ rho * last-season residual; error persists ~1 season)
+E. Monte Carlo season sim     (real schedule, home court, rest -> win distribution)
+F. Market comparison          (downstream only)
 ```
+
+Defensive metric upgrade (box-informed RAPM from play-by-play) is built and validated but
+not yet integrated — see the RAPM section. Layer A's defensive component is the model's
+weakest link.
 
 **Why bottom-up:** 21 seasons x 30 teams = **630 team-seasons**. That is far too few
 rows to fit a team-level model with the many features originally envisioned (positional
@@ -77,20 +82,26 @@ can actually support.
 Walk-forward means: to predict season N, train only on seasons before N. All errors in
 82-game-equivalent wins, lower is better.
 
-| Baseline | MAE | RMSE |
+**Current shipped model** (roster mode + one-year carryover), 2017-18..2025-26:
+
+| Model / baseline | MAE | Notes |
 |---|---|---|
-| Market (preseason win total), excl. 2019-20 | **6.67** | 8.53 |
-| Market, all seasons | 6.70 | 8.57 |
-| Mean-reverted previous wins ← *the naive bar* | 8.07 | 10.01 |
-| Previous wins (persistence) | 8.75 | 11.19 |
-| Always .500 | 10.18 | 12.30 |
-| *Theoretical binomial noise floor* | *3.44* | *4.31* |
+| Market (preseason win totals) | **6.88** | the yardstick; we do not beat it |
+| **wincurve — roster mode + carryover** | **7.95** | 80% intervals calibrated (79.6% coverage) |
+| Leaky upper bound (actual roster + minutes) | 7.11 | ceiling given perfect roster knowledge |
+| Mean-reverted previous wins ← *the gate* | 8.13 | every stage must clear this |
+| Previous wins (persistence) | 8.75 | |
+| Always .500 | 10.18 | |
+| *Theoretical binomial noise floor* | *3.44* | not achievable (see below) |
 
-Fitted mean-reversion coefficient **k ≈ 0.62**, stable across folds (0.610–0.649):
-teams retain about 62% of their distance from .500 year over year.
+Longer-window baseline figures (2013-14..2025-26): market 6.67 excl. 2019-20, naive 8.07.
+Fitted mean-reversion coefficient **k ≈ 0.62**, stable across folds: teams retain ~62% of
+their distance from .500 year over year. Implied true-talent spread is **SD ≈ 11.6 wins**
+vs **4.3 wins** of luck, so talent variation dwarfs randomness and projection is worth doing.
 
-Implied true-talent spread is **SD ≈ 11.6 wins** vs **4.3 wins** of luck, so talent
-variation dwarfs randomness and projection is worth doing.
+**The honest read:** we do not beat the market on aggregate accuracy, and should not expect
+to. The deliverable is per-team *disagreement* with an attached explanation, plus calibrated
+intervals that widen for genuinely uncertain (high-turnover) teams.
 
 ### ⚠️ How to read the noise floor honestly
 
@@ -234,31 +245,32 @@ scripts/
     which is correct.
 - ✅ **Stage 4** — Team aggregation built, minute budget enforced, calibration fitted
   per fold on *projected* aggregates.
-- 🔴 **Stage 5** — Simulation built and running end-to-end; **still fails its gate on
-  genuinely preseason-only information.** Identical seasons (2017-18..2025-26):
-
-  | Variant | Information used | MAE (wins) |
-  |---|---|---|
-  | Market | — | **6.88** |
-  | Leaky upper bound | actual roster + actual minutes | 7.25 |
-  | First-15-games roster | + 15 games of real rotation | 8.24 |
-  | Mean-reverted previous wins (**the gate**) | — | **8.13** |
-  | **Opening-day roster (most honest)** | **preseason only** | **8.44** |
-
-  **Key finding from the roster work:** reconstructed opening-day rosters perform *worse*
-  (8.44) than the first-15-games approach (8.24), which was the opposite of the
-  expectation. The 15-game window's advantage was never roster *identity* — it was
-  observing the coach's actual minute distribution. So the earlier "realistic" 8.24 was
-  flattered by rotation leakage, and **8.44 is our true honest number.**
-
-  **This localises the largest remaining lever: minutes projection.** Prior-season
-  minutes-per-game → observed early-season rotation is worth 0.2 wins; → actual
-  full-season minutes is worth 1.2 wins. Talent projection is no longer the bottleneck.
-
-  Interval calibration still unchecked.
-- ⬜ **Stage 6** — Fit as residual structure (diminishing returns). *Gate may reject.*
-- ⬜ **Stage 7** — Coaching / roster continuity as shrunk effects. *Gate may reject.*
-- ⬜ **Stage 8** — Live Kalshi/Polymarket comparison + contract-year hypothesis test
+- ✅ **Stage 5** — Monte Carlo simulation shipped; intervals **calibrated** (nominal 80%
+  → 79.6% coverage) after the recency-weighted sigma fix and two simulation bug fixes
+  (residual-margin denominator; neutral-site games). Two roster-knowledge variants are
+  reported so leakage is visible; the honest preseason number is **roster mode = 8.34**,
+  cut to **7.95 by the carryover** below.
+- ✅ **Stage 5b — one-year residual carryover** (`nbaproj/carryover.py`). The team-rating
+  error persists ~1 season; adding rho·(last-season residual) improves roster-mode MAE
+  **8.30 → 7.95 (+0.35 wins)** and lifts coverage 77% → 80%. Suppressed after shortened
+  prior seasons. **The one change this project made that both beat the backtest gate and
+  survived adversarial verification.**
+- ✅ **Stage 6 — "fit" as residual structure: tested, REJECTED.** Depth/concentration
+  features are null out-of-sample once team quality is controlled, and their sign is
+  *opposite* the folk hypothesis. Diminishing-returns curves not worth carrying. See the
+  negative-results table. (The residual *does* have structure — one-year memory — captured
+  by the carryover, which is not a "fit" term.)
+- 🟡 **Stage 7 — coaching / continuity.** Minute-concentration is a real coach trait
+  (intraclass 0.45) but using it hurt the backtest; roster-continuity persistence is real
+  but the interaction it implies is not significant. **Blocked on data:** `team_coaches`
+  is mis-dated by one season at changes — re-pull before further coaching work.
+- 🟡 **Stage 8 — market comparison.** Historical market baseline done (bbref preseason
+  win totals). Live 2026-27 projections generated with per-team calibrated intervals and
+  the interactive UI. Still to do: live Kalshi/Polymarket pull for the 2026-27 comparison,
+  and the contract-year hypothesis test.
+- 🟡 **Defensive metric / RAPM** — pipeline + box-informed estimator built and validated;
+  integration gated on the (overnight) multi-season play-by-play pull. See the RAPM
+  section below.
 
 ### Offseason movement & absences — how each is handled
 
