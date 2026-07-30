@@ -355,6 +355,13 @@ Full-season 2024-25 RAPM (plain, no prior needed at full data): Gobert #1 on def
 defense reconstruction **0.83 vs box-score 0.68**. The box-informed variant remains the
 architecture for partial/early-season data.
 
+**✅ Cross-season predictive test PASSED (the non-circular one).** For 2021-22..2024-25
+(4 seasons pulled from bulk), predicting each team's defense from its roster's PRIOR-season
+defensive metric: RAPM beats the box score in all 3 transitions -- mean correlation **0.546
+(RAPM) vs 0.401 (box)**. Out-of-sample, so not circular. RAPM defense is a genuinely better
+predictor of future team defense. Indicative not decisive (only 3 transitions; the bulk
+mirror has nbastats through 2024-25). Script: `scripts/rapm_predict.py`.
+
 **Still to do**Still to do (needs the full multi-season pull):**
 1. Complete 2024-25, then pull 2023-24 (or more) -- single-season RAPM has team-defense
    bleed that multi-season data reduces.
