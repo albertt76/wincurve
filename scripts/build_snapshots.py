@@ -244,6 +244,34 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
     }
 
 
+def _attach_market(teams: list[dict], season_key: str, meta_out: dict) -> list[dict]:
+    """Attach live prediction-market win totals to the current-season teams (by abbr).
+
+    Downstream-only: the market never touches the model, it is placed beside it in the UI
+    so a reader can see where and by how much we disagree with the crowd. Missing file =>
+    teams pass through untouched (the UI simply shows no market marker).
+    """
+    mpath = PROC / "market_2026_27.json"
+    if not mpath.exists():
+        print("  (no market_2026_27.json -- run scripts/fetch_market.py to add the "
+              "market comparison)")
+        return teams
+    mkt = json.loads(mpath.read_text())
+    by_abbr = mkt.get("teams", {})
+    meta_out["market_source"] = mkt.get("source")
+    n = 0
+    for t in teams:
+        m = by_abbr.get(t["abbr"])
+        if not m or m.get("wins") is None:
+            continue
+        t["mkt_wins"] = m["wins"]
+        t["mkt_p10"] = m.get("p10")
+        t["mkt_p90"] = m.get("p90")
+        n += 1
+    print(f"  market: attached Kalshi lines to {n}/{len(teams)} teams")
+    return teams
+
+
 def main() -> int:
     logging.basicConfig(level=logging.WARNING)
     from nba_api.stats.static import teams as static_teams
@@ -275,9 +303,11 @@ def main() -> int:
 
     # Current season from the existing live bundle.
     cur_path = PROC / "projections_current.json"
+    market_meta = {}
     if cur_path.exists():
         cur = json.loads(cur_path.read_text())
         key = cur["meta"]["season"]
+        teams = _attach_market(cur["teams"], key, market_meta)
         snapshots[key] = {
             "season": key, "season_start": int(key[:4]), "is_current": True,
             "snapshot_date": cur["meta"].get("snapshot_date"),
@@ -285,7 +315,7 @@ def main() -> int:
             "rating_intercept": cur["meta"].get("rating_intercept"),
             "sigma_base": cur["meta"].get("sigma_base"),
             "rho_carryover": cur["meta"].get("rho_carryover"),
-            "season_mae": None, "teams": cur["teams"], "grid": cur["grid"],
+            "season_mae": None, "teams": teams, "grid": cur["grid"],
         }
         print(f"  {key}: current (live snapshot {cur['meta'].get('snapshot_date')})")
 
@@ -297,6 +327,7 @@ def main() -> int:
                 replacement_level(data["imp"], "impact")), 3),
             "wins_per_rating_point": WINS_PER_PT,
             "market_mae": 6.88,
+            "market_source": market_meta.get("market_source"),
             "seasons": sorted(snapshots.keys()),
         },
         "snapshots": snapshots,
