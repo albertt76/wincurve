@@ -1,0 +1,13 @@
+{
+  "_README": [
+    "Known absences for the upcoming season: injuries, suspensions, ",
+    "anything already announced. This file is manual on purpose -- there is ",
+    "no reliable free feed for forward-looking absences, and guessing would ",
+    "be worse than asking. Anything not listed here is handled ",
+    "statistically by the availability model instead.",
+    "games_missed is the expected number of the team's games the player ",
+    "will miss. player_id must match nba_api PERSON_ID."
+  ],
+  "snapshot_date": "2026-07-29",
+  "absences": []
+}

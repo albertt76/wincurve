@@ -17,16 +17,18 @@ player features and the model is linear, the identity
 holds algebraically -- which is why this formulation was chosen over a metric that
 has to be reconciled with team totals after the fact.
 
-**It does not yet hold in practice, and the gap is measured.** Regressing actual team
-net rating on aggregated impact gives a slope of ~7.7 where the algebra predicts 5.
-The cause is that players under ``MIN_MINUTES_FOR_RATES`` get no impact estimate, so
-the weights do not sum to the team's full minute budget -- and the excluded players
-are systematically below average, so the surviving average is biased upward by an
-amount that varies from team to team.
+**The identity is only as faithful as the regularisation allows.** Regressing actual
+team net rating on aggregated impact yields a slope near 5 only when the ridge penalty
+is weak. Measured: 5.42 at alpha~0, 5.67 at alpha=1, 7.01 at alpha=10, 10.06 at
+alpha=50. Ridge deliberately shrinks coefficients, which compresses the spread of
+fitted impacts, which in turn inflates the slope of the target on the prediction.
+That is regularisation behaving as designed, not a data defect.
 
-The fix is a replacement-level value assigned to uncovered minutes, which is Stage 3
-work (it is also what makes injury adjustment coherent). Until then, treat aggregated
-impact as needing an empirical rescaling rather than as a calibrated quantity.
+Two earlier explanations for the slope gap were investigated and **disproved**: it is
+not caused by players under ``MIN_MINUTES_FOR_RATES`` lacking estimates (covered
+minute share is 98.1%, and assigning replacement level to the remainder moved the
+slope only 7.73 -> 7.88), and it is not caused by traded-player misattribution.
+Recording that here because the wrong cause was written into this file twice.
 
 ## The known, important weakness
 
@@ -73,7 +75,12 @@ OFFENSE_FEATURES = ["pts_p100", "fg3m_p100", "fga_p100", "fta_p100", "ast_p100",
 DEFENSE_FEATURES = ["stl_p100", "blk_p100", "dreb_p100", "pf_p100", "def_rating_rel"]
 ALL_FEATURES = list(dict.fromkeys(OFFENSE_FEATURES + DEFENSE_FEATURES))
 
-RIDGE_ALPHA = 10.0
+# Deliberately weak. A sweep over the aggregation slope (which theory pins at 5.0)
+# gave 5.42 at alpha~0, 5.67 at 1.0, 7.01 at 10.0 and 10.06 at 50.0 -- and r-squared
+# was *highest* at the low end too. 630 team-seasons against 9 features is more data
+# than the collinearity warranted, so the original alpha=10 was over-insured: it
+# shrank the coefficients enough to visibly distort the metric's scale.
+RIDGE_ALPHA = 1.0
 
 # A player occupies one of five spots on the floor. Because team features are
 # minute-weighted *averages* of player features, the fitted linear model satisfies

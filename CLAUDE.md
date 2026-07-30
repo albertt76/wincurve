@@ -198,15 +198,52 @@ scripts/
   level (net-rating r-squared 0.84) since every team plays centres ~48 min/game.
   **Known defect:** aggregation slope is 7.7 where algebra predicts 5, because
   sub-threshold players get no estimate — replacement level in Stage 3 is the fix.
-- ⬜ **Stage 3** — Minutes & availability model (injury history, 240-min budget,
-  replacement level)
+- 🟡 **Stage 3** — Availability model **validated**; roster/rookie/override machinery
+  **built**; minute-allocation accuracy cannot be fully validated until Stage 4 ties it
+  to team outcomes.
+  - Availability: MAE 0.186 vs 0.205 for "reuse last season" and 0.219 for league
+    average. Still ~15 games of error per player-season — injuries are largely
+    irreducible, as expected.
+  - Replacement level = **-1.45** points per 100 possessions (average of 250-750
+    minute players).
+  - Rookie priors by draft bucket: top-3 picks 92% play, ~1,677 minutes, impact -0.10;
+    picks 31-60 71% play, ~331 minutes, impact -4.06. All rookie impacts are negative,
+    which is correct.
 - ⬜ **Stage 4** — Additive team aggregation → off/def rating
 - ⬜ **Stage 5** — Monte Carlo season simulation → calibrated win distributions
 - ⬜ **Stage 6** — Fit as residual structure (diminishing returns). *Gate may reject.*
 - ⬜ **Stage 7** — Coaching / roster continuity as shrunk effects. *Gate may reject.*
 - ⬜ **Stage 8** — Live Kalshi/Polymarket comparison + contract-year hypothesis test
 
+### Offseason movement & absences — how each is handled
+
+| Factor | Status | Mechanism |
+|---|---|---|
+| Trades, free agency | ✅ | `commonteamroster` live snapshot (2026-27 already posted) |
+| Retirements | ✅ | Retired players are simply absent from rosters |
+| First-round picks / rookies | ✅ | Draft-position priors in `nbaproj/rosters.py` |
+| Injury/suspension **risk** | ✅ | Availability model from games-missed history + age |
+| **Specific known absences** | ⚠️ manual | `data/overrides/known_absences.json` — no free feed exists |
+
+**A projection is only as current as its snapshot date.** Trades continue all season; a
+July projection cannot know about a November deal. Always record the snapshot date with
+any output. Historical injury *reasons* are unavailable — Pro Sports Transactions is
+behind a Cloudflare bot challenge we will not bypass — so absences mix injury with
+rest, suspension and coach's decision. Hence the name "availability", not "health".
+
 ### Findings worth keeping
+
+- **Age × injury-history interaction: directionally real, practically useless.** The
+  interaction coefficient had the hypothesised sign in **16 of 16** walk-forward folds
+  (history matters more as players age), but adding it moved MAE from 0.1861 to 0.1860.
+  Age matters directly instead: roughly -1 percentage point of availability per year.
+- **The Stage 2 aggregation-slope anomaly was ridge over-regularisation**, not missing
+  players. Two earlier explanations were wrong and are recorded as disproved in
+  `impact.py`. Slope against theory's 5.0: 5.42 at alpha~0, 5.67 at 1.0, 7.01 at 10.0,
+  10.06 at 50.0. Alpha lowered 10 → 1. **Open tradeoff:** alpha=1 improves team-level
+  fit but widens individual impact to -14.4..+22.4 (wider than published metrics) and
+  raises defensive impact's correlation with rebounding from 0.89 to 0.96. Final alpha
+  should be chosen by downstream win-projection MAE once Stage 5 exists.
 
 - **Peak age is ~25 for overall impact**, well before the popular 28-30 belief — and
   peaks genuinely differ by skill: three-point volume holds latest (~29), steals peak
