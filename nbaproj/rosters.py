@@ -122,20 +122,24 @@ def fit_rookie_priors(impact: pd.DataFrame, draft: pd.DataFrame,
 
 
 def rookie_projection(priors: pd.DataFrame, pick: float | None) -> dict[str, float]:
-    """Look up the prior for a given draft slot; undrafted falls to the last bucket."""
+    """Look up the prior for a given draft slot; undrafted falls to the last bucket.
+
+    Carries the offensive and defensive components as well as the total, so the decoupled
+    projection can value a rookie's offense and defense separately.
+    """
+    def _row(row: pd.Series, source: str, minutes: float | None = None) -> dict[str, float]:
+        return {"exp_impact": float(row["exp_impact"]),
+                "exp_off_impact": float(row.get("exp_off_impact", 0.0)),
+                "exp_def_impact": float(row.get("exp_def_impact", 0.0)),
+                "exp_minutes": float(row["exp_minutes"]) if minutes is None else minutes,
+                "source": source}
+
     if pick is None or pd.isna(pick):
-        tail = priors.iloc[-1]
-        return {"exp_impact": float(tail["exp_impact"]),
-                "exp_minutes": UNDRAFTED_PRIOR_MINUTES,
-                "source": "undrafted"}
+        return _row(priors.iloc[-1], "undrafted", UNDRAFTED_PRIOR_MINUTES)
     for _, row in priors.iterrows():
         if row["pick_lo"] <= pick <= row["pick_hi"]:
-            return {"exp_impact": float(row["exp_impact"]),
-                    "exp_minutes": float(row["exp_minutes"]),
-                    "source": f"pick {int(row['pick_lo'])}-{int(row['pick_hi'])}"}
-    tail = priors.iloc[-1]
-    return {"exp_impact": float(tail["exp_impact"]),
-            "exp_minutes": float(tail["exp_minutes"]), "source": "beyond-range"}
+            return _row(row, f"pick {int(row['pick_lo'])}-{int(row['pick_hi'])}")
+    return _row(priors.iloc[-1], "beyond-range")
 
 
 # --- Known absences -----------------------------------------------------------
