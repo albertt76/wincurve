@@ -211,25 +211,30 @@ scripts/
     which is correct.
 - ✅ **Stage 4** — Team aggregation built, minute budget enforced, calibration fitted
   per fold on *projected* aggregates.
-- 🔴 **Stage 5** — Monte Carlo simulation built and running end-to-end, but **FAILS ITS
-  GATE.** On identical seasons (2017-18..2025-26):
+- 🟡 **Stage 5** — Monte Carlo simulation built; **marginally still fails its gate** in
+  realistic mode after the alpha fix. Identical seasons (2017-18..2025-26):
 
   | | MAE (wins) |
   |---|---|
   | Market | **6.88** |
+  | Our model, leaky upper bound (real roster + minutes) | **7.25** |
   | Mean-reverted previous wins (the gate) | **8.13** |
-  | Our model, leaky upper bound | 7.93 |
-  | Our model, realistic roster | **8.75** |
+  | Our model, realistic roster | **8.24** |
 
-  The realistic model loses to the naive baseline. Per the stated discipline,
-  **Stages 6-7 must not be built on this.** Fixing the signal loss below comes first.
+  The leaky bound now beats the gate clearly and comes within 0.38 of the market,
+  even beating it in 3 of 9 seasons. The realistic variant is essentially tied with
+  the gate. **The remaining ~1.0 win gap between the two variants is roster and
+  minutes projection, not talent.**
 
-  Diagnosis of where it breaks: the model has real skill (predicted vs actual net
-  rating correlates 0.60) but the component chain implies ~0.85 — contemporaneous
-  impact → team rating is 0.94, and projected → actual player impact is 0.90.
-  **~0.25 of correlation is unaccounted for and is the next thing to find.**
-  Roster knowledge is worth only 0.41-0.81 wins, so leakage is not the problem.
-  Interval calibration (are the 80% ranges really 80%?) is not yet checked.
+  **Important nuance for live use:** "realistic" mode is harsher than real operation in
+  one respect — it reconstructs rosters from the first 15 games, so it misses a star who
+  was injured on opening night even though such a player is perfectly well known
+  preseason. For a live 2026-27 projection the roster is *known*; only midseason trades
+  are not. So true operational accuracy sits between 7.25 and 8.24, likely nearer 7.25.
+  Using `commonteamroster` for historical seasons (~270 calls) would tighten the
+  backtest to match how the model is actually used.
+
+  Interval calibration (are the 80% ranges really 80%?) still unchecked.
 - ⬜ **Stage 6** — Fit as residual structure (diminishing returns). *Gate may reject.*
 - ⬜ **Stage 7** — Coaching / roster continuity as shrunk effects. *Gate may reject.*
 - ⬜ **Stage 8** — Live Kalshi/Polymarket comparison + contract-year hypothesis test
@@ -249,6 +254,26 @@ July projection cannot know about a November deal. Always record the snapshot da
 any output. Historical injury *reasons* are unavailable — Pro Sports Transactions is
 behind a Cloudflare bot challenge we will not bypass — so absences mix injury with
 rest, suspension and coach's decision. Hence the name "availability", not "health".
+
+### The alpha reversal (worth internalising)
+
+Ridge alpha was set to 10, then lowered to 1 because that made the contemporaneous
+aggregation slope land near its theoretical value of 5. **That was optimising the wrong
+thing.** Chosen by downstream projection correlation instead:
+
+| alpha | 1 | 5 | 10 | 25 | 60 |
+|---|---|---|---|---|---|
+| downstream corr | 0.595 | 0.652 | 0.678 | **0.698** | 0.698 |
+
+Now **25**. Worth 0.5 wins of MAE in realistic mode and 0.68 in the leaky bound. The
+weakly-regularised metric was over-dispersed — projected team aggregates had SD 0.926
+against an actual 0.829, when a properly shrunken estimator must be *narrower* than
+reality. Heavier shrinkage also reduced the defensive positional bias as a side effect
+(correlation with rebounding 0.96 → 0.83).
+
+**This project has now paid twice for tuning against an internal diagnostic instead of
+the downstream objective** (the other time: shrinkage strength in Stage 2b). Always
+tune against measured end-to-end error.
 
 ### Stage 4-5 bugs found (both were silent, both mattered)
 

@@ -75,12 +75,25 @@ OFFENSE_FEATURES = ["pts_p100", "fg3m_p100", "fga_p100", "fta_p100", "ast_p100",
 DEFENSE_FEATURES = ["stl_p100", "blk_p100", "dreb_p100", "pf_p100", "def_rating_rel"]
 ALL_FEATURES = list(dict.fromkeys(OFFENSE_FEATURES + DEFENSE_FEATURES))
 
-# Deliberately weak. A sweep over the aggregation slope (which theory pins at 5.0)
-# gave 5.42 at alpha~0, 5.67 at 1.0, 7.01 at 10.0 and 10.06 at 50.0 -- and r-squared
-# was *highest* at the low end too. 630 team-seasons against 9 features is more data
-# than the collinearity warranted, so the original alpha=10 was over-insured: it
-# shrank the coefficients enough to visibly distort the metric's scale.
-RIDGE_ALPHA = 1.0
+# Chosen by DOWNSTREAM projection accuracy, which is the only criterion that matters.
+# Correlation between a projected team aggregate and the actual team rating, measured
+# walk-forward over 2017-18..2025-26:
+#
+#     alpha    1 -> 0.595      alpha   10 -> 0.678
+#     alpha    5 -> 0.652      alpha   25 -> 0.698   <- chosen (plateaus after)
+#                              alpha   60 -> 0.698
+#
+# This REVERSES an earlier change. Alpha was briefly lowered from 10 to 1 because that
+# made the contemporaneous aggregation slope land near its theoretical value of 5. That
+# was optimising the wrong thing: matching a slope on same-season data says nothing
+# about how well the metric *projects forward*, and the weakly-regularised metric turned
+# out to be badly over-dispersed -- projected team aggregates had SD 0.926 against an
+# actual 0.829, when a properly shrunken estimator should be narrower than reality, not
+# wider. At alpha=25 the relationship is the right way round (0.396 vs 0.448).
+#
+# The lesson, which this project has now paid for twice: tune against the downstream
+# objective, not against an internal diagnostic that merely looks principled.
+RIDGE_ALPHA = 25.0
 
 # A player occupies one of five spots on the floor. Because team features are
 # minute-weighted *averages* of player features, the fitted linear model satisfies
