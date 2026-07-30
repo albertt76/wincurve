@@ -195,7 +195,8 @@ roster reason). Refresh through the season with `fetch_market.py --refresh`.
 (`<details>` at the foot) defines every number. The player table now has an **≈ Wins**
 column — the WAR-like (wins-above-replacement) translation of Impact, since **Impact itself
 is a per-100-possession rate, not a win count**. The panel shows **Minutes supplied /240**,
-which surfaces bloated off-season rosters (see the roster-bloat defect below). The
+which surfaces deep off-season rosters (see the roster-bloat investigation below — the
+"bloat" was checked and is not a defect). The
 green/red edit delta is now tooltip-labelled "change from the original projection".
 
 
@@ -337,20 +338,26 @@ any output. Historical injury *reasons* are unavailable — Pro Sports Transacti
 behind a Cloudflare bot challenge we will not bypass — so absences mix injury with
 rest, suspension and coach's decision. Hence the name "availability", not "health".
 
-### ⚠️ KNOWN DEFECT: bloated summer rosters in the live pull (surfaced by the market comparison)
+### ✅ INVESTIGATED & RESOLVED: the "bloated summer rosters" hypothesis was WRONG
 
-`commonteamroster` in July returns **20-24 player rosters** — camp invites, two-ways, and
-just-acquired players still carrying their *old* team's minutes — so 8 of 30 teams supply
-**>290 player-minutes/game** against the 240 budget (ATL 359, UTA 350, MIL/MEM/WAS ~325).
-The aggregation (`scripts/project_current.py`) is a minute-weighted **mean** impact over
-*all* rostered players, so negative-impact camp bodies drag the aggregate down. This makes
-ATL project to 31 wins vs the Kalshi market's 45, and similarly depresses UTA/MIL/MEM/WAS/
-CHA/PHI/DAL — **most of the biggest "disagreements" are this artifact, not signal.** The
-historical backtest is clean because it uses `roster_opening_day` (already ~15). The fix
-is to trim the current roster to an opening-day-like rotation before aggregating, matching
-how the model was trained. The UI now shows **Minutes supplied /240** per team so the bloat
-is visible; a fix is tracked but not yet applied (methodology change → wants validation and
-sign-off). Do not read the flagged teams' market gaps as findings until this is fixed.
+The market comparison flagged that `commonteamroster` in July returns **20-24 player
+rosters** — camp invites, two-ways, and just-acquired players still carrying their *old*
+team's minutes — so 8 of 30 teams supply **>290 player-minutes/game** against the 240 budget
+(ATL 353, UTA 342, MIL/MEM/WAS ~320). The natural worry was that the minute-weighted **mean**
+aggregation (`scripts/project_current.py`) lets negative-impact camp bodies drag the aggregate
+down, making ATL project to 31 vs the Kalshi market's 45 (and similarly UTA/MIL/MEM/WAS/CHA/
+PHI/DAL). **That worry was investigated in full and rejected** — see the roster-"bloat" entry
+in the negative-results table below for the evidence. In short: the historical training rosters
+are *also* over budget (median 272 mpg), the minute-weighted mean already down-weights camp
+bodies (excluding them moves ATL only +1.6 wins, ~0 relative), **capping the roster fails the
+walk-forward gate (7.95 → 8.04)**, and there is no scale or data bug. **ATL 31 vs 45 is the
+defensive-metric weakness** (Dyson Daniels, Dort, NAW — elite perimeter defenders the box score
+underrates), i.e. a *legitimate* per-team disagreement, which is the tool's deliverable. So the
+flagged gaps **can** be read as findings, with the defensive-metric caveat. The UI's **Minutes
+supplied /240** stat stays as useful context. This is what motivated the RAPM integration test
+(above); RAPM is the structural fix for exactly these high-turnover teams, though it did not
+clear the aggregate gate. `roster_opening_day` does **not** trim to ~15 — it keeps ~19, same
+as the live snapshot; that earlier claim was mistaken.
 
 ### The alpha reversal (worth internalising)
 
@@ -646,8 +653,9 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
 - ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). bbref Vegas
   still 404; Polymarket has no per-team win-total market. Re-check bbref later for the Vegas
   over/under (would add a second live line).
-- ⬜ **Fix bloated summer rosters** (see KNOWN DEFECT above) before trusting the flagged
-  teams' market gaps.
+- ✅ **"Bloated summer rosters" investigated and rejected** — not a defect; trimming fails
+  the gate and the flagged gaps are real (defensive-metric) disagreements. See the
+  INVESTIGATED & RESOLVED note and the negative-results table.
 - ⬜ Contract/salary history unsourced (only needed for the contract-year test)
 - ⬜ Roster definition for backtest: plan is to reconstruct opening-night rosters from
   each season's first games. Using full-season rosters would understate real-world
