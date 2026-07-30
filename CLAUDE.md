@@ -12,7 +12,8 @@ analytically-driven model disagrees with the market.
 betting.** The deliverable is *explainable per-team disagreement* — "we differ from
 the market on this team, and here is the structural reason why."
 
-Current projection target: **2026-27 season**. Shipped backtest MAE (roster mode + carryover): **7.95 wins** vs market 6.88.
+Current projection target: **2026-27 season**. Shipped backtest MAE (roster mode + carryover +
+RAPM defensive blend): **7.77 wins** vs market 6.88 (was 7.95 before the RAPM def-blend).
 
 See [DESIGN.md](DESIGN.md) for full architecture, statistical traps, and staged plan.
 
@@ -99,7 +100,8 @@ Walk-forward means: to predict season N, train only on seasons before N. All err
 | Model / baseline | MAE | Notes |
 |---|---|---|
 | Market (preseason win totals) | **6.88** | the yardstick; we do not beat it |
-| **wincurve — roster mode + carryover** | **7.95** | 80% intervals calibrated (79.6% coverage) |
+| **wincurve — roster + carryover + RAPM def-blend** | **7.77** | shipped; all 9/9 folds beat the box-only model |
+| wincurve — roster mode + carryover (box def only) | 7.95 | the prior shipped model, before the RAPM blend |
 | Leaky upper bound (actual roster + minutes) | 7.11 | ceiling given perfect roster knowledge |
 | Mean-reverted previous wins ← *the gate* | 8.13 | every stage must clear this |
 | Previous wins (persistence) | 8.75 | |
@@ -243,7 +245,7 @@ per-team grid of simulated win distributions across rating offsets is interpolat
 keeps real schedule strength intact without running a simulation in the browser.
 
 **Caveats are stated in the page itself, deliberately:** that the model does not beat the
-market on aggregate accuracy (7.95 vs 6.88 MAE), that single-player what-ifs extrapolate the
+market on aggregate accuracy (7.77 vs 6.88 MAE), that single-player what-ifs extrapolate the
 calibration slope further than the backtest validated, and (upcoming season) that the market
 ring is shown-only and never an input. Do not remove them.
 
@@ -345,16 +347,17 @@ scripts/
   separately (`decouple=True`); MAE-neutral (`scripts/gate_decouple.py`: 7.960 → 7.957 excl.
   short folds, coverage 80.0 → 80.7%). Shipped because it unlocks the per-team off/def split
   and the per-player defensive-disagreement surface in the UI.
-- 🟡 **Defensive metric / RAPM** — pipeline, box-informed estimator, and the **deciding
-  end-to-end integration test all done** (RAPM now covers **2013–2025**). Verdict: RAPM is the
-  better defensive metric but the one-year carryover already substitutes for it, so the blanket
-  swap is MAE-neutral; a turnover-weighted blend gains a modest +0.16 wins. **Not shipped into
-  the projection** — see the RAPM section below — but now **surfaced per-player in the UI** as
-  box-vs-RAPM `D↑/D↓` flags (`nbaproj.rapm.box_vs_rapm_by_player`), using each player's most
-  recent RAPM (now 2025-26). The **live-deployment blocker is resolved**: the bulk mirror ships
-  2025-26 play-by-play only in the newer PlayByPlayV3 schema, which `nbaproj.bulk_pbp` now
-  reconstructs (validated RAPM-equivalent, corr 0.99). Productionising the turnover-weighted
-  blend into the live projection is therefore now unblocked (future work).
+- ✅ **RAPM defensive blend — SHIPPED into the projection.** RAPM now covers **2013–2025**.
+  The blanket swap was MAE-neutral (the carryover substitutes for it on stable rosters), but
+  once defense is *decoupled* and given its own calibration, blending the box and RAPM
+  defensive team aggregates by **roster turnover** (`agg_def = (1−w)·box + w·rapm`, `w` = new-
+  minute share) clears the gate decisively: **7.96 → 7.77 excl-short, all 9/9 folds improved,
+  coverage 80 → 81%** (`scripts/gate_rapm_blend.py`, `nbaproj.rapm_blend`). It lives in the one
+  decoupled pipeline — no second arm — since a steady roster's defense is already handled by
+  box + carryover while RAPM's player-level value follows the churn the carryover can't. Pure
+  RAPM def also helps now (+0.14); the blend beats both. The UI recompute and the `D↑/D↓` flags
+  use it too. The 2025-26 live blocker was resolved by the PlayByPlayV3 reconstruction
+  (`nbaproj.bulk_pbp`, corr 0.99). See the RAPM section below.
 
 ### Offseason movement & absences — how each is handled
 
@@ -489,12 +492,18 @@ box prior, so it is scale-compatible and the swap is well-posed.)
   with turnover-weighting as the mechanistic story. Modest and borderline (fold-level t≈3,
   team-level t≈1.45), about half the carryover's own +0.35.
 
-**Why not shipped into the projection:** (1) blanket swap fails the aggregate gate; (2) the
-blend is real but borderline and adds a second full pipeline arm. The former **live blocker is
-now resolved** — 2025-26 play-by-play is available (v3 schema, reconstructed by
-`nbaproj.bulk_pbp`; `rapm_2025` built), so RAPM *can* now inform the live projection's
-most-recent season. Productionising the turnover-weighted blend is unblocked future work; for
-now RAPM is surfaced only as the UI's per-player `D↑/D↓` flags.
+**✅ SHIPPED as the turnover-weighted defensive blend** (`nbaproj.rapm_blend`,
+`scripts/gate_rapm_blend.py`). The blanket swap was neutral because the carryover substitutes
+for RAPM on stable rosters; the borderline +0.16 two-arm win-blend was superseded once defense
+was decoupled. Blending the box and RAPM **defensive aggregates** by roster turnover inside the
+one decoupled pipeline — `agg_def = (1−w)·box + w·rapm`, `w` = new-minute share, the defensive
+slope calibrated on the blend — improves win MAE **7.96 → 7.77 excl-short, all 9/9 folds, with
+equal-or-better coverage (80 → 81%)**. It beats both pure box and pure RAPM (both of which help
+now that def is decoupled): box + carryover handle a steady roster, RAPM's player-level value
+follows the churn the carryover can't. No second arm — it is one pipeline with a blended
+defensive aggregate. The 2025-26 live input was unblocked by the PlayByPlayV3 reconstruction.
+The what-if editor blends client-side too (per-player `defr` = projected RAPM defense, weight =
+`team.turnover`), so edits stay exact.
 
 ### ✅ 2025-26 play-by-play via PlayByPlayV3 (`nbaproj.bulk_pbp.build_segments_bulk_v3`)
 
