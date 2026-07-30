@@ -77,6 +77,32 @@ def box_vs_rapm_by_player(impact: pd.DataFrame, rapm_dir: str | Path, *,
         ["box_def", "def_rapm", "season_start"]].to_dict("index")
 
 
+def build_rapm_impact(impact: pd.DataFrame, rapm_dir: str | Path, *,
+                      alpha: int = 2000) -> pd.DataFrame:
+    """A copy of the impact table with the box-score `def_impact` replaced by box-informed
+    RAPM defense wherever a cached season estimate exists (`impact` recomputed as off + def).
+
+    Box-informed RAPM is anchored on the box prior, so the two are on the same scale and the
+    swap is well-posed. Players/seasons without a RAPM estimate keep their box defense. Used to
+    build the RAPM-defense arm that the projection blends toward on high-turnover rosters.
+    """
+    out = impact.copy()
+    new_def = out["def_impact"].to_numpy(dtype=float).copy()
+    for s in sorted(int(x) for x in out["season_start"].unique()):
+        f = Path(rapm_dir) / f"rapm_{s}_a{alpha}.parquet"
+        if not f.exists():
+            continue
+        rmap = pd.read_parquet(f).set_index("player_id")["def_rapm"]
+        mask = (out["season_start"] == s).to_numpy()
+        rows = np.where(mask)[0]
+        mapped = out.loc[mask, "player_id"].map(rmap).to_numpy(dtype=float)
+        take = ~np.isnan(mapped)
+        new_def[rows[take]] = mapped[take]
+    out["def_impact"] = new_def
+    out["impact"] = out["off_impact"] + out["def_impact"]
+    return out
+
+
 def build_design(segments: pd.DataFrame) -> tuple[sparse.csr_matrix, np.ndarray,
                                                   np.ndarray, list[int]]:
     """Build the offense/defense design matrix from segments.
