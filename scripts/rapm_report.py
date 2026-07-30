@@ -40,10 +40,12 @@ def main() -> int:
     ap.add_argument("--alpha", type=float, default=2000.0)
     args = ap.parse_args()
 
-    seg_path = PROC / f"segments_{args.season}.parquet"
+    seg_path = PROC / f"segments_bulk_{args.season}.parquet"
+    if not seg_path.exists():
+        seg_path = PROC / f"segments_{args.season}.parquet"
     if not seg_path.exists():
         print(f"no segments at {seg_path} -- run scripts/fetch_pbp.py --season "
-              f"{args.season} first")
+              f"{args.season} first (or scripts/fetch_pbp.py for the live path)")
         return 1
     seg = pd.read_parquet(seg_path)
     ngames = seg["game_id"].nunique()

@@ -340,12 +340,22 @@ the documented fix. Built and validated this session:
   Team-defense reconstruction (in-sample, 350 games): box alone 0.44, plain RAPM 0.67,
   **box-informed RAPM 0.69**.
 
-**Data is the blocker.** GameRotation is hard rate-limited by stats.nba.com; this session
-pulled only 350/1230 games of 2024-25 before being throttled to a standstill. The pull is
-resumable (`scripts/fetch_pbp.py --season 2024`, caches per game, skips done games) -- run
-it overnight when the limit resets.
+**Data blocker RESOLVED — switched to bulk play-by-play.** GameRotation was hard
+rate-limited (stalled at 350/1230 games). Now `nbaproj/bulk_pbp.py` downloads the same
+stats.nba.com play-by-play as static Apache-2.0 files from shufinskiy/nba_data (no key, no
+account, no rate limit, all seasons 1996-97+) and reconstructs lineups offline. A full
+season builds in **~50 seconds** vs the stalled live pull. Validated **RAPM-equivalent to
+exact GameRotation stints (correlation 0.99)** on the 349 games where we have both. Two
+reconstruction bugs found and fixed along the way: period-starter ordering (keep the
+earliest five), and the stats.nba.com SCORE column being "away - home" not "home - away"
+(which had silently swapped offense/defense — the fix took bulk-vs-exact correlation from
+-0.15 to 0.99).
 
-**Still to do (needs the full multi-season pull):**
+Full-season 2024-25 RAPM (plain, no prior needed at full data): Gobert #1 on defense, team-
+defense reconstruction **0.83 vs box-score 0.68**. The box-informed variant remains the
+architecture for partial/early-season data.
+
+**Still to do**Still to do (needs the full multi-season pull):**
 1. Complete 2024-25, then pull 2023-24 (or more) -- single-season RAPM has team-defense
    bleed that multi-season data reduces.
 2. Clean predictive test: does this season's box-informed RAPM predict NEXT season's team

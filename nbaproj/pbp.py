@@ -113,8 +113,11 @@ def build_segments(game_id: str) -> pd.DataFrame:
             continue
         hs0, as0 = _score_at(score, t0)
         hs1, as1 = _score_at(score, t1)
+        # Store each team's points, not just the margin -- RAPM needs real offensive points
+        # per side (see nbaproj.rapm.build_design).
         rec = {"game_id": game_id, "home_id": home_id, "away_id": away_id,
                "start_s": t0, "end_s": t1, "dur_s": t1 - t0,
+               "home_pts": hs1 - hs0, "away_pts": as1 - as0,
                "home_margin": (hs1 - hs0) - (as1 - as0),
                "poss": _estimate_possessions(t1 - t0)}
         for i, p in enumerate(home):
