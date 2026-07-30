@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import tarfile
+import unicodedata
 
 import numpy as np
 import pandas as pd
@@ -257,23 +259,193 @@ def _score_at(score: pd.DataFrame, t: float) -> tuple[float, float]:
     return float(row["home"]), float(row["away"])
 
 
+# --- PlayByPlayV3 --------------------------------------------------------------------
+#
+# For recent seasons the mirror ships only the newer PlayByPlayV3 schema (nbastatsv3_<year>),
+# which shares no columns with the v2 nbastats format above. It is in some ways cleaner --
+# explicit scoreHome/scoreAway, and an 'h'/'v' `location` per action -- but a substitution row
+# names only the OUTGOING player by id (`personId`); the INCOMING player is named, not id'd, in
+# the description ("SUB: <in> FOR <out>"). We resolve the incoming id from a per-game name map
+# combining `playerName`, `playerNameI` (the initial+last form used when last names collide on a
+# team), and the outgoing names from other subs (which carry ids), all diacritic-normalised; the
+# rare unresolved incoming gets a unique placeholder id (RAPM shrinks it to ~0). On the 2024
+# overlap this reconstruction is RAPM-equivalent to the v2 path: corr 0.99 total, 0.98 offense,
+# 0.98 defense.
+
+_V3_CLOCK = re.compile(r"PT(\d+)M([\d.]+)S")
+_V3_IN = re.compile(r"SUB:\s*(.+?)\s+FOR\s+")
+_V3_OUT = re.compile(r"\s+FOR\s+(.+)$")
+
+
+def _v3_norm(s: object) -> str:
+    return unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode().strip()
+
+
+def _v3_elapsed(period: int, clock: str) -> float:
+    """v3 clock 'PT07M02.00S' (remaining) -> seconds elapsed since game start."""
+    m = _V3_CLOCK.match(str(clock))
+    rem = int(m.group(1)) * 60 + float(m.group(2)) if m else 0.0
+    plen = 720 if period <= 4 else 300
+    prior = (period - 1) * 720 if period <= 4 else 2880 + (period - 5) * 300
+    return prior + (plen - rem)
+
+
+def _v3_home_away(g: pd.DataFrame) -> tuple[int, int]:
+    """Home and away team ids: the acting team tagged location 'h' is home, 'v' is away."""
+    loc = g[(g["teamId"] > 0) & g["location"].isin(["h", "v"])]
+    h = loc[loc["location"] == "h"]["teamId"].mode()
+    a = loc[loc["location"] == "v"]["teamId"].mode()
+    return (int(h.iloc[0]) if len(h) else 0, int(a.iloc[0]) if len(a) else 0)
+
+
+def _v3_name_map(g: pd.DataFrame) -> dict[tuple[int, str], int]:
+    """(team_id, normalised name) -> person id, covering every naming form a sub can use."""
+    m: dict[tuple[int, str], int] = {}
+    pid = g[g["personId"] > 0]
+    for tid, pn, pni, p in zip(pid["teamId"], pid["playerName"], pid["playerNameI"],
+                               pid["personId"]):
+        m[(int(tid), _v3_norm(pn))] = int(p)
+        m[(int(tid), _v3_norm(pni))] = int(p)
+    subs = g[g["actionType"] == "Substitution"]
+    for tid, desc, p in zip(subs["teamId"], subs["description"], subs["personId"]):
+        mo = _V3_OUT.search(str(desc))
+        if mo:
+            m[(int(tid), _v3_norm(mo.group(1)))] = int(p)
+    return m
+
+
+def build_segments_bulk_v3(game_pbp: pd.DataFrame) -> pd.DataFrame:
+    """Reconstruct constant-lineup segments for one game from PlayByPlayV3.
+
+    Same schema as ``build_segments_bulk``, built entirely offline. Points are attributed to
+    the segment active when they occurred (running score in event order), which is what makes
+    the offensive/defensive RAPM split -- not just the net -- reproduce the v2 reconstruction.
+    """
+    g = game_pbp.sort_values(["period", "actionNumber"]).reset_index(drop=True)
+    if g.empty:
+        return pd.DataFrame()
+    gid = str(g["gameId"].iloc[0])
+    home, away = _v3_home_away(g)
+    if home == 0 or away == 0:
+        return pd.DataFrame()
+    g["t"] = [_v3_elapsed(p, c) for p, c in zip(g["period"], g["clock"])]
+    g["sh"] = g["scoreHome"].ffill().fillna(0)
+    g["sv"] = g["scoreAway"].ffill().fillna(0)
+    nmap = _v3_name_map(g)
+    ph = [-(int(gid) * 100)]     # unique-per-game placeholder ids for unresolved incomings
+
+    def incoming(desc: object, tid: int) -> int:
+        mi = _V3_IN.search(str(desc))
+        pid = nmap.get((tid, _v3_norm(mi.group(1)))) if mi else None
+        if pid is None:
+            ph[0] -= 1
+            return ph[0]
+        return pid
+
+    def starters(pe: pd.DataFrame, tid: int) -> list[int]:
+        subbed_in: set[int] = set()
+        first: dict[int, int] = {}
+        for an, at, tt, pp, desc in zip(pe["actionNumber"], pe["actionType"], pe["teamId"],
+                                        pe["personId"], pe["description"]):
+            if at == "Substitution":
+                if int(tt) == tid:
+                    o = int(pp)
+                    if o not in subbed_in and o not in first:
+                        first[o] = int(an)
+                    subbed_in.add(incoming(desc, tid))
+            elif tt == tid and pp and int(pp) > 0:
+                p = int(pp)
+                if p not in subbed_in and p not in first:
+                    first[p] = int(an)
+        return [p for p, _ in sorted(first.items(), key=lambda kv: kv[1])][:5]
+
+    rows: list[dict] = []
+    on = {home: set(), away: set()}
+    for period in sorted(g["period"].unique()):
+        pe = g[g["period"] == period]
+        for tid in (home, away):
+            on[tid] = set(starters(pe, tid))
+        seg_start = pe["t"].iloc[0]
+        sh0, sv0 = float(pe["sh"].iloc[0]), float(pe["sv"].iloc[0])
+        for at, tt, pp, desc, t, sh, sv in zip(pe["actionType"], pe["teamId"], pe["personId"],
+                                               pe["description"], pe["t"], pe["sh"], pe["sv"]):
+            if at != "Substitution":
+                continue
+            if len(on[home]) == 5 and len(on[away]) == 5 and t > seg_start:
+                rows.append(_v3_segment_row(gid, home, away, seg_start, t, on,
+                                            float(sh) - sh0, float(sv) - sv0))
+            sh0, sv0, seg_start = float(sh), float(sv), t
+            tid = int(tt)
+            if tid in on:
+                on[tid].discard(int(pp))
+                on[tid].add(incoming(desc, tid))
+        t_end = pe["t"].iloc[-1]
+        she, sve = float(pe["sh"].iloc[-1]), float(pe["sv"].iloc[-1])
+        if len(on[home]) == 5 and len(on[away]) == 5 and t_end > seg_start:
+            rows.append(_v3_segment_row(gid, home, away, seg_start, t_end, on,
+                                        she - sh0, sve - sv0))
+    return pd.DataFrame(rows)
+
+
+def _v3_segment_row(gid, home, away, t0, t1, on, hp, ap):
+    rec = {"game_id": gid, "home_id": home, "away_id": away, "start_s": t0, "end_s": t1,
+           "dur_s": t1 - t0, "home_pts": hp, "away_pts": ap, "home_margin": hp - ap,
+           "poss": (t1 - t0) / 28.8}
+    for i, p in enumerate(sorted(on[home])[:5]):
+        rec[f"home_p{i + 1}"] = p
+    for i, p in enumerate(sorted(on[away])[:5]):
+        rec[f"away_p{i + 1}"] = p
+    return rec
+
+
+def download_season_v3(season_start: int, *, refresh: bool = False) -> pd.DataFrame:
+    """Download and cache one season's PlayByPlayV3 from the bulk mirror."""
+    BULK_DIR.mkdir(parents=True, exist_ok=True)
+    parquet = BULK_DIR / f"nbastatsv3_{season_start}.parquet"
+    if parquet.exists() and not refresh:
+        return pd.read_parquet(parquet)
+    import urllib.request
+    url = _manifest().get(f"nbastatsv3_{season_start}")
+    if not url:
+        raise ValueError(f"no nbastatsv3 dataset for {season_start} in manifest")
+    log.info("downloading v3 PBP for %d-%02d ...", season_start, (season_start + 1) % 100)
+    with urllib.request.urlopen(url, timeout=180) as resp:
+        raw = resp.read()
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:*") as tar:
+        member = next(m for m in tar.getmembers() if m.name.endswith(".csv"))
+        df = pd.read_csv(tar.extractfile(member), low_memory=False)
+    df["gameId"] = df["gameId"].astype(str).str.zfill(10)
+    df.to_parquet(parquet, index=False)
+    log.info("cached %d v3 rows -> %s", len(df), parquet)
+    return df
+
+
 def segments_for_season(season_start: int, *, refresh: bool = False) -> pd.DataFrame:
     """All constant-lineup segments for a season, from bulk play-by-play. Cached.
 
-    Fully offline after the one bulk download -- no per-game API calls, no rate limiting,
-    so an entire season builds in a couple of minutes and any season back to 1996-97 is
-    reachable. Validated RAPM-equivalent to exact GameRotation stints (corr 0.99).
+    Fully offline after the one bulk download -- no per-game API calls, no rate limiting, so an
+    entire season builds in a minute and any season back to 1996-97 is reachable. Uses the v2
+    ``nbastats`` feed where the mirror has it; for recent seasons the mirror ships only
+    PlayByPlayV3 (``nbastatsv3``), so this transparently falls back to the v3 reconstruction,
+    which is validated RAPM-equivalent (corr 0.99). Validated against exact GameRotation stints
+    (corr 0.99) on the v2 path.
     """
     out = DATA_DIR / "processed" / f"segments_bulk_{season_start}.parquet"
     if out.exists() and not refresh:
         return pd.read_parquet(out)
-    pbp = download_season(season_start)
-    frames = [build_segments_bulk(pbp[pbp["GAME_ID"] == g])
-              for g in pbp["GAME_ID"].unique()]
+    man = _manifest()
+    if f"nbastats_{season_start}" in man:
+        pbp, builder, gamecol = download_season(season_start), build_segments_bulk, "GAME_ID"
+    elif f"nbastatsv3_{season_start}" in man:
+        pbp, builder, gamecol = (download_season_v3(season_start),
+                                 build_segments_bulk_v3, "gameId")
+    else:
+        raise ValueError(f"no nbastats or nbastatsv3 dataset for {season_start} in the mirror")
+    frames = [builder(pbp[pbp[gamecol] == g]) for g in pbp[gamecol].unique()]
     frames = [f for f in frames if not f.empty]
     seg = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     out.parent.mkdir(parents=True, exist_ok=True)
     seg.to_parquet(out, index=False)
-    log.info("season %d: %d segments from %d games", season_start,
-             len(seg), pbp["GAME_ID"].nunique())
+    log.info("season %d: %d segments from %d games (%s)", season_start, len(seg),
+             pbp[gamecol].nunique(), "v2" if gamecol == "GAME_ID" else "v3")
     return seg
