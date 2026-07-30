@@ -199,6 +199,7 @@ def project_team_ratings(
     coaches: pd.DataFrame | None = None,
     absorption: float = ABSENCE_ABSORPTION,
     redistribute: bool = False,
+    decouple: bool = False,
 ) -> pd.DataFrame:
     """Projected net-rating deviation for every team in `target_season`.
 
@@ -211,15 +212,36 @@ def project_team_ratings(
         return pd.DataFrame()
 
     rep = replacement_level(hist, "impact")
+    rep_off = replacement_level(hist, "off_impact")
+    rep_def = replacement_level(hist, "def_impact")
     curves = aging_curves(build_transitions(hist, min_minutes=500),
                           ["impact", "off_impact", "def_impact"], corrected=True)
 
-    # Player talent projections, from history only.
-    proj = project_next_season(hist, curves, target_season=target_season,
-                               skill="impact")
-    if proj.empty:
-        return pd.DataFrame()
-    talent = proj.set_index("player_id")["proj_impact"].to_dict()
+    # Player talent projections, from history only. `decouple` ages and projects the
+    # offensive and defensive components separately -- each with its own aging curve -- and
+    # sums them, instead of projecting the combined impact as a single skill. It is
+    # net-neutral on accuracy (the two components project to nearly the same total) but it
+    # yields a projected team OFFENSE and DEFENSE separately, which is what is needed to
+    # attribute a market disagreement to offense or defense. Because replacement level and
+    # the aggregation are both linear, agg_off + agg_def == agg_impact exactly.
+    talent_off = talent_def = None
+    if decouple:
+        po = project_next_season(hist, curves, target_season=target_season,
+                                 skill="off_impact")
+        pdf = project_next_season(hist, curves, target_season=target_season,
+                                  skill="def_impact")
+        if po.empty or pdf.empty:
+            return pd.DataFrame()
+        talent_off = po.set_index("player_id")["proj_off_impact"].to_dict()
+        talent_def = pdf.set_index("player_id")["proj_def_impact"].to_dict()
+        talent = {p: talent_off.get(p, np.nan) + talent_def.get(p, np.nan)
+                  for p in set(talent_off) | set(talent_def)}
+    else:
+        proj = project_next_season(hist, curves, target_season=target_season,
+                                   skill="impact")
+        if proj.empty:
+            return pd.DataFrame()
+        talent = proj.set_index("player_id")["proj_impact"].to_dict()
 
     if mode == "actual":
         # Leaky upper bound: real roster, real minutes.
@@ -335,6 +357,9 @@ def project_team_ratings(
 
     alloc = alloc.copy()
     alloc["talent"] = alloc["player_id"].map(talent)
+    if decouple:
+        alloc["talent_off"] = alloc["player_id"].map(talent_off)
+        alloc["talent_def"] = alloc["player_id"].map(talent_def)
 
     team_games = team_seasons[
         team_seasons["season_start"] == target_season
@@ -355,25 +380,33 @@ def project_team_ratings(
         # holds for stars and role players alike. So the filler is priced between
         # replacement level and the team's own rotation quality.
         leftover = max(budget - used, 0.0) + mins[~ok].sum()
-        team_mean = (float(np.sum(mins[ok] * vals[ok]) / mins[ok].sum())
-                     if mins[ok].sum() > 0 else rep)
-        fill_value = rep + (1.0 - absorption) * (team_mean - rep)
-        agg = (np.sum(mins[ok] * vals[ok])
-               + leftover * fill_value) / max(budget, used)
-        rows.append({
+
+        def _agg(v: np.ndarray, rep_v: float) -> float:
+            tot_ok = mins[ok].sum()
+            team_mean = float(np.sum(mins[ok] * v[ok]) / tot_ok) if tot_ok > 0 else rep_v
+            fill_value = rep_v + (1.0 - absorption) * (team_mean - rep_v)
+            return (np.sum(mins[ok] * v[ok]) + leftover * fill_value) / max(budget, used)
+
+        rec = {
             "season_start": target_season,
             "team_id": team_id,
-            "agg_impact": agg,
+            "agg_impact": _agg(vals, rep),
             "covered_share": float(mins[ok].sum() / budget),
             "n_players": int(ok.sum()),
-        })
+        }
+        if decouple:
+            # Same valued players (ok is shared), so agg_off + agg_def == agg_impact.
+            rec["agg_off"] = _agg(grp["talent_off"].to_numpy(dtype=float), rep_off)
+            rec["agg_def"] = _agg(grp["talent_def"].to_numpy(dtype=float), rep_def)
+        rows.append(rec)
     return pd.DataFrame(rows)
 
 
 def calibrate_projected_ratings(projections: pd.DataFrame,
                                 team_seasons: pd.DataFrame,
                                 *, target_season: int,
-                                target: str = "net_rating") -> tuple[float, float]:
+                                target: str = "net_rating",
+                                agg_col: str = "agg_impact") -> tuple[float, float]:
     """Map *projected* aggregate impact to a rating, fitted on projected aggregates.
 
     This must be fitted on the same kind of quantity it is applied to. Fitting it on
@@ -394,12 +427,12 @@ def calibrate_projected_ratings(projections: pd.DataFrame,
 
     train = projections[projections["season_start"] < target_season].merge(
         t[["team_id", "season_start", "dev"]], on=["team_id", "season_start"]).dropna(
-        subset=["agg_impact", "dev"])
+        subset=[agg_col, "dev"])
     if len(train) < 30:
         # Genuinely nothing to fit on.
         return THEORETICAL_SLOPE, 0.0
 
-    slope, intercept = np.polyfit(train["agg_impact"], train["dev"], 1)
+    slope, intercept = np.polyfit(train[agg_col], train["dev"], 1)
 
     # Shrink toward the theoretical slope on thin history instead of switching to it
     # discretely. The old code returned exactly (5.0, 0.0) below 60 rows, which hit the
