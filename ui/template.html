@@ -542,7 +542,7 @@ const SNAP = __DATA__;              // { meta, snapshots: { "2021-22": {...}, ..
 const GMETA = SNAP.meta;
 const AX_LO = 12, AX_HI = 70;            // win axis bounds
 const pct = w => ((Math.min(Math.max(w, AX_LO), AX_HI) - AX_LO) / (AX_HI - AX_LO)) * 100;
-const CURRENT_MAE = 7.95;               // shipped backtest MAE for the upcoming season
+const CURRENT_MAE = 7.77;               // shipped backtest MAE (RAPM def-blend), upcoming season
 
 // Season-dependent globals, (re)built by loadSeason().
 let DATA, state, byId, allPlayers;
@@ -712,7 +712,9 @@ function redistributeFrom(roster, ownFreed, removed, games) {
 /* Team strength: minute-weighted mean of player impact, with anything left against the
    240-per-game budget charged at replacement level. Offense and defense are aggregated
    separately (decoupled) and each mapped with its own calibrated slope, so the row can show
-   where a team's rating comes from -- and an edit reprices offense and defense independently. */
+   where a team's rating comes from -- and an edit reprices offense and defense independently.
+   Defense is the turnover-weighted blend of the box metric and play-by-play RAPM: a steady
+   roster leans on the box metric (which the carryover corrects), a turned-over one on RAPM. */
 function computeRating(team) {
   const st = state.get(team.id);
   const edited = st.off.size > 0 || st.added.length > 0;
@@ -745,8 +747,17 @@ function computeRating(team) {
   if (DATA.off_slope != null) {
     const aggOff = (roster.reduce((a, p, i) => a + mins[i] * p.off, 0)
                     + leftover * DATA.replacement_off) / budget;
-    const aggDef = (roster.reduce((a, p, i) => a + mins[i] * p.def, 0)
-                    + leftover * DATA.replacement_def) / budget;
+    const aggDefBox = (roster.reduce((a, p, i) => a + mins[i] * p.def, 0)
+                       + leftover * DATA.replacement_def) / budget;
+    // Blend box defense with play-by-play RAPM by the team's roster turnover. Older snapshots
+    // without the RAPM split (replacement_def_rapm absent) fall back to pure box defense.
+    let aggDef = aggDefBox;
+    if (DATA.replacement_def_rapm != null) {
+      const aggDefRapm = (roster.reduce((a, p, i) => a + mins[i] * (p.defr != null ? p.defr : p.def), 0)
+                          + leftover * DATA.replacement_def_rapm) / budget;
+      const w = Math.min(Math.max(team.turnover || 0, 0), 1);
+      aggDef = (1 - w) * aggDefBox + w * aggDefRapm;
+    }
     const offR = DATA.off_slope * aggOff + DATA.off_intercept;
     const defR = DATA.def_slope * aggDef + DATA.def_intercept;
     return { rating: offR + defR + carry, offR, defR, n: roster.length, unabsorbed };
