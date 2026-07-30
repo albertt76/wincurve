@@ -1,4 +1,4 @@
-<title>NBA 2026-27 Win Projections</title>
+<title>wincurve — NBA Win Projections</title>
 
 <style>
   /* ---- tokens: slate-cool neutrals, uncertainty carried in hue ---- */
@@ -85,6 +85,38 @@
     font-size: 13.5px; color: var(--muted); max-width: 78ch;
   }
   .caveat strong { color: var(--ink); font-weight: 600; }
+
+  .title-row {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .season-pick {
+    display: flex; align-items: center; gap: 8px; padding-bottom: 4px;
+  }
+  .season-pick span {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--faint);
+  }
+  select#season-select {
+    font-family: var(--mono); font-size: 14px; font-weight: 650;
+    padding: 6px 30px 6px 11px; border-radius: var(--r); cursor: pointer;
+    color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238b94a6'/></svg>");
+    background-repeat: no-repeat; background-position: right 11px center;
+  }
+  select#season-select:focus-visible { outline: 2px solid var(--tight); outline-offset: 1px; }
+
+  /* actual-result marker for historical seasons */
+  .actual {
+    position: absolute; top: 4px; width: 11px; height: 11px;
+    transform: translateX(-50%) rotate(45deg);
+    background: var(--surface); border: 1.5px solid var(--ink);
+    box-shadow: 0 0 0 1.5px var(--surface);
+  }
+  .anum { color: var(--muted); font-size: 11px; }
+  .anum b { color: var(--ink); font-weight: 650; }
+  .hit { color: var(--pos); } .miss-lo, .miss-hi { color: var(--neg); }
 
   /* ---- axis + legend ---- */
   .axis-head {
@@ -261,16 +293,22 @@
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">Bottom-up roster model &middot; snapshot <span id="snap"></span></div>
-    <h1>NBA <span id="season"></span> projected records</h1>
+    <div class="eyebrow">Bottom-up roster model &middot; <span id="snap"></span></div>
+    <div class="title-row">
+      <h1>NBA <span id="season"></span> projected records</h1>
+      <label class="season-pick">
+        <span>Season</span>
+        <select id="season-select" aria-label="Select season"></select>
+      </label>
+    </div>
     <p class="sub">
-      Built from each team's current roster: every player's impact per 100 possessions is
-      projected from his own history with age curves applied, weighted by expected minutes,
-      then the season is simulated game by game on a real schedule. A final adjustment
-      carries forward part of last season's projection error for each team, since that
-      error tends to persist about one year.
+      Built from each team's roster <em>as it stood before the season began</em>: every
+      player's impact per 100 possessions is projected from his prior history with age
+      curves applied, weighted by expected minutes, then the season is simulated game by
+      game on a real schedule, with a carryover adjustment for the part of last season's
+      error that tends to persist.
     </p>
-    <div class="caveat">
+    <div class="caveat" id="cav-current">
       <strong>Read the ranges, not the numbers.</strong> This model's average miss in
       backtesting is <strong id="mae"></strong> wins, against <strong id="mmae"></strong>
       for sportsbook preseason lines &mdash; so it does <em>not</em> beat the market on
@@ -278,6 +316,14 @@
       Bars show the 80% and 50% ranges; those are calibrated (a nominal 80% range contained
       the true result 79.6% of the time). Ranges widen with roster turnover, which measurably
       predicts larger errors.
+    </div>
+    <div class="caveat" id="cav-hist" style="display:none;border-left-color:var(--pos)">
+      <strong>Hindsight view.</strong> This is what the model <em>would have</em> projected
+      before <span class="hyr"></span> tipped off, using only data available then &mdash; no
+      peeking at the results. The white diamond &#9670; on each bar is what actually happened.
+      The model's average miss this season was <strong class="smae"></strong> wins
+      (market lines average about 6.7). A well-calibrated model lands the diamond inside the
+      80% range about 80% of the time.
     </div>
     <div class="caveat" style="border-left-color:var(--edit)">
       <strong>On the what-if tool.</strong> Roster edits are computed the same way the model
@@ -317,23 +363,19 @@
 </div>
 
 <script>
-const DATA = __DATA__;
-
-const M = DATA.meta;
+const SNAP = __DATA__;              // { meta, snapshots: { "2021-22": {...}, ... } }
+const GMETA = SNAP.meta;
 const AX_LO = 12, AX_HI = 70;            // win axis bounds
 const pct = w => ((Math.min(Math.max(w, AX_LO), AX_HI) - AX_LO) / (AX_HI - AX_LO)) * 100;
+const CURRENT_MAE = 7.95;               // shipped backtest MAE for the upcoming season
 
-document.getElementById('season').textContent = M.season;
-document.getElementById('snap').textContent = M.snapshot_date;
-document.getElementById('mae').textContent = M.backtest_mae.toFixed(1);
-document.getElementById('mmae').textContent = M.market_mae.toFixed(2);
-document.getElementById('rep').textContent = M.replacement_impact.toFixed(2);
-document.getElementById('meta-line').textContent =
-  `Impact-to-rating slope ${M.rating_slope}. Base rating uncertainty ` +
-  `${M.sigma_base} points per 100, scaled per team by roster turnover. ` +
-  `Projections are only as current as the snapshot date — trades after it are not reflected.`;
+// Season-dependent globals, (re)built by loadSeason().
+let DATA, state, byId, allPlayers;
 
-// axis ticks
+document.getElementById('rep').textContent = GMETA.replacement_impact.toFixed(2);
+document.getElementById('mmae').textContent = GMETA.market_mae.toFixed(2);
+
+// axis ticks (drawn once)
 const axis = document.getElementById('axis');
 [15, 25, 35, 41, 50, 60, 68].forEach(v => {
   const t = document.createElement('span');
@@ -342,17 +384,48 @@ const axis = document.getElementById('axis');
   axis.appendChild(t);
 });
 
-// ---- state: which players are off, and which have been added, per team ----
-const state = new Map();  // teamId -> {off:Set, added:[player]}
-const byId = new Map();
-const allPlayers = [];
-DATA.teams.forEach(t => {
-  state.set(t.id, { off: new Set(), added: [] });
-  t.players.forEach(p => {
-    byId.set(p.id, p);
-    allPlayers.push({ ...p, from: t.abbr, fromId: t.id });
-  });
+// season selector, newest first
+const sel = document.getElementById('season-select');
+GMETA.seasons.slice().reverse().forEach(key => {
+  const o = document.createElement('option');
+  o.value = key;
+  o.textContent = key + (SNAP.snapshots[key].is_current ? '  (upcoming)' : '');
+  sel.appendChild(o);
 });
+sel.addEventListener('change', () => loadSeason(sel.value));
+
+function loadSeason(key) {
+  DATA = SNAP.snapshots[key];
+  state = new Map(); byId = new Map(); allPlayers = [];
+  DATA.teams.forEach(t => {
+    state.set(t.id, { off: new Set(), added: [] });
+    (t.players || []).forEach(p => {
+      byId.set(p.id, p);
+      allPlayers.push({ ...p, from: t.abbr, fromId: t.id });
+    });
+  });
+
+  const cur = DATA.is_current;
+  document.getElementById('season').textContent = DATA.season;
+  document.getElementById('snap').textContent = cur
+    ? ('snapshot ' + (DATA.snapshot_date || ''))
+    : 'hindsight — projected before the season, shown against what happened';
+  document.getElementById('cav-current').style.display = cur ? '' : 'none';
+  document.getElementById('cav-hist').style.display = cur ? 'none' : '';
+  if (cur) {
+    document.getElementById('mae').textContent = CURRENT_MAE.toFixed(1);
+  } else {
+    document.querySelectorAll('.hyr').forEach(e => e.textContent = DATA.season);
+    document.querySelectorAll('.smae').forEach(e =>
+      e.textContent = DATA.season_mae != null ? DATA.season_mae.toFixed(1) : '—');
+  }
+  document.getElementById('meta-line').textContent =
+    `Impact-to-rating slope ${DATA.rating_slope}. Carryover coefficient ${DATA.rho_carryover}. ` +
+    (cur ? 'Projections are only as current as the snapshot date — trades after it are not reflected.'
+         : 'Uses only data available before that season started — no look-ahead.');
+  if (sel.value !== key) sel.value = key;
+  render();
+}
 
 /* --- position-aware minute redistribution -----------------------------------------
    When a player is removed his minutes do not vanish, and they do not go to a
@@ -458,7 +531,7 @@ function computeRating(team) {
   const st = state.get(team.id);
   const edited = st.off.size > 0 || st.added.length > 0;
   const roster = team.players.filter(p => !st.off.has(p.id)).concat(st.added);
-  const budget = M.minutes_budget, games = M.full_season_games;
+  const budget = GMETA.minutes_budget, games = GMETA.full_season_games;
   let mins, unabsorbed = 0;
 
   if (edited) {
@@ -479,9 +552,13 @@ function computeRating(team) {
   if (used > budget) { const k = budget / used; mins = mins.map(m => m * k); used = budget; }
   const paid = roster.reduce((a, p, i) => a + mins[i] * p.impact, 0);
   const leftover = Math.max(budget - used, 0);
-  const agg = (paid + leftover * M.replacement_impact) / budget;
-  return { rating: M.rating_slope * agg + M.rating_intercept, n: roster.length,
-           unabsorbed };
+  const agg = (paid + leftover * GMETA.replacement_impact) / budget;
+  // The one-year carryover is a fixed team-level offset (from last season's residual), not
+  // a property of the roster, so it stays constant under edits and must be added back for
+  // the unedited baseline to reproduce the displayed rating exactly.
+  const carry = team.carryover || 0;
+  return { rating: DATA.rating_slope * agg + DATA.rating_intercept + carry,
+           n: roster.length, unabsorbed };
 }
 
 /* Interpolate the precomputed win distribution at this team's rating offset. The grid was
@@ -505,6 +582,14 @@ function winsAt(team, rating) {
 
 const WIDE_TURNOVER = 0.30;   // above this, the range is drawn in the uncertainty hue
 const fmt1 = x => x.toFixed(1);
+
+// Historical readout: actual wins, coloured by whether it landed in the 80% range.
+function actualReadout(t, w) {
+  const a = t.actual;
+  const cls = a < w.p10 ? 'miss-lo' : a > w.p90 ? 'miss-hi' : 'hit';
+  const mark = cls === 'hit' ? 'in range' : (a < w.p10 ? 'below' : 'above');
+  return `<span class="anum">actual <b>${fmt1(a)}</b> <span class="${cls}">&#9670; ${mark}</span></span>`;
+}
 
 function render() {
   const host = document.getElementById('rows');
@@ -535,11 +620,12 @@ function render() {
         <span class="band inner${wc}" style="left:${pct(w.p25)}%;width:${pct(w.p75) - pct(w.p25)}%"></span>
         ${edited ? `<span class="ghost" style="left:${pct(t.wins)}%" title="original projection"></span>` : ''}
         <span class="mean" style="left:${pct(w.mean)}%"></span>
+        ${t.actual != null ? `<span class="actual" style="left:${pct(t.actual)}%" title="actual: ${fmt1(t.actual)} wins"></span>` : ''}
       </span>
       <span class="nums">
         <span class="wins">${fmt1(w.mean)}</span>
         ${edited ? `<span class="delta ${delta >= 0 ? 'up' : 'down'}"> ${delta >= 0 ? '+' : ''}${fmt1(delta)}</span>` : ''}
-        <br><span class="rng">${fmt1(w.p10)}&ndash;${fmt1(w.p90)}</span>
+        <br>${t.actual != null ? actualReadout(t, w) : `<span class="rng">${fmt1(w.p10)}&ndash;${fmt1(w.p90)}</span>`}
       </span>`;
 
     const panel = document.createElement('div');
@@ -646,5 +732,6 @@ function wirePanel(panel, t) {
   });
 }
 
-render();
+// default to the upcoming season (last in the sorted list)
+loadSeason(GMETA.seasons[GMETA.seasons.length - 1]);
 </script>

@@ -165,6 +165,20 @@ team-seasons), roughly half the backbone's coverage.
 
 ## UI
 
+**Multi-season app.** The UI now shows the last 5 completed seasons (2021-22..2025-26) plus
+the upcoming one, via a season selector. Historical seasons are walk-forward hindsight
+projections (only pre-season data) with the ACTUAL result shown as a diamond marker and the
+season's MAE in the header -- a visible backtest. Bundles built by `scripts/build_snapshots.py`
+into `data/processed/snapshots.json` (~700 KB, all seasons inlined); the what-if editor works
+on every season and reproduces each baseline to rounding. Rebuild:
+
+```
+python scripts/project_current.py   # upcoming-season live bundle
+python scripts/build_snapshots.py   # historical bundles + combined snapshots.json
+python ui/build.py                  # inline into ui/projections.html
+```
+
+
 `ui/template.html` + `ui/build.py` -> `ui/projections.html` (self-contained, data inlined).
 Rebuild after regenerating projections:
 
