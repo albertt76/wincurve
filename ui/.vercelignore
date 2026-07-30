@@ -1,0 +1,4 @@
+# Only the self-contained projections.html (data inlined) should be served publicly.
+# Keep the build inputs out of the deployment.
+build.py
+template.html
