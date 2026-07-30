@@ -39,7 +39,7 @@ from .availability import build_availability, build_features, fit_predict
 from .minutes import (
     ABSENCE_ABSORPTION, MINUTES_PER_GAME, absence_adjusted_impact,
     assign_rank_minutes, coach_concentration, fit_canonical_minutes,
-    reshape_to_concentration,
+    redistribute_minutes, reshape_to_concentration,
 )
 
 log = logging.getLogger(__name__)
@@ -198,6 +198,7 @@ def project_team_ratings(
     team_rosters: pd.DataFrame | None = None,
     coaches: pd.DataFrame | None = None,
     absorption: float = ABSENCE_ABSORPTION,
+    redistribute: bool = False,
 ) -> pd.DataFrame:
     """Projected net-rating deviation for every team in `target_season`.
 
@@ -232,6 +233,12 @@ def project_team_ratings(
             base = roster_opening_day(team_rosters, player_game_log, target_season)
             if base.empty:
                 return pd.DataFrame()
+            if "POSITION" in team_rosters.columns:
+                pos_map = team_rosters[
+                    team_rosters["season_start"] == target_season
+                ].drop_duplicates(["team_id", "player_id"])[
+                    ["team_id", "player_id", "POSITION"]]
+                base = base.merge(pos_map, on=["team_id", "player_id"], how="left")
             prior = player_team_seasons[
                 player_team_seasons["season_start"] == target_season - 1
             ].groupby("player_id", as_index=False).agg(
@@ -267,14 +274,32 @@ def project_team_ratings(
 
         roster["avail"] = roster["player_id"].map(av_map).fillna(0.85)
         roster["tg"] = roster["team_id"].map(team_games).fillna(82.0)
-        # Availability-scaled, which is what lets the freed minutes flow to teammates
-        # through the budget constraint. An availability-BLIND allocation was tried and was
+        # With `redistribute`, minutes freed by expected absence are handed to teammates who
+        # can cover the position, bounded by each one's role, rather than dropping to the
+        # replacement pool. That makes the cost of an absence depend on the depth actually
+        # behind the absent player.
+        #
+        # Otherwise: availability-scaled, which lets freed minutes flow to teammates only
+        # indirectly, through the budget constraint. An availability-BLIND allocation was tried and was
         # worse (8.415 vs 8.343): giving an injury-prone star his full slot squeezes
         # teammates out of the budget, when reality is the reverse -- his minutes go TO
         # them. Absence is priced instead in what the leftover minutes are worth, below.
         # Two rank-based alternatives were tried for the minute shape and BOTH measured
         # worse -- see the note on fit_canonical_minutes in minutes.py.
-        roster["minutes"] = roster["early_mpg"] * roster["avail"] * roster["tg"]
+        if redistribute and mode == "roster":
+            parts = []
+            for tid, grp in roster.groupby("team_id"):
+                pos = grp["POSITION"].tolist() if "POSITION" in grp else [None] * len(grp)
+                mins, _ = redistribute_minutes(
+                    grp["early_mpg"].to_numpy(dtype=float),
+                    grp["avail"].to_numpy(dtype=float), pos,
+                    team_games=float(grp["tg"].iloc[0]))
+                g2 = grp.copy()
+                g2["minutes"] = mins
+                parts.append(g2)
+            roster = pd.concat(parts)
+        else:
+            roster["minutes"] = roster["early_mpg"] * roster["avail"] * roster["tg"]
 
         # Optionally reshape each team's minute curve toward its head coach's historical
         # rotation tendency. Concentration is substantially a coach trait (intraclass

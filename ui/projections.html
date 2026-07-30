@@ -284,6 +284,10 @@
       onto its rating, and it absorbs some compression in the underlying player metric, so
       one-player counterfactuals extrapolate it further than the backtest checked. Treat the
       direction and rough scale as meaningful and the exact number as indicative.
+      When you remove a player his minutes are offered to teammates who can cover his
+      position, capped by how far each can stretch beyond his established role &mdash; so a
+      deep roster absorbs the loss far better than a thin one, and only what the bench
+      cannot cover falls to replacement level.
     </div>
   </header>
 
@@ -348,19 +352,134 @@ DATA.teams.forEach(t => {
   });
 });
 
-/* Recompute a team exactly as the model does: minute-weighted mean of player impact,
-   with the shortfall against the 240-per-game budget charged at replacement level. */
+/* --- position-aware minute redistribution -----------------------------------------
+   When a player is removed his minutes do not vanish, and they do not go to a
+   replacement-level body while the bench still has capacity. They go to teammates who can
+   cover the position, bounded by how far each can realistically stretch beyond his
+   established role. That is what makes an absence cost a DEEP roster less than a thin one:
+   a deep team's minutes are absorbed by good players, a thin team's by bad ones, and once
+   the bench caps out the remainder falls to replacement level.
+
+   Used only for explicit roster edits. The baseline projection deliberately does NOT
+   redistribute: its calibration was fitted on teams experiencing normal absence, so
+   redistributing routine availability again would double-count it (measured: doing so made
+   backtest error worse, 8.36 -> 8.51). A removed player is a roster change, not routine
+   absence, and sits outside what that calibration absorbed. */
+const POS_AXIS = { 'G': 1.0, 'G-F': 1.5, 'F-G': 1.5, 'F': 2.0, 'F-C': 2.5, 'C-F': 2.5, 'C': 3.0 };
+const POS_DEFAULT = 2.0, POS_SPREAD = 1.5, POS_FLOOR = 0.08;
+const MAX_MPG = 38.0, ROLE_STRETCH = 1.5, ROLE_BASE = 6.0;
+
+const posAxis = p => (typeof p === 'string' && POS_AXIS[p.trim().toUpperCase()] !== undefined)
+  ? POS_AXIS[p.trim().toUpperCase()] : POS_DEFAULT;
+const posSim = (a, b) => Math.max(POS_FLOOR,
+  Math.exp(-Math.pow(posAxis(a) - posAxis(b), 2) / POS_SPREAD));
+
+/* Returns per-player minutes plus the minutes nobody could absorb. */
+function redistribute(roster, freedMpg, games) {
+  const n = roster.length;
+  const played = roster.map(p => p.mpg * p.avail);
+  const extra = new Array(n).fill(0);
+  const pool = freedMpg.slice();
+  const sim = roster.map((a, i) => roster.map((b, j) =>
+    i === j ? 0 : posSim(a.pos, b.pos)));
+
+  for (let pass = 0; pass < 3; pass++) {
+    if (pool.reduce((a, b) => a + b, 0) <= 1e-9) break;
+    const head = roster.map((p, i) =>
+      Math.max(Math.min(p.mpg * ROLE_STRETCH + ROLE_BASE, MAX_MPG) - (played[i] + extra[i]), 0));
+    if (head.reduce((a, b) => a + b, 0) <= 1e-9) break;
+    const moved = new Array(n).fill(0);
+    for (let j = 0; j < n; j++) {
+      if (pool[j] <= 1e-9) continue;
+      const w = sim.map((row, i) => row[j] * head[i]);
+      const tot = w.reduce((a, b) => a + b, 0);
+      if (tot <= 1e-9) continue;
+      let placed = 0;
+      for (let i = 0; i < n; i++) {
+        const take = Math.min(pool[j] * w[i] / tot, head[i] - moved[i]);
+        if (take > 0) { moved[i] += take; placed += take; }
+      }
+      pool[j] -= placed;
+    }
+    if (moved.reduce((a, b) => a + b, 0) <= 1e-9) break;
+    for (let i = 0; i < n; i++) extra[i] += moved[i];
+  }
+  return {
+    minutes: roster.map((p, i) => (played[i] + extra[i]) * games),
+    unabsorbed: pool.reduce((a, b) => a + b, 0) * games
+  };
+}
+
+/* Distribute freed minutes (retained players' own absence, plus removed players' full
+   minutes attributed at their own positions) across the retained roster, capped by role. */
+function redistributeFrom(roster, ownFreed, removed, games) {
+  const n = roster.length;
+  const played = roster.map(p => p.mpg * p.avail);
+  const extra = new Array(n).fill(0);
+  // Demand sources: each retained player's own freed minutes (position = his own), and
+  // each removed player's minutes (position = the removed player's).
+  const sources = [];
+  roster.forEach((p, i) => { if (ownFreed[i] > 1e-9) sources.push({ pos: p.pos, mpg: ownFreed[i] }); });
+  removed.forEach(p => sources.push({ pos: p.pos, mpg: p.mpg }));
+  let pool = sources.map(s => s.mpg);
+
+  for (let pass = 0; pass < 4; pass++) {
+    if (pool.reduce((a, b) => a + b, 0) <= 1e-9) break;
+    const head = roster.map((p, i) =>
+      Math.max(Math.min(p.mpg * ROLE_STRETCH + ROLE_BASE, MAX_MPG) - (played[i] + extra[i]), 0));
+    if (head.reduce((a, b) => a + b, 0) <= 1e-9) break;
+    const moved = new Array(n).fill(0);
+    sources.forEach((s, j) => {
+      if (pool[j] <= 1e-9) return;
+      const w = roster.map((p, i) => posSim(p.pos, s.pos) * head[i]);
+      const tot = w.reduce((a, b) => a + b, 0);
+      if (tot <= 1e-9) return;
+      let placed = 0;
+      for (let i = 0; i < n; i++) {
+        const take = Math.min(pool[j] * w[i] / tot, head[i] - moved[i]);
+        if (take > 0) { moved[i] += take; placed += take; }
+      }
+      pool[j] -= placed;
+    });
+    if (moved.reduce((a, b) => a + b, 0) <= 1e-9) break;
+    for (let i = 0; i < n; i++) extra[i] += moved[i];
+  }
+  return {
+    minutes: roster.map((p, i) => (played[i] + extra[i]) * games),
+    unabsorbed: pool.reduce((a, b) => a + b, 0) * games
+  };
+}
+
+/* Team strength: minute-weighted mean of player impact, with anything left against the
+   240-per-game budget charged at replacement level. */
 function computeRating(team) {
   const st = state.get(team.id);
+  const edited = st.off.size > 0 || st.added.length > 0;
   const roster = team.players.filter(p => !st.off.has(p.id)).concat(st.added);
-  const budget = M.minutes_budget;
-  let mins = roster.map(p => p.mpg * p.avail * M.full_season_games);
+  const budget = M.minutes_budget, games = M.full_season_games;
+  let mins, unabsorbed = 0;
+
+  if (edited) {
+    // Freed minutes = the retained roster's own expected absence PLUS every removed
+    // player's full minutes. Both are offered to teammates who can cover the position,
+    // each freed player's minutes drawn toward players who play near his spot.
+    const removed = team.players.filter(p => st.off.has(p.id));
+    const freed = roster.map(p => p.mpg * (1 - p.avail));  // retained players' own absence
+    // Model each removed player as a covering demand at HIS position: distribute his
+    // minutes across the retained roster weighted by positional similarity to him.
+    const r = redistributeFrom(roster, freed, removed, games);
+    mins = r.minutes; unabsorbed = r.unabsorbed;
+  } else {
+    mins = roster.map(p => p.mpg * p.avail * games);
+  }
+
   let used = mins.reduce((a, b) => a + b, 0);
   if (used > budget) { const k = budget / used; mins = mins.map(m => m * k); used = budget; }
   const paid = roster.reduce((a, p, i) => a + mins[i] * p.impact, 0);
   const leftover = Math.max(budget - used, 0);
   const agg = (paid + leftover * M.replacement_impact) / budget;
-  return { rating: M.rating_slope * agg + M.rating_intercept, n: roster.length };
+  return { rating: M.rating_slope * agg + M.rating_intercept, n: roster.length,
+           unabsorbed };
 }
 
 /* Interpolate the precomputed win distribution at this team's rating offset. The grid was

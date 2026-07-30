@@ -375,3 +375,109 @@ def absence_adjusted_impact(impact: np.ndarray | pd.Series,
     imp = np.asarray(impact, dtype=float)
     avail = np.clip(np.asarray(availability, dtype=float), 0.0, 1.0)
     return imp - (1.0 - avail) * absorption * (imp - replacement)
+
+
+# --- Position-aware minute redistribution --------------------------------------
+
+# A player's minutes do not vanish when he sits, and they do not go to a replacement-level
+# body while the bench still has capacity. They go to the players who can actually cover
+# his position, until those players run out of headroom.
+#
+# This is the depth-aware form of the absorption finding. A blanket 0.68 discount failed
+# (see ABSENCE_ABSORPTION) precisely because it ignored depth: it charged a deep team and a
+# thin team the same reduced penalty. Redistribution produces the depth-dependence for free
+# -- a deep roster absorbs freed minutes with real players, a thin one exhausts its bench and
+# the remainder falls to replacement level, which is a genuinely larger hit.
+
+# Positions on a big-to-small axis, so similarity is a distance. nba_api reports these seven.
+POSITION_AXIS = {"G": 1.0, "G-F": 1.5, "F-G": 1.5, "F": 2.0,
+                 "F-C": 2.5, "C-F": 2.5, "C": 3.0}
+POSITION_DEFAULT = 2.0
+POSITION_SPREAD = 1.5    # how quickly coverage falls off with positional distance
+POSITION_FLOOR = 0.08    # in a pinch a coach plays whoever is available
+
+# Hard ceiling on minutes per game played. The league's heaviest-used players sit around
+# 36-38; without a cap, redistribution would hand one player 50 minutes a night.
+MAX_MPG = 38.0
+
+# A player's role also bounds how far he can stretch. Capping only at MAX_MPG lets a
+# 5-minute deep-bench player absorb 30 minutes a night, which does not happen -- coaches
+# promote within reason and then look outside the roster. Cap each player at
+# ``mpg * STRETCH + BASE``, so a 30-minute starter can reach the hard ceiling while an
+# 8-minute player tops out near 18. This is what makes a thin roster genuinely unable to
+# cover a star's absence: its bench fills up and the remainder falls to replacement level.
+ROLE_STRETCH = 1.5
+ROLE_BASE = 6.0
+
+
+def position_similarity(a, b) -> float:
+    """How well a player at position `a` can cover minutes at position `b`.
+
+    Inputs are tolerant on purpose: a missing position arrives as NaN from a left join, and
+    an unknown player should fall back to the middle of the axis rather than raise.
+    """
+    def axis(v) -> float:
+        if not isinstance(v, str):
+            return POSITION_DEFAULT
+        return POSITION_AXIS.get(v.strip().upper(), POSITION_DEFAULT)
+
+    pa, pb = axis(a), axis(b)
+    d = abs(pa - pb)
+    return max(POSITION_FLOOR, float(np.exp(-(d ** 2) / POSITION_SPREAD)))
+
+
+def redistribute_minutes(mpg: np.ndarray, avail: np.ndarray,
+                         positions: list[str | None], *, team_games: float,
+                         max_mpg: float = MAX_MPG,
+                         passes: int = 3) -> tuple[np.ndarray, float]:
+    """Reallocate minutes freed by expected absence to teammates who can cover them.
+
+    Returns ``(minutes_per_player, unabsorbed_minutes)``. Unabsorbed minutes are the
+    genuine shortfall and should be charged at replacement level -- that is the part a thin
+    roster cannot cover.
+
+    Each absent player's freed minutes are offered to teammates in proportion to
+    ``position_similarity x remaining headroom``, so a guard's minutes go mostly to guards,
+    and a player already at the cap takes none. Repeated ``passes`` let minutes spill to the
+    next-best coverers when the closest ones fill up, which is what makes a thin roster
+    behave differently from a deep one.
+    """
+    mpg = np.asarray(mpg, dtype=float)
+    avail = np.clip(np.asarray(avail, dtype=float), 0.0, 1.0)
+    n = len(mpg)
+    if n == 0:
+        return np.zeros(0), 0.0
+
+    played = mpg * avail                      # minutes per team game actually played
+    freed = mpg * (1.0 - avail)               # minutes per team game to reassign
+    extra = np.zeros(n)
+
+    sim = np.array([[position_similarity(positions[i], positions[j])
+                     for j in range(n)] for i in range(n)])
+    np.fill_diagonal(sim, 0.0)                # a player cannot cover his own absence
+
+    pool = freed.copy()
+    for _ in range(passes):
+        if pool.sum() <= 1e-9:
+            break
+        role_cap = np.minimum(mpg * ROLE_STRETCH + ROLE_BASE, max_mpg)
+        headroom = np.maximum(role_cap - (played + extra), 0.0)
+        if headroom.sum() <= 1e-9:
+            break
+        moved = np.zeros(n)
+        for j in range(n):
+            if pool[j] <= 1e-9:
+                continue
+            w = sim[:, j] * headroom
+            tot = w.sum()
+            if tot <= 1e-9:
+                continue
+            take = np.minimum(pool[j] * w / tot, headroom)
+            moved += take
+            pool[j] -= take.sum()
+        if moved.sum() <= 1e-9:
+            break
+        extra += moved
+
+    minutes = (played + extra) * team_games
+    return minutes, float(pool.sum() * team_games)
