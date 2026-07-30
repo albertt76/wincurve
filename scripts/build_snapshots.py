@@ -30,6 +30,7 @@ from nbaproj.minutes import MINUTES_PER_GAME  # noqa: E402
 from nbaproj.project import (  # noqa: E402
     calibrate_projected_ratings, project_team_ratings, roster_opening_day,
 )
+from nbaproj.rapm import box_vs_rapm_by_player  # noqa: E402
 from nbaproj.simulate import (  # noqa: E402
     estimate_game_params, extract_schedule, fit_rating_sigma, roster_turnover,
     simulate_season, turnover_sigma_multiplier,
@@ -50,12 +51,19 @@ def build_historical(season: int, data: dict) -> dict:
                           "coaches", "abbr"))
     hist = imp[imp["season_start"] < season]
     rep = replacement_level(hist, "impact")
+    rep_off = replacement_level(hist, "off_impact")
+    rep_def = replacement_level(hist, "def_impact")
 
-    # --- player talent, prior seasons only ---
+    # --- player talent, prior seasons only. Offense and defense projected separately
+    #     (decoupled): net-neutral, but yields a projected team offense and defense. ---
     curves = aging_curves(build_transitions(hist, min_minutes=500),
                           ["impact", "off_impact", "def_impact"], corrected=True)
     talent = project_next_season(hist, curves, target_season=season,
                                  skill="impact").set_index("player_id")["proj_impact"]
+    talent_off = project_next_season(hist, curves, target_season=season,
+                                     skill="off_impact").set_index("player_id")["proj_off_impact"]
+    talent_def = project_next_season(hist, curves, target_season=season,
+                                     skill="def_impact").set_index("player_id")["proj_def_impact"]
 
     # --- opening-day roster, minutes from prior season, availability projected ---
     base = roster_opening_day(rosters, pgl, season)
@@ -71,6 +79,8 @@ def build_historical(season: int, data: dict) -> dict:
     base = base.merge(prev[["player_id", "prior_mpg"]], on="player_id", how="left")
     base["prior_mpg"] = base["prior_mpg"].fillna(8.0)
     base["proj_impact"] = base["player_id"].map(talent).fillna(rep)
+    base["proj_off_impact"] = base["player_id"].map(talent_off).fillna(rep_off)
+    base["proj_def_impact"] = base["player_id"].map(talent_def).fillna(rep_def)
 
     avail = fit_predict(build_features(build_availability(pts, ts), ages),
                         target_season=season)
@@ -86,13 +96,20 @@ def build_historical(season: int, data: dict) -> dict:
     # what-if editor recomputes it, so the unedited baseline reproduces the shown rating.
     # (Using project_team_ratings' own aggregate here instead would diverge from the
     # per-player values we store, by ~0.7 rating points.) Calibration still comes from the
-    # walk-forward backtest.
+    # walk-forward backtest, offense and defense fitted separately.
     backtest = _walk_forward_ratings(imp, pts, pgl, ts, ages, rosters, season)
+    off_slope, off_int = calibrate_projected_ratings(
+        backtest, ts, target_season=season, target="off_rating", agg_col="agg_off")
+    def_slope, def_int = calibrate_projected_ratings(
+        backtest, ts, target_season=season, target="def_rating", agg_col="agg_def")
     slope, intercept = calibrate_projected_ratings(backtest, ts, target_season=season)
-    ratings = _aggregate_from_roster(base, rep)
-    ratings["pred_net_rating_dev"] = slope * ratings["agg_impact"] + intercept
+    ratings = _aggregate_from_roster(base, rep, rep_off, rep_def)
+    ratings["off_rating"] = off_slope * ratings["agg_off"] + off_int
+    ratings["def_rating"] = def_slope * ratings["agg_def"] + def_int
+    ratings["pred_net_rating_dev"] = ratings["off_rating"] + ratings["def_rating"]
     scored = backtest.copy()
-    scored["pred_net_rating_dev"] = slope * scored["agg_impact"] + intercept
+    scored["pred_net_rating_dev"] = (off_slope * scored["agg_off"] + off_int
+                                     + def_slope * scored["agg_def"] + def_int)
     ratings["season_start"] = season
     ratings = apply_carryover(ratings, scored, ts, target_season=season)
     rho = fit_rho(scored, ts, before_season=season)
@@ -108,27 +125,38 @@ def build_historical(season: int, data: dict) -> dict:
     ratings["sigma"] = sigma_base * ratings["new_minute_share"].map(
         turnover_sigma_multiplier)
 
+    # Per-player box-vs-RAPM defense, from seasons strictly before this one (walk-forward).
+    def_cmp = box_vs_rapm_by_player(imp, PROC, last_season=season - 1)
+    cal = {"off_slope": off_slope, "off_intercept": off_int,
+           "def_slope": def_slope, "def_intercept": def_int,
+           "replacement_off": rep_off, "replacement_def": rep_def}
     games = int(actual["games"].mode().iloc[0]) if not actual.empty else FULL_SEASON_GAMES
     return _assemble(season, ratings, base, data, sigma_base, slope, intercept, rep,
-                     rho, is_current=False, actual=actual, games=games)
+                     rho, is_current=False, actual=actual, games=games,
+                     cal=cal, def_cmp=def_cmp)
 
 
-def _aggregate_from_roster(base: pd.DataFrame, rep: float) -> pd.DataFrame:
+def _aggregate_from_roster(base: pd.DataFrame, rep: float,
+                           rep_off: float, rep_def: float) -> pd.DataFrame:
     """Team aggregate impact computed exactly as the UI recomputes it: minutes = mpg x
     availability x 82, scaled down to the 240x82 budget when over, leftover at replacement.
+    Offense and defense are aggregated separately; they sum to the combined agg_impact.
     """
     budget = MINUTES_PER_GAME * FULL_SEASON_GAMES
     rows = []
     for tid, g in base.groupby("team_id"):
         mins = (g["prior_mpg"] * g["proj_availability"] * FULL_SEASON_GAMES).to_numpy()
-        vals = g["proj_impact"].to_numpy(dtype=float)
         used = mins.sum()
         if used > budget:
             mins = mins * budget / used
             used = budget
         leftover = max(budget - used, 0.0)
-        agg = (float(np.sum(mins * vals)) + leftover * rep) / budget
-        rows.append({"team_id": tid, "agg_impact": agg})
+        off_v = g["proj_off_impact"].to_numpy(dtype=float)
+        def_v = g["proj_def_impact"].to_numpy(dtype=float)
+        agg_off = (float(np.sum(mins * off_v)) + leftover * rep_off) / budget
+        agg_def = (float(np.sum(mins * def_v)) + leftover * rep_def) / budget
+        rows.append({"team_id": tid, "agg_off": agg_off, "agg_def": agg_def,
+                     "agg_impact": agg_off + agg_def})
     return pd.DataFrame(rows)
 
 
@@ -141,14 +169,14 @@ def _walk_forward_ratings(imp, pts, pgl, ts, ages, rosters, before: int) -> pd.D
     frames = []
     for s in range(2017, before + 1):
         r = project_team_ratings(imp, pts, pgl, ts, ages, target_season=s,
-                                 mode="roster", team_rosters=rosters)
+                                 mode="roster", team_rosters=rosters, decouple=True)
         if not r.empty:
             frames.append(r)
     return pd.concat(frames, ignore_index=True)
 
 
 def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, rho,
-              *, is_current, actual, games) -> dict:
+              *, is_current, actual, games, cal, def_cmp) -> dict:
     ts, abbr = data["ts"], data["abbr"]
     coaches = data["coaches"]
     budget = MINUTES_PER_GAME * games
@@ -196,15 +224,26 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
     for _, tr in ratings.iterrows():
         tid = int(tr["team_id"])
         g = roster[roster["team_id"] == tid].sort_values("prior_mpg", ascending=False)
-        players = [{
-            "id": int(p["player_id"]), "name": str(p.get("name", "")),
-            "pos": str(p["POSITION"]) if pd.notna(p.get("POSITION")) else "",
-            "age": int(p["age"]) if pd.notna(p.get("age")) else None,
-            "impact": round(float(p["proj_impact"]), 5),
-            "mpg": round(float(p["prior_mpg"]), 4),
-            "avail": round(float(p["proj_availability"]), 5),
-            "rookie": False, "override": False,
-        } for _, p in g.iterrows()]
+
+        def _player(p: pd.Series) -> dict:
+            rec = {
+                "id": int(p["player_id"]), "name": str(p.get("name", "")),
+                "pos": str(p["POSITION"]) if pd.notna(p.get("POSITION")) else "",
+                "age": int(p["age"]) if pd.notna(p.get("age")) else None,
+                "impact": round(float(p["proj_impact"]), 5),
+                "off": round(float(p["proj_off_impact"]), 5),
+                "def": round(float(p["proj_def_impact"]), 5),
+                "mpg": round(float(p["prior_mpg"]), 4),
+                "avail": round(float(p["proj_availability"]), 5),
+                "rookie": False, "override": False,
+            }
+            dc = def_cmp.get(int(p["player_id"]))
+            if dc:
+                rec["box_def"] = round(float(dc["box_def"]), 3)
+                rec["rapm_def"] = round(float(dc["def_rapm"]), 3)
+                rec["rapm_yr"] = int(dc["season_start"])
+            return rec
+        players = [_player(p) for _, p in g.iterrows()]
         base = grid[tid][len(RATING_GRID) // 2]
         rec = {
             "id": tid, "abbr": abbr.get(tid, name_map.get(tid, {}).get("team", "?")),
@@ -212,6 +251,8 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
             "coach": coach_map.get(tid, "unknown"),
             "agg_impact": round(float(tr["agg_impact"]), 4),
             "rating": round(float(tr["pred_net_rating_dev"]), 2),
+            "off_rating": round(float(tr["off_rating"]), 2),
+            "def_rating": round(float(tr["def_rating"]), 2),
             "carryover": round(float(tr.get("carryover", 0.0)), 2),
             "sigma": round(float(tr["sigma"]), 3),
             "turnover": round(float(tr["new_minute_share"]), 3),
@@ -236,6 +277,12 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
         "is_current": is_current,
         "rating_slope": round(slope, 4),
         "rating_intercept": round(intercept, 4),
+        "off_slope": round(cal["off_slope"], 4),
+        "off_intercept": round(cal["off_intercept"], 4),
+        "def_slope": round(cal["def_slope"], 4),
+        "def_intercept": round(cal["def_intercept"], 4),
+        "replacement_off": round(cal["replacement_off"], 4),
+        "replacement_def": round(cal["replacement_def"], 4),
         "sigma_base": round(sigma_base, 3),
         "rho_carryover": round(rho, 3),
         "season_mae": mae,
@@ -313,6 +360,12 @@ def main() -> int:
             "snapshot_date": cur["meta"].get("snapshot_date"),
             "rating_slope": cur["meta"].get("rating_slope"),
             "rating_intercept": cur["meta"].get("rating_intercept"),
+            "off_slope": cur["meta"].get("off_slope"),
+            "off_intercept": cur["meta"].get("off_intercept"),
+            "def_slope": cur["meta"].get("def_slope"),
+            "def_intercept": cur["meta"].get("def_intercept"),
+            "replacement_off": cur["meta"].get("replacement_off"),
+            "replacement_def": cur["meta"].get("replacement_def"),
             "sigma_base": cur["meta"].get("sigma_base"),
             "rho_carryover": cur["meta"].get("rho_carryover"),
             "season_mae": None, "teams": teams, "grid": cur["grid"],

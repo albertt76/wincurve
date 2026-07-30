@@ -32,6 +32,8 @@ blind spot. The cost is the data: stint reconstruction over thousands of games.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from scipy import sparse
@@ -44,6 +46,35 @@ AWAY_COLS = [f"away_p{i}" for i in range(1, 6)]
 # possessions" of evidence a player must accumulate before his estimate moves off zero.
 # ~2000 is a standard single-season choice; tune by cross-validation on held-out segments.
 DEFAULT_ALPHA = 2000.0
+
+
+def box_vs_rapm_by_player(impact: pd.DataFrame, rapm_dir: str | Path, *,
+                          last_season: int, alpha: int = 2000,
+                          first_season: int = 2013) -> dict[int, dict]:
+    """Per-player {box_def, def_rapm, season_start} from the most recent season, at or before
+    `last_season`, where both a box-score `def_impact` and a cached box-informed RAPM defense
+    exist. Used to surface where our box defense disagrees with play-by-play RAPM.
+
+    RAPM is read from ``<rapm_dir>/rapm_<season>_a<alpha>.parquet``. Only seasons that were
+    actually pulled contribute; a player with none is simply absent from the result (no flag).
+    Passing ``last_season = target - 1`` keeps the comparison walk-forward.
+    """
+    box = impact[["player_id", "season_start", "def_impact"]].rename(
+        columns={"def_impact": "box_def"})
+    frames = []
+    for s in range(first_season, last_season + 1):
+        f = Path(rapm_dir) / f"rapm_{s}_a{alpha}.parquet"
+        if f.exists():
+            rf = pd.read_parquet(f)[["player_id", "def_rapm"]].copy()
+            rf["season_start"] = s
+            frames.append(rf)
+    if not frames:
+        return {}
+    both = (pd.concat(frames, ignore_index=True)
+            .merge(box, on=["player_id", "season_start"], how="inner").dropna()
+            .sort_values("season_start").groupby("player_id").tail(1))
+    return both.set_index("player_id")[
+        ["box_def", "def_rapm", "season_start"]].to_dict("index")
 
 
 def build_design(segments: pd.DataFrame) -> tuple[sparse.csr_matrix, np.ndarray,
