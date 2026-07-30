@@ -173,10 +173,30 @@ into `data/processed/snapshots.json` (~700 KB, all seasons inlined); the what-if
 on every season and reproduces each baseline to rounding. Rebuild:
 
 ```
-python scripts/project_current.py   # upcoming-season live bundle
-python scripts/build_snapshots.py   # historical bundles + combined snapshots.json
-python ui/build.py                  # inline into ui/projections.html
+python scripts/project_current.py       # upcoming-season live bundle
+python scripts/fetch_market.py --refresh # live Kalshi win totals (downstream comparison)
+python scripts/build_snapshots.py       # historical bundles + combined snapshots.json
+python ui/build.py                      # inline into ui/projections.html
 ```
+
+**Live market comparison (upcoming season only).** Each 2026-27 team bar carries a hollow
+blue ring marking the win total the prediction market implies **right now**, plus a
+`mkt N · ±diff` readout where diff is *our projection minus the market*. Source is
+**Kalshi `KXNBAWINS`** (`nbaproj/market_live.py`), the only live per-team win-total market:
+bbref Vegas over/unders are still unposted this early (404), and Polymarket has no per-team
+win-total market. Kalshi quotes a **threshold ladder** ("20+/25+/30+ wins"), so we
+reconstruct a full market-implied distribution (median, mean, p10/p90) and compare
+distribution-to-distribution, not just point-to-point. **Strictly downstream — the market
+never touches the model** (that rule is what keeps the disagreement analysis meaningful).
+Mean |ours − market| ≈ 4.2 wins; biggest gaps are the deliverable (open a team for the
+roster reason). Refresh through the season with `fetch_market.py --refresh`.
+
+**Explainability (added for the "is Impact WAR?" question).** A plain-English glossary
+(`<details>` at the foot) defines every number. The player table now has an **≈ Wins**
+column — the WAR-like (wins-above-replacement) translation of Impact, since **Impact itself
+is a per-100-possession rate, not a win count**. The panel shows **Minutes supplied /240**,
+which surfaces bloated off-season rosters (see the roster-bloat defect below). The
+green/red edit delta is now tooltip-labelled "change from the original projection".
 
 
 `ui/template.html` + `ui/build.py` -> `ui/projections.html` (self-contained, data inlined).
@@ -196,22 +216,33 @@ aggregation is a minute-weighted mean, so it can be reproduced client-side. A pr
 per-team grid of simulated win distributions across rating offsets is interpolated, which
 keeps real schedule strength intact without running a simulation in the browser.
 
-**Two caveats are stated in the page itself, deliberately:** that the model does not beat
-the market on aggregate accuracy (8.36 vs 6.88 MAE), and that single-player what-ifs
-extrapolate the calibration slope further than the backtest validated. Do not remove them.
+**Caveats are stated in the page itself, deliberately:** that the model does not beat the
+market on aggregate accuracy (7.95 vs 6.88 MAE), that single-player what-ifs extrapolate the
+calibration slope further than the backtest validated, and (upcoming season) that the market
+ring is shown-only and never an input. Do not remove them.
+
+**Deployment: Vercel, private repo, `ui/` only.** GitHub Pages free requires a public repo;
+Vercel Hobby deploys the private repo and still serves a public URL. The site is configured
+to serve **only `ui/`** (Vercel *Root Directory* = `ui`), so `data/`, `nbaproj/`, and
+`scripts/` are never uploaded or reachable. `ui/vercel.json` serves `projections.html` at
+`/`; `ui/.vercelignore` keeps `build.py`/`template.html` out. Full steps in
+[ui/DEPLOY.md](ui/DEPLOY.md). The self-contained `projections.html` already inlines its data,
+so nothing beyond the app's own numbers is exposed.
 
 ## Layout
 
 ```
 nbaproj/
-  cache.py       throttled, retrying, disk-cached nba_api wrapper
-  ingest.py      per-dataset pulls; availability windows as constants
-  teams.py       team-season target table; franchise spine
-  baselines.py   walk-forward naive baselines + noise floor
-  odds.py        preseason win totals scraper + strict franchise join
+  cache.py        throttled, retrying, disk-cached nba_api wrapper
+  ingest.py       per-dataset pulls; availability windows as constants
+  teams.py        team-season target table; franchise spine
+  baselines.py    walk-forward naive baselines + noise floor
+  odds.py         historical preseason win totals scraper + strict franchise join
+  market_live.py  LIVE Kalshi win-total ladders -> implied distribution (downstream only)
 scripts/
   fetch_all.py       full historical pull (idempotent, resumable)
   baseline_report.py Stage 1 report: the bar
+  fetch_market.py    pull live Kalshi lines -> data/processed/market_2026_27.json
 ```
 
 ---
@@ -278,10 +309,12 @@ scripts/
   (intraclass 0.45) but using it hurt the backtest; roster-continuity persistence is real
   but the interaction it implies is not significant. **Blocked on data:** `team_coaches`
   is mis-dated by one season at changes — re-pull before further coaching work.
-- 🟡 **Stage 8 — market comparison.** Historical market baseline done (bbref preseason
-  win totals). Live 2026-27 projections generated with per-team calibrated intervals and
-  the interactive UI. Still to do: live Kalshi/Polymarket pull for the 2026-27 comparison,
-  and the contract-year hypothesis test.
+- ✅ **Stage 8 — market comparison.** Historical market baseline done (bbref preseason
+  win totals). **Live 2026-27 Kalshi pull shipped** (`nbaproj/market_live.py`,
+  `scripts/fetch_market.py`): all 30 teams' threshold ladders reconstructed into implied
+  win distributions and shown beside ours in the UI (hollow ring + `mkt N · ±diff`). Vegas
+  (bbref) not yet posted (404); Polymarket has no per-team win-total market. Still to do:
+  the contract-year hypothesis test. **Downstream-only, never a feature.**
 - 🟡 **Defensive metric / RAPM** — pipeline + box-informed estimator built and validated;
   integration gated on the (overnight) multi-season play-by-play pull. See the RAPM
   section below.
@@ -301,6 +334,21 @@ July projection cannot know about a November deal. Always record the snapshot da
 any output. Historical injury *reasons* are unavailable — Pro Sports Transactions is
 behind a Cloudflare bot challenge we will not bypass — so absences mix injury with
 rest, suspension and coach's decision. Hence the name "availability", not "health".
+
+### ⚠️ KNOWN DEFECT: bloated summer rosters in the live pull (surfaced by the market comparison)
+
+`commonteamroster` in July returns **20-24 player rosters** — camp invites, two-ways, and
+just-acquired players still carrying their *old* team's minutes — so 8 of 30 teams supply
+**>290 player-minutes/game** against the 240 budget (ATL 359, UTA 350, MIL/MEM/WAS ~325).
+The aggregation (`scripts/project_current.py`) is a minute-weighted **mean** impact over
+*all* rostered players, so negative-impact camp bodies drag the aggregate down. This makes
+ATL project to 31 wins vs the Kalshi market's 45, and similarly depresses UTA/MIL/MEM/WAS/
+CHA/PHI/DAL — **most of the biggest "disagreements" are this artifact, not signal.** The
+historical backtest is clean because it uses `roster_opening_day` (already ~15). The fix
+is to trim the current roster to an opening-day-like rotation before aggregating, matching
+how the model was trained. The UI now shows **Minutes supplied /240** per team so the bloat
+is visible; a fix is tracked but not yet applied (methodology change → wants validation and
+sign-off). Do not read the flagged teams' market gaps as findings until this is fixed.
 
 ### The alpha reversal (worth internalising)
 
@@ -557,8 +605,11 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
 
 - ⬜ Historical **injury reasons** still unsourced (Pro Sports Transactions needs a UA;
   otherwise only games-missed is available)
-- ⬜ 2026-27 preseason win totals not yet published on bbref (404 as of July 2026) —
-  live market comparison will need Kalshi/Polymarket
+- ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). bbref Vegas
+  still 404; Polymarket has no per-team win-total market. Re-check bbref later for the Vegas
+  over/under (would add a second live line).
+- ⬜ **Fix bloated summer rosters** (see KNOWN DEFECT above) before trusting the flagged
+  teams' market gaps.
 - ⬜ Contract/salary history unsourced (only needed for the contract-year test)
 - ⬜ Roster definition for backtest: plan is to reconstruct opening-night rosters from
   each season's first games. Using full-season rosters would understate real-world
