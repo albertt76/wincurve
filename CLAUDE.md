@@ -316,6 +316,30 @@ to reputation, is at 0.729 — slightly *more* distributed than average. The unt
 where it should help is a **coaching change**, where prior minutes reflect the departed
 coach.
 
+### Franchise effect, round 2: NOT a quality confound, but worth ~0.04 wins
+
+A dedicated workflow re-tested it. The quality-confound explanation is **rejected**:
+
+- Controlling for projected rating removes **4%** of the lag-1 autocorrelation and **0%** of
+  the franchise variance. Across 30 franchises, mean residual correlates just **+0.059**
+  with mean projected rating.
+- **Oklahoma City is projected 1.24 points BELOW average and is the second-largest
+  overperformer** — the opposite of a good-teams-outperform artifact.
+- The persistence is unambiguously real: permutation null z = +5.37, p = 0.0005, and it
+  replicates across independent halves (odd vs even seasons, r = +0.409, p = 0.025).
+
+But two findings cut against using it:
+
+- **The permanent part is essentially two teams.** Dropping Boston and OKC takes
+  sd_franchise from 1.140 to **0.535** and ICC from 0.096 to 0.023.
+- **Out-of-sample value is ~0.04 wins, not the 0.41-0.63 originally claimed.** That figure
+  came from subtracting each franchise's IN-SAMPLE mean. Done walk-forward the gain is
+  +0.0178 points per 100; with unshrunk franchise means it is negative.
+
+Organisational quality (A) vs measurement error (C) remains **unresolved**, and the lag
+profile leans toward (C). Do NOT add a projected-rating recalibration term — applied
+walk-forward it makes the model materially worse (rating MAE 3.053 → 3.237).
+
 ### ⚠️ CORRECTED: the "franchise effect" is one-year memory, not organisational quality
 
 An earlier analysis claimed a persistent franchise effect (within-franchise residual

@@ -45,6 +45,13 @@ from .minutes import (
 log = logging.getLogger(__name__)
 
 EARLY_GAMES = 15
+
+# A player fills one of five floor spots, so aggregating minute-weighted impact to a team
+# rating should scale by about 5. Used only as the prior that a thin-history calibration
+# shrinks toward.
+THEORETICAL_SLOPE = 5.0
+# Rows of history at which the fitted calibration is trusted fully.
+CALIBRATION_FULL_WEIGHT_ROWS = 150
 IMPACT_COLS = ("impact", "off_impact", "def_impact")
 
 
@@ -363,8 +370,20 @@ def calibrate_projected_ratings(projections: pd.DataFrame,
     train = projections[projections["season_start"] < target_season].merge(
         t[["team_id", "season_start", "dev"]], on=["team_id", "season_start"]).dropna(
         subset=["agg_impact", "dev"])
-    if len(train) < 60:
-        # Too little history to calibrate; fall back to the theoretical slope of 5.
-        return 5.0, 0.0
+    if len(train) < 30:
+        # Genuinely nothing to fit on.
+        return THEORETICAL_SLOPE, 0.0
+
     slope, intercept = np.polyfit(train["agg_impact"], train["dev"], 1)
-    return float(slope), float(intercept)
+
+    # Shrink toward the theoretical slope on thin history instead of switching to it
+    # discretely. The old code returned exactly (5.0, 0.0) below 60 rows, which hit the
+    # 2017 and 2018 folds while the fitted slope was around 8.5 -- and those two folds
+    # carried the ENTIRE apparent quality bias in the residuals (slope +0.701, t=+3.25),
+    # with prediction-to-actual SD ratios of 0.48 and 0.41 against 0.56-0.86 in later
+    # folds. A discrete jump between two materially different slopes distorted the early
+    # folds; a smooth blend removes the discontinuity without pretending to more
+    # information than the rows support.
+    w = min(len(train) / CALIBRATION_FULL_WEIGHT_ROWS, 1.0)
+    return (float(w * slope + (1.0 - w) * THEORETICAL_SLOPE),
+            float(w * intercept))
