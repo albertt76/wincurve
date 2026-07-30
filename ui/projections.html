@@ -1,3 +1,5 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>wincurve — NBA Win Projections</title>
 
 <style>
@@ -332,9 +334,31 @@
     background: var(--surface); border: 2px solid var(--mkt);
   }
 
+  /* caveats live below the table now; give them a little breathing room */
+  .notes { margin-top: 26px; display: grid; gap: 0; }
+
   @media (max-width: 720px) {
-    .axis-head, .row { grid-template-columns: 108px 1fr 88px; gap: 10px; }
+    .wrap { padding: 24px 16px 64px; }
+    .axis-head, .row { grid-template-columns: 56px 1fr 96px; gap: 10px; }
     .tname { display: none; }
+    .abbr { width: auto; }
+  }
+  @media (max-width: 460px) {
+    .wrap { padding: 16px 11px 52px; }
+    .axis-head, .row { grid-template-columns: 40px 1fr 86px; gap: 7px; }
+    .row { padding: 9px 7px; }
+    h1 { font-size: 24px; }
+    .sub { font-size: 14px; }
+    .wins { font-size: 15px; }
+    .nums { font-size: 12px; }
+    .rng, .anum, .anum b, .mktnum, .mktnum b { font-size: 9.5px; }
+    .mktnum .swatch { display: none; }          /* label carries the meaning on small screens */
+    .axis .tick { font-size: 9px; }
+    .axis .tick.minor { display: none; }         /* keep only 15 / .500 / 68 so labels don't collide */
+    .panel { padding: 4px 8px 16px; }
+    .panel-head { gap: 8px 12px; }
+    .stat { font-size: 11px; }
+    .notes .caveat { font-size: 12.5px; }
   }
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; }
@@ -358,6 +382,20 @@
       game on a real schedule, with a carryover adjustment for the part of last season's
       error that tends to persist.
     </p>
+  </header>
+
+  <div class="axis-head">
+    <div class="col-label">Team</div>
+    <div>
+      <div class="col-label" style="margin-bottom:3px">Projected wins &mdash; 80% range, 50% range, median</div>
+      <div class="axis" id="axis"></div>
+    </div>
+    <div class="col-label" style="text-align:right">Wins</div>
+  </div>
+
+  <div class="rows" id="rows"></div>
+
+  <div class="notes">
     <div class="caveat" id="cav-current">
       <strong>Read the ranges, not the numbers.</strong> This model's average miss in
       backtesting is <strong id="mae"></strong> wins, against <strong id="mmae"></strong>
@@ -396,18 +434,7 @@
       deep roster absorbs the loss far better than a thin one, and only what the bench
       cannot cover falls to replacement level.
     </div>
-  </header>
-
-  <div class="axis-head">
-    <div class="col-label">Team</div>
-    <div>
-      <div class="col-label" style="margin-bottom:3px">Projected wins &mdash; 80% range, 50% range, median</div>
-      <div class="axis" id="axis"></div>
-    </div>
-    <div class="col-label" style="text-align:right">Wins</div>
   </div>
-
-  <div class="rows" id="rows"></div>
 
   <details class="legend">
     <summary>What every number means &mdash; plain-English glossary</summary>
@@ -488,11 +515,14 @@ let DATA, state, byId, allPlayers;
 document.getElementById('rep').textContent = GMETA.replacement_impact.toFixed(2);
 document.getElementById('mmae').textContent = GMETA.market_mae.toFixed(2);
 
-// axis ticks (drawn once)
+// axis ticks (drawn once). On phones only the primary ticks stay visible (CSS), so the
+// labels don't collide on a narrow bar.
 const axis = document.getElementById('axis');
+const PRIMARY_TICKS = new Set([15, 41, 68]);
 [15, 25, 35, 41, 50, 60, 68].forEach(v => {
   const t = document.createElement('span');
-  t.className = 'tick'; t.style.left = pct(v) + '%';
+  t.className = 'tick' + (PRIMARY_TICKS.has(v) ? '' : ' minor');
+  t.style.left = pct(v) + '%';
   t.textContent = v === 41 ? '.500' : v;
   axis.appendChild(t);
 });
