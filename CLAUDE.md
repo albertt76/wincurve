@@ -51,17 +51,29 @@ should carry their own legend.
 ## Architecture
 
 ```
-A. Player talent projection   (impact per 100 possessions, aging, shrinkage)
+A. Player talent projection   (impact per 100 possessions, aging, shrinkage; off/def decoupled)
 B. Minutes & availability     (240 min/game budget, injuries, replacement level)
-C. Team aggregation           (minute-weighted sum -> off/def rating)
+C. Team aggregation           (minute-weighted sum -> separate off and def ratings)
 D. One-year carryover         (+ rho * last-season residual; error persists ~1 season)
 E. Monte Carlo season sim     (real schedule, home court, rest -> win distribution)
 F. Market comparison          (downstream only)
 ```
 
-Defensive metric upgrade (box-informed RAPM from play-by-play) is built and validated but
-not yet integrated — see the RAPM section. Layer A's defensive component is the model's
-weakest link.
+**Offense and defense are decoupled** (shipped 2026-07, `decouple=True` in
+`project_team_ratings`): each player's offense and defense is projected and aged separately and
+calibrated against team offense/defense with its own slope, net = off + def. It is MAE-neutral
+(gate: `scripts/gate_decouple.py`, 7.960 -> 7.957 excl. shortened folds, coverage 80.0 -> 80.7%)
+but lets the app attribute a rating to offense vs defense and surface the defensive weakness.
+
+Layer A's defensive component is the model's **weakest link**, and now we can say exactly why:
+the box-score defensive metric is ~60% defensive-rebounds-plus-blocks by fitted weight (rebounds
+alone 41%), so `def_impact` correlates 0.82 with defensive rebounding — it largely measures
+*being a center*. Elite perimeter defense (containment, deterrence) produces few countable
+events, so the metric's top-12 are ~10 centers and it rates celebrated stoppers (Dort, NAW,
+Anunoby, Holiday) near zero. Defense R² is 0.33 vs offense 0.82. Box-informed RAPM from
+play-by-play is the structural fix; it is surfaced per-player in the UI (box-vs-RAPM "D↑/D↓"
+flags) but not yet in the projection — see the RAPM section for why (the carryover substitutes
+for its aggregate value).
 
 **Why bottom-up:** 21 seasons x 30 teams = **630 team-seasons**. That is far too few
 rows to fit a team-level model with the many features originally envisioned (positional
@@ -199,6 +211,19 @@ which surfaces deep off-season rosters (see the roster-bloat investigation below
 "bloat" was checked and is not a defect). The
 green/red edit delta is now tooltip-labelled "change from the original projection".
 
+**Offense/defense split + defensive disagreement (added 2026-07).** Every team row shows its
+rating split as **`O ±x · D ±y`** (colored by sign), so you can see whether a projection is
+carried or dragged by offense vs defense — e.g. Detroit is defense-carried (O −0.1, D +0.8),
+Charlotte offense-carried (O +0.6, D −0.5). The roster panel splits Impact into **Off / Def**
+columns and its header shows the team **Offense / Defense** rating. Players whose box-score
+defense disagrees with play-by-play **RAPM** get a **`D↑` / `D↓` flag** by their name (`D↑` =
+RAPM higher, we likely underrate his D — e.g. Alex Caruso, NAW; `D↓` = we likely overrate,
+e.g. Dyson Daniels), hover for both numbers. RAPM is comparison-only, not in the projection.
+This is fed by the decoupled projection: `project_current.py` / `build_snapshots.py` emit
+per-team `off_rating`/`def_rating`, per-player `off`/`def`, and each player's most-recent
+`box_def`/`rapm_def` (via `nbaproj.rapm.box_vs_rapm_by_player`, walk-forward). The client
+recompute is decoupled too, so a roster edit reprices offense and defense independently.
+
 
 `ui/template.html` + `ui/build.py` -> `ui/projections.html` (self-contained, data inlined).
 Rebuild after regenerating projections:
@@ -316,11 +341,17 @@ scripts/
   win distributions and shown beside ours in the UI (hollow ring + `mkt N · ±diff`). Vegas
   (bbref) not yet posted (404); Polymarket has no per-team win-total market. Still to do:
   the contract-year hypothesis test. **Downstream-only, never a feature.**
+- ✅ **Offense/defense decouple** — offense and defense projected, aged, and calibrated
+  separately (`decouple=True`); MAE-neutral (`scripts/gate_decouple.py`: 7.960 → 7.957 excl.
+  short folds, coverage 80.0 → 80.7%). Shipped because it unlocks the per-team off/def split
+  and the per-player defensive-disagreement surface in the UI.
 - 🟡 **Defensive metric / RAPM** — pipeline, box-informed estimator, and the **deciding
   end-to-end integration test all done** (RAPM pulled 2013–2024). Verdict: RAPM is the better
   defensive metric but the one-year carryover already substitutes for it, so the blanket swap
-  is MAE-neutral; a turnover-weighted blend gains a modest +0.16 wins. **Not shipped** — see
-  the RAPM section below. Blocked from live use until the bulk mirror adds 2025-26 PBP.
+  is MAE-neutral; a turnover-weighted blend gains a modest +0.16 wins. **Not shipped into the
+  projection** — see the RAPM section below — but now **surfaced per-player in the UI** as
+  box-vs-RAPM `D↑/D↓` flags (`nbaproj.rapm.box_vs_rapm_by_player`). Blocked from the projection
+  live until the bulk mirror adds 2025-26 PBP.
 
 ### Offseason movement & absences — how each is handled
 
