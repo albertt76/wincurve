@@ -289,6 +289,42 @@ tune against measured end-to-end error.
   projected aggregates from earlier folds. Worth 0.7-1.1 wins of MAE.
   **Lesson: fit a calibration on the same kind of quantity you apply it to.**
 
+### Measured negative results (do not re-attempt blind)
+
+All of these were well-motivated ideas that **failed their gate**. Recorded so the effort
+is not repeated.
+
+| Idea | Result |
+|---|---|
+| Age × injury-history interaction | Right sign in 16/16 folds, worth 0.0001 MAE |
+| Canonical minutes by within-team rank | 8.44 → 9.14 (worse) |
+| Hybrid: canonical curve for newcomers only | 8.44 → 8.61 (worse) |
+| Talent concentration / depth features | Null after controlling for quality; sign **opposite** to hypothesis |
+| Coach rotation-concentration reshape | 8.34 → 8.54 (worse) |
+| Tanking adjustment from lottery reform | 2019 reform *tripled* tanking, not reduced it |
+
+**The recurring lesson:** three of these failed the same way — replacing team-specific
+information with a league or career *average*. Prior-season minutes already encode a
+coach's tendency; a canonical curve discards how a particular team distributes minutes.
+Averages are the enemy here.
+
+**Coach minute concentration IS a real trait** even though using it this way failed:
+between-coach variance 0.00227 vs within-coach 0.00275, intraclass ratio **0.45**.
+Thibodeau runs the league's most concentrated rotation (0.813 top-8 minute share over 9
+seasons vs 0.750 mean); Daigneault 0.715 and Kerr 0.734 sit below it. Nick Nurse, contrary
+to reputation, is at 0.729 — slightly *more* distributed than average. The untested case
+where it should help is a **coaching change**, where prior minutes reflect the departed
+coach.
+
+### The franchise effect — the strongest unexploited signal found so far
+
+Residuals are autocorrelated **+0.356 within franchise**, with an implied true
+franchise-effect SD of **1.08 points per 100 ≈ 2.9 wins** — larger than any roster-shape
+feature tested. Over 2017-2025, OKC ran **+3.8** and Boston **+4.2** points per 100 above
+projection. This explains the OKC-depth and Boston-without-Tatum cases *better than roster
+shape does*, and it is where coaching and organisational quality would live. Worth
+0.41-0.63 wins of MAE out-of-sample in the analysis. **This is the next thing to pursue.**
+
 ### Findings worth keeping
 
 - **Age × injury-history interaction: directionally real, practically useless.** The

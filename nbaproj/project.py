@@ -37,7 +37,8 @@ import pandas as pd
 from .aging import aging_curves, build_transitions, project_next_season, replacement_level
 from .availability import build_availability, build_features, fit_predict
 from .minutes import (
-    MINUTES_PER_GAME, assign_rank_minutes, fit_canonical_minutes,
+    MINUTES_PER_GAME, assign_rank_minutes, coach_concentration,
+    fit_canonical_minutes, reshape_to_concentration,
 )
 
 log = logging.getLogger(__name__)
@@ -187,6 +188,7 @@ def project_team_ratings(
     target_season: int,
     mode: str = "early",
     team_rosters: pd.DataFrame | None = None,
+    coaches: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Projected net-rating deviation for every team in `target_season`.
 
@@ -260,6 +262,28 @@ def project_team_ratings(
         # rank-based alternatives were tried and BOTH measured worse -- see the note on
         # fit_canonical_minutes in minutes.py. Kept simple because simple won.
         roster["minutes"] = roster["early_mpg"] * roster["avail"] * roster["tg"]
+
+        # Optionally reshape each team's minute curve toward its head coach's historical
+        # rotation tendency. Concentration is substantially a coach trait (intraclass
+        # ratio 0.45), and unlike the league-average curve this keeps the team-specific
+        # information while adjusting only the steepness of the falloff. A coach without
+        # enough history -- notably any new hire -- falls back to the league mean, which
+        # is the honest treatment rather than a guess.
+        if coaches is not None and mode == "roster":
+            conc, league_mean = coach_concentration(
+                player_team_seasons, coaches, team_seasons,
+                before_season=target_season)
+            hc = coaches[coaches["COACH_TYPE"] == "Head Coach"].copy()
+            hc["team_id"] = hc["TEAM_ID"].astype("int64")
+            hc["season_start"] = hc["SEASON_START"].astype(int)
+            hc = hc[hc["season_start"] == target_season].drop_duplicates("team_id")
+            coach_of = dict(zip(hc["team_id"], hc["COACH_ID"]))
+            for tid, grp in roster.groupby("team_id"):
+                cid = coach_of.get(tid)
+                target = conc.get(int(cid), league_mean) if cid is not None \
+                    else league_mean
+                roster.loc[grp.index, "minutes"] = reshape_to_concentration(
+                    grp["minutes"].to_numpy(dtype=float), target)
 
         # Enforce the team minute budget: scale down when over, never up when under.
         budget = roster["team_id"].map(
