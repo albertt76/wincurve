@@ -1,0 +1,146 @@
+"""Regularized Adjusted Plus-Minus (RAPM): offensive and defensive player value from
+stint data, isolating each player from his nine on-court peers.
+
+## The idea
+
+Across a season's segments (constant-lineup intervals from nbaproj.pbp), regress the score
+margin per 100 possessions on indicators for who was on the floor. Ridge regularisation is
+essential: with ~450 players and heavy collinearity (teammates share the floor), ordinary
+least squares is hopeless, but a ridge penalty shrinks unproven players toward zero and
+stabilises the estimate. That penalty is literally where the "regularized" in RAPM comes
+from.
+
+## Offensive vs defensive split
+
+Each segment contributes two rows, so offense and defense are estimated separately:
+
+- Row A (home has the ball): the five home players get +1 in their OFFENSE columns, the five
+  away players +1 in their DEFENSE columns. Response = home points scored per 100 poss.
+- Row B (away has the ball): mirror image. Response = away points per 100.
+
+A player's OFFENSE coefficient is points added on offense; his DEFENSE coefficient is points
+allowed, so a *negative* defensive coefficient is good. `defensive_rapm` flips the sign so
+that, as everywhere else in this project, positive means good.
+
+## Why this is worth the trouble
+
+The box-score metric captures ~12-14% of franchise-level defensive variance. RAPM sees
+defense directly -- it does not care whether a stop came from a block or from perfect
+positioning that forced a miss -- so it is the documented fix for the model's defensive
+blind spot. The cost is the data: stint reconstruction over thousands of games.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+from scipy import sparse
+from sklearn.linear_model import Ridge
+
+HOME_COLS = [f"home_p{i}" for i in range(1, 6)]
+AWAY_COLS = [f"away_p{i}" for i in range(1, 6)]
+
+# Ridge strength in RAPM is a real prior, not a nuisance: it is the number of "league-average
+# possessions" of evidence a player must accumulate before his estimate moves off zero.
+# ~2000 is a standard single-season choice; tune by cross-validation on held-out segments.
+DEFAULT_ALPHA = 2000.0
+
+
+def build_design(segments: pd.DataFrame) -> tuple[sparse.csr_matrix, np.ndarray,
+                                                  np.ndarray, list[int]]:
+    """Build the offense/defense design matrix from segments.
+
+    Returns (X, y, weights, players):
+      - X is sparse with 2*n_players columns: [offense_0..offense_{n-1},
+        defense_0..defense_{n-1}].
+      - y is points scored by the offense per 100 possessions for that row.
+      - weights are possessions (so long segments count more).
+      - players is the column-order list of player ids; offense column j and defense column
+        n+j both refer to players[j].
+    """
+    seg = segments[segments["poss"] > 0].reset_index(drop=True)
+    if seg.empty:
+        return sparse.csr_matrix((0, 0)), np.zeros(0), np.zeros(0), []
+
+    players = sorted(pd.unique(seg[HOME_COLS + AWAY_COLS].to_numpy().ravel()))
+    idx = {p: j for j, p in enumerate(players)}
+    n = len(players)
+
+    home = np.column_stack([seg[c].map(idx).to_numpy() for c in HOME_COLS])
+    away = np.column_stack([seg[c].map(idx).to_numpy() for c in AWAY_COLS])
+
+    # Points scored by each side during the segment. home_margin = home_pts - away_pts; we
+    # need the components, reconstructed from margin and the tempo estimate is not enough --
+    # so build_segments must also carry home_pts/away_pts. When only margin is present, fall
+    # back to splitting it (offense row = +margin/2 baseline); prefer explicit points.
+    if "home_pts" in seg.columns and "away_pts" in seg.columns:
+        home_pts = seg["home_pts"].to_numpy(dtype=float)
+        away_pts = seg["away_pts"].to_numpy(dtype=float)
+    else:
+        # Degrade gracefully: treat the margin as the offensive signal on each side.
+        half = seg["home_margin"].to_numpy(dtype=float)
+        home_pts = np.clip(half, 0, None)
+        away_pts = np.clip(-half, 0, None)
+
+    poss = seg["poss"].to_numpy(dtype=float)
+    per100 = 100.0 / np.where(poss > 0, poss, 1.0)
+
+    rows_i, cols_i, vals = [], [], []
+    y, w = [], []
+    r = 0
+    for s in range(len(seg)):
+        # Row A: home offense vs away defense.
+        for j in range(5):
+            rows_i += [r, r]
+            cols_i += [home[s, j], n + away[s, j]]
+            vals += [1.0, 1.0]
+        y.append(home_pts[s] * per100[s])
+        w.append(poss[s])
+        r += 1
+        # Row B: away offense vs home defense.
+        for j in range(5):
+            rows_i += [r, r]
+            cols_i += [away[s, j], n + home[s, j]]
+            vals += [1.0, 1.0]
+        y.append(away_pts[s] * per100[s])
+        w.append(poss[s])
+        r += 1
+
+    X = sparse.csr_matrix((vals, (rows_i, cols_i)), shape=(r, 2 * n))
+    return X, np.array(y), np.array(w), players
+
+
+def fit_rapm(segments: pd.DataFrame, *, alpha: float = DEFAULT_ALPHA) -> pd.DataFrame:
+    """Fit offensive and defensive RAPM. One row per player, in points per 100 possessions.
+
+    `off_rapm` is points added on offense; `def_rapm` is sign-flipped so positive is good
+    defense; `rapm` is their sum, the player's net on-court value.
+    """
+    X, y, w, players = build_design(segments)
+    if X.shape[0] == 0 or not players:
+        return pd.DataFrame(columns=["player_id", "off_rapm", "def_rapm", "rapm",
+                                     "poss"])
+
+    # Centre the response so the intercept carries the league baseline and coefficients are
+    # deviations from average, matching how the box-score impact metric is defined.
+    y_mean = np.average(y, weights=w)
+    model = Ridge(alpha=alpha, fit_intercept=False)
+    model.fit(X, y - y_mean, sample_weight=w)
+    beta = model.coef_
+    n = len(players)
+
+    # Possessions played per player, for a minutes-style weight downstream.
+    seg = segments[segments["poss"] > 0]
+    poss_by = {}
+    for _, s in seg.iterrows():
+        for c in HOME_COLS + AWAY_COLS:
+            poss_by[s[c]] = poss_by.get(s[c], 0.0) + s["poss"]
+
+    return pd.DataFrame({
+        "player_id": [int(p) for p in players],
+        "off_rapm": beta[:n],
+        # Defensive coefficient is points ALLOWED; negate so positive = good defense.
+        "def_rapm": -beta[n:],
+        "rapm": beta[:n] - beta[n:],
+        "poss": [poss_by.get(p, 0.0) for p in players],
+    }).sort_values("rapm", ascending=False).reset_index(drop=True)
