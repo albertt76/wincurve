@@ -25,10 +25,10 @@ from nbaproj.aging import (  # noqa: E402
     aging_curves, build_transitions, project_next_season, replacement_level,
 )
 from nbaproj.carryover import apply_carryover, fit_rho  # noqa: E402
-from nbaproj.project import (  # noqa: E402
-    calibrate_projected_ratings, project_team_ratings,
+from nbaproj.rapm import box_vs_rapm_by_player, build_rapm_impact  # noqa: E402
+from nbaproj.rapm_blend import (  # noqa: E402
+    backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def,
 )
-from nbaproj.rapm import box_vs_rapm_by_player  # noqa: E402
 from nbaproj.rosters import (  # noqa: E402
     apply_overrides, draft_history, fit_rookie_priors, load_overrides,
     rookie_projection,
@@ -82,6 +82,13 @@ def main() -> int:
     rep = replacement_level(imp, "impact")
     rep_off = replacement_level(imp, "off_impact")
     rep_def = replacement_level(imp, "def_impact")
+    # RAPM-defense arm: the same defensive projection, but valued by play-by-play RAPM wherever
+    # available. Each team's defense blends the box and RAPM aggregates by roster turnover, so
+    # a turned-over roster (whose defense the carryover can't follow) leans on RAPM. Worth
+    # +0.19 wins walk-forward, all folds -- see nbaproj.rapm_blend / scripts/gate_rapm_blend.py.
+    rapm_imp = build_rapm_impact(imp, PROC)
+    proj_def_rapm = project_rapm_def(rapm_imp, TARGET)
+    rep_def_rapm = replacement_level(rapm_imp, "def_impact")
 
     # --- rookies: no NBA record, so priors by draft slot ---
     draft = draft_history()
@@ -105,6 +112,8 @@ def main() -> int:
                           how="left")
     roster = roster.merge(proj_def[["player_id", "proj_def_impact"]], on="player_id",
                           how="left")
+    roster = roster.merge(proj_def_rapm.rename("proj_def_rapm").reset_index(),
+                          on="player_id", how="left")
     roster = roster.merge(rookie_picks, on="player_id", how="left")
 
     # Rookies and other players with no projection fall back to a draft-slot prior.
@@ -118,9 +127,11 @@ def main() -> int:
         if pd.isna(roster.at[idx, "prior_mpg"]):
             roster.at[idx, "prior_mpg"] = pr["exp_minutes"] / FULL_SEASON_GAMES
     roster["prior_mpg"] = roster["prior_mpg"].fillna(8.0)
-    # Any residual component gaps fall to replacement level, split into off/def parts.
+    # Any residual component gaps fall to replacement level, split into off/def parts. A player
+    # with no RAPM estimate (rookie, sparse minutes) falls back to his box defense.
     roster["proj_off_impact"] = roster["proj_off_impact"].fillna(rep_off)
     roster["proj_def_impact"] = roster["proj_def_impact"].fillna(rep_def)
+    roster["proj_def_rapm"] = roster["proj_def_rapm"].fillna(roster["proj_def_impact"])
     roster["is_rookie"] = need & roster["pick"].notna()
 
     # --- availability, with manual overrides for known absences ---
@@ -133,30 +144,22 @@ def main() -> int:
     roster["proj_availability"] = roster["proj_availability"].fillna(0.85)
     roster = apply_overrides(roster, load_overrides(), team_games=FULL_SEASON_GAMES)
 
-    # --- calibration and uncertainty, fitted on history. Decoupled: offense and defense
-    #     each get their own walk-forward slope, so the noisy defensive relationship is not
-    #     forced to share the tight offensive one. ---
-    backtest = []
-    for season in range(2017, LAST_HISTORY + 1):
-        r = project_team_ratings(imp, pts, pgl, ts, ages, target_season=season,
-                                 mode="roster", team_rosters=hist_rosters, decouple=True)
-        if not r.empty:
-            backtest.append(r)
-    backtest = pd.concat(backtest, ignore_index=True)
-    off_slope, off_int = calibrate_projected_ratings(
-        backtest, ts, target_season=TARGET, target="off_rating", agg_col="agg_off")
-    def_slope, def_int = calibrate_projected_ratings(
-        backtest, ts, target_season=TARGET, target="def_rating", agg_col="agg_def")
-    # Combined slope kept for the meta line only; the decoupled off/def slopes above are
-    # what actually produce each team's rating.
-    slope, intercept = calibrate_projected_ratings(backtest, ts, target_season=TARGET)
+    # --- calibration and uncertainty, fitted on history. Decoupled offense/defense; the
+    #     defensive aggregate blends the box and RAPM arms by roster turnover, and the defensive
+    #     slope is calibrated on that blend (nbaproj.rapm_blend). ---
+    A = backtest_aggregates(imp, rapm_imp, pts, pgl, ts, ages, hist_rosters,
+                            range(2017, LAST_HISTORY + 1))
+    cal = calibrate_blend(A, ts, target_season=TARGET)
+    off_slope, off_int = cal["off_slope"], cal["off_intercept"]
+    def_slope, def_int = cal["def_slope"], cal["def_intercept"]
+    slope, intercept = cal["rating_slope"], cal["rating_intercept"]
 
     actual = ts.copy()
     actual["net_rating_dev"] = actual["net_rating"] - actual.groupby(
         "season_start")["net_rating"].transform("mean")
-    scored = backtest.copy()
+    scored = A.copy()
     scored["pred_net_rating_dev"] = (off_slope * scored["agg_off"] + off_int
-                                     + def_slope * scored["agg_def"] + def_int)
+                                     + def_slope * scored["agg_def_used"] + def_int)
     sigma_base = fit_rating_sigma(
         scored, actual[["team_id", "season_start", "net_rating_dev"]],
         before_season=TARGET + 1)
@@ -164,28 +167,33 @@ def main() -> int:
     turnover = roster_turnover(pts, season_start=TARGET, roster=roster)
     hca, margin_sd = estimate_game_params(gl, before_season=TARGET)
 
-    # --- aggregate each team offense and defense separately, exactly as the model does.
-    #     Replacement level and the aggregation are linear, so agg_off + agg_def is the
-    #     combined agg_impact and off_rating + def_rating is the roster's net rating. ---
+    # --- aggregate each team: offense, and defense both ways (box and RAPM). The defensive
+    #     aggregate actually used is the turnover-weighted blend -- a steady roster leans on the
+    #     box metric (which the carryover corrects), a turned-over one on RAPM whose value
+    #     follows the incoming players. off_rating + def_rating is the roster's net rating. ---
     budget = 240.0 * FULL_SEASON_GAMES
     team_rows = []
     for tid, g in roster.groupby("team_id"):
         mins = (g["prior_mpg"] * g["proj_availability"] * FULL_SEASON_GAMES).to_numpy()
         off_vals = g["proj_off_impact"].to_numpy(dtype=float)
         def_vals = g["proj_def_impact"].to_numpy(dtype=float)
+        def_rapm_vals = g["proj_def_rapm"].to_numpy(dtype=float)
         used = mins.sum()
         if used > budget:
             mins = mins * budget / used
             used = budget
         leftover = max(budget - used, 0.0)
         agg_off = (float(np.sum(mins * off_vals)) + leftover * rep_off) / budget
-        agg_def = (float(np.sum(mins * def_vals)) + leftover * rep_def) / budget
-        team_rows.append({"team_id": tid, "agg_off": agg_off, "agg_def": agg_def,
-                          "agg_impact": agg_off + agg_def,
-                          "leftover_share": leftover / budget})
+        agg_def_box = (float(np.sum(mins * def_vals)) + leftover * rep_def) / budget
+        agg_def_rapm = (float(np.sum(mins * def_rapm_vals)) + leftover * rep_def_rapm) / budget
+        team_rows.append({"team_id": tid, "agg_off": agg_off, "agg_def_box": agg_def_box,
+                          "agg_def_rapm": agg_def_rapm, "leftover_share": leftover / budget})
     teams = pd.DataFrame(team_rows).merge(turnover, on="team_id", how="left")
+    w = blend_weight(teams["new_minute_share"])
+    teams["agg_def_used"] = (1 - w) * teams["agg_def_box"] + w * teams["agg_def_rapm"]
+    teams["agg_impact"] = teams["agg_off"] + teams["agg_def_used"]
     teams["off_rating"] = off_slope * teams["agg_off"] + off_int
-    teams["def_rating"] = def_slope * teams["agg_def"] + def_int
+    teams["def_rating"] = def_slope * teams["agg_def_used"] + def_int
     teams["pred_net_rating_dev"] = teams["off_rating"] + teams["def_rating"]
 
     # One-year residual carryover: the model's error on a team persists ~one season, so
@@ -265,11 +273,12 @@ def main() -> int:
             "replacement_impact": round(rep, 3),
             "replacement_off": round(rep_off, 4),
             "replacement_def": round(rep_def, 4),
+            "replacement_def_rapm": round(rep_def_rapm, 4),
             "minutes_budget": budget,
             "full_season_games": FULL_SEASON_GAMES,
             "wins_per_rating_point": 2.38,
             "rho_carryover": round(rho_used, 3),
-            "backtest_mae": 7.95,
+            "backtest_mae": 7.77,
             "market_mae": 6.88,
         },
         "teams": [],
@@ -290,6 +299,7 @@ def main() -> int:
                 "impact": round(float(p["proj_impact"]), 5),
                 "off": round(float(p["proj_off_impact"]), 5),
                 "def": round(float(p["proj_def_impact"]), 5),
+                "defr": round(float(p["proj_def_rapm"]), 5),
                 "mpg": round(float(p["prior_mpg"]), 4),
                 "avail": round(float(p["proj_availability"]), 5),
                 "rookie": bool(p["is_rookie"]),
