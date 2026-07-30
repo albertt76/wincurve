@@ -237,7 +237,7 @@
   button.act[disabled] { opacity: .4; cursor: default; }
 
   .tbl-scroll { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 620px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 680px; }
   th {
     font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
     text-transform: uppercase; color: var(--faint); font-weight: 500;
@@ -260,6 +260,21 @@
   .winval { color: var(--muted); }
   .winval.p { color: var(--pos); } .winval.n { color: var(--neg); }
   .mins-flag { color: var(--wide); font-weight: 650; }
+
+  /* offense/defense split readout in a team row (right column) */
+  .odsplit { color: var(--faint); font-size: 11px; white-space: nowrap; }
+  .odsplit b { font-weight: 650; font-variant-numeric: tabular-nums; }
+  .odsplit b.p { color: var(--pos); } .odsplit b.n { color: var(--neg); }
+  /* offense/defense rating in the roster panel head */
+  .stat b.odv.p { color: var(--pos); } .stat b.odv.n { color: var(--neg); }
+  /* defensive-disagreement flag: box-score defense vs play-by-play RAPM */
+  .dflag {
+    font-family: var(--mono); font-size: 9px; font-weight: 650; letter-spacing: .02em;
+    padding: 1px 3px; border-radius: 3px; margin-left: 6px; cursor: help;
+    border: 1px solid currentColor; vertical-align: 1px;
+  }
+  .dflag.up { color: var(--pos); }     /* RAPM higher -> our box metric likely underrates him */
+  .dflag.dn { color: var(--wide); }    /* RAPM lower  -> our box metric likely overrates him */
   th[title], .help { cursor: help; border-bottom: 1px dotted currentColor; }
   td button {
     font-family: var(--mono); font-size: 14px; line-height: 1; width: 22px;
@@ -351,7 +366,7 @@
     .sub { font-size: 14px; }
     .wins { font-size: 15px; }
     .nums { font-size: 12px; }
-    .rng, .anum, .anum b, .mktnum, .mktnum b { font-size: 9.5px; }
+    .rng, .anum, .anum b, .mktnum, .mktnum b, .odsplit, .odsplit b { font-size: 9.5px; }
     .mktnum .swatch { display: none; }          /* label carries the meaning on small screens */
     .axis .tick { font-size: 9px; }
     .axis .tick.minor { display: none; }         /* keep only 15 / .500 / 68 so labels don't collide */
@@ -446,6 +461,26 @@
           average rotation player, <b>+4</b> a star (SGA is +4.0), <b>&minus;1.1</b> is
           replacement level (a freely-available end-of-bench body). It already contains his
           scoring, rebounding, and defense, so "fit" is not added on top.</dd>
+
+        <dt>Off / Def</dt>
+        <dd>Impact split into its <b>offensive</b> and <b>defensive</b> halves (they add up to
+          total impact), projected and calibrated separately. Each team row shows the team
+          total as <b>off / def</b>, so you can see whether a projection is carried or dragged
+          by one side. <b>Defense is the model's weak spot:</b> it is built from box-score
+          stats that are ~60% rebounds and blocks, so it mostly rewards rim protection and
+          rebounding and underrates perimeter defenders.</dd>
+
+        <dt><span class="dflag up" style="cursor:default">D&uarr;</span> /
+          <span class="dflag dn" style="cursor:default">D&darr;</span></dt>
+        <dd>A defender our box-score metric probably <b>misjudges</b>, flagged by comparing it
+          to <b>RAPM</b> (regularized adjusted plus/minus &mdash; a play-by-play defensive
+          measure that sees perimeter defense the box score cannot).
+          <b><span style="color:var(--pos)">D&uarr;</span></b> = RAPM rates his defense higher,
+          so we likely <b>underrate</b> him;
+          <b><span style="color:var(--wide)">D&darr;</span></b> = RAPM lower, so we likely
+          <b>overrate</b> him. Hover for both numbers. Comparison only &mdash; RAPM is not yet
+          in the projection (its aggregate gain is absorbed by the carryover; it helps most on
+          high-turnover rosters).</dd>
 
         <dt>&asymp; Wins</dt>
         <dd>The <b>WAR-like</b> (wins-above-replacement) translation of Impact: how many of
@@ -675,7 +710,9 @@ function redistributeFrom(roster, ownFreed, removed, games) {
 }
 
 /* Team strength: minute-weighted mean of player impact, with anything left against the
-   240-per-game budget charged at replacement level. */
+   240-per-game budget charged at replacement level. Offense and defense are aggregated
+   separately (decoupled) and each mapped with its own calibrated slope, so the row can show
+   where a team's rating comes from -- and an edit reprices offense and defense independently. */
 function computeRating(team) {
   const st = state.get(team.id);
   const edited = st.off.size > 0 || st.added.length > 0;
@@ -699,15 +736,26 @@ function computeRating(team) {
 
   let used = mins.reduce((a, b) => a + b, 0);
   if (used > budget) { const k = budget / used; mins = mins.map(m => m * k); used = budget; }
-  const paid = roster.reduce((a, p, i) => a + mins[i] * p.impact, 0);
   const leftover = Math.max(budget - used, 0);
-  const agg = (paid + leftover * GMETA.replacement_impact) / budget;
   // The one-year carryover is a fixed team-level offset (from last season's residual), not
   // a property of the roster, so it stays constant under edits and must be added back for
   // the unedited baseline to reproduce the displayed rating exactly.
   const carry = team.carryover || 0;
+
+  if (DATA.off_slope != null) {
+    const aggOff = (roster.reduce((a, p, i) => a + mins[i] * p.off, 0)
+                    + leftover * DATA.replacement_off) / budget;
+    const aggDef = (roster.reduce((a, p, i) => a + mins[i] * p.def, 0)
+                    + leftover * DATA.replacement_def) / budget;
+    const offR = DATA.off_slope * aggOff + DATA.off_intercept;
+    const defR = DATA.def_slope * aggDef + DATA.def_intercept;
+    return { rating: offR + defR + carry, offR, defR, n: roster.length, unabsorbed };
+  }
+  // Fallback for any snapshot without the off/def split: the original combined slope.
+  const agg = (roster.reduce((a, p, i) => a + mins[i] * p.impact, 0)
+               + leftover * GMETA.replacement_impact) / budget;
   return { rating: DATA.rating_slope * agg + DATA.rating_intercept + carry,
-           n: roster.length, unabsorbed };
+           offR: null, defR: null, n: roster.length, unabsorbed };
 }
 
 /* Interpolate the precomputed win distribution at this team's rating offset. The grid was
@@ -763,17 +811,52 @@ function winVal(p) {
     * (p.mpg * p.avail / MPG_BUDGET) * (p.impact - GMETA.replacement_impact);
 }
 
+// Defensive-disagreement flag: our box-score defense vs play-by-play RAPM (regularized
+// adjusted plus/minus) from the most recent season with both. A large gap means an
+// independent metric sees the player's defense very differently from our box score -- which
+// mostly rewards rim protection and rebounding and so misses perimeter defenders. Up = RAPM
+// higher (we likely UNDERRATE him); down = RAPM lower (we likely OVERRATE him).
+const RAPM_FLAG_MIN = 1.0;   // rating points of disagreement worth surfacing
+function rapmFlag(p) {
+  if (p.rapm_def == null || p.box_def == null) return '';
+  const gap = p.rapm_def - p.box_def;
+  if (Math.abs(gap) < RAPM_FLAG_MIN) return '';
+  const under = gap > 0;
+  const yr = p.rapm_yr ? `${p.rapm_yr}–${String(p.rapm_yr + 1).slice(-2)}` : 'recent';
+  const sign = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+  const title = `Play-by-play RAPM rated his ${yr} defense ${sign(p.rapm_def)} vs our `
+    + `box-score ${sign(p.box_def)} — an independent metric `
+    + (under ? 'rates his defense HIGHER, so our box metric likely underrates him.'
+             : 'rates his defense LOWER, so our box metric likely overrates him.');
+  return `<span class="dflag ${under ? 'up' : 'dn'}" title="${title}">`
+    + `D${under ? '↑' : '↓'}</span>`;
+}
+
+// Offense/defense readout: the two halves of a team's rating deviation, coloured by whether
+// each is above (+) or below (-) league average. Shows at a glance whether a projection is
+// carried or dragged by offense vs defense -- the whole point of decoupling.
+function odReadout(offR, defR) {
+  if (offR == null || defR == null) return '';
+  const f = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+  const c = v => v >= 0 ? 'p' : 'n';
+  return `<span class="odsplit" title="Projected rating versus league average, split into `
+    + `Offense and Defense (points per 100 possessions; the one-year carryover is shown `
+    + `separately inside the team). This split is where the win number comes from.">`
+    + `O <b class="${c(offR)}">${f(offR)}</b> &middot; `
+    + `D <b class="${c(defR)}">${f(defR)}</b></span>`;
+}
+
 function render() {
   const host = document.getElementById('rows');
   host.innerHTML = '';
   const rowsData = DATA.teams.map(t => {
-    const { rating } = computeRating(t);
+    const { rating, offR, defR } = computeRating(t);
     const w = winsAt(t, rating);
     const st = state.get(t.id);
-    return { t, w, rating, edited: st.off.size > 0 || st.added.length > 0 };
+    return { t, w, rating, offR, defR, edited: st.off.size > 0 || st.added.length > 0 };
   }).sort((a, b) => b.w.mean - a.w.mean);
 
-  rowsData.forEach(({ t, w, edited }) => {
+  rowsData.forEach(({ t, w, offR, defR, edited }) => {
     const wide = t.turnover >= WIDE_TURNOVER;
     const wc = wide ? ' w' : '';
     const delta = w.mean - t.wins;
@@ -799,6 +882,7 @@ function render() {
         <span class="wins">${fmt1(w.mean)}</span>
         ${edited ? `<span class="delta ${delta >= 0 ? 'up' : 'down'}" title="change from this team&rsquo;s original projected wins, caused by your roster edit"> ${delta >= 0 ? '+' : ''}${fmt1(delta)}</span>` : ''}
         <br>${t.actual != null ? actualReadout(t, w) : `<span class="rng">${fmt1(w.p10)}&ndash;${fmt1(w.p90)}</span>`}
+        ${offR != null ? `<br>${odReadout(offR, defR)}` : ''}
         ${DATA.is_current && t.mkt_wins != null ? `<br>${marketReadout(t, w)}` : ''}
       </span>`;
 
@@ -823,12 +907,15 @@ function renderPanel(t, w) {
     .concat(st.added.map(p => ({ p, off: false, added: true })));
   const rows = roster.map(({ p, off, added }) => {
     const wv = winVal(p);
+    const offv = p.off != null ? p.off : (p.impact || 0);   // fallback if no split
+    const defv = p.def != null ? p.def : 0;
     return `
     <tr class="${off ? 'off' : ''}${added ? ' added' : ''}">
-      <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}</td>
+      <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}${rapmFlag(p)}</td>
       <td>${p.pos || '&mdash;'}</td>
       <td>${p.age ?? '&mdash;'}</td>
-      <td class="imp ${p.impact >= 0 ? 'p' : 'n'}">${p.impact >= 0 ? '+' : ''}${p.impact.toFixed(2)}</td>
+      <td class="imp ${offv >= 0 ? 'p' : 'n'}">${offv >= 0 ? '+' : ''}${offv.toFixed(2)}</td>
+      <td class="imp ${defv >= 0 ? 'p' : 'n'}">${defv >= 0 ? '+' : ''}${defv.toFixed(2)}</td>
       <td class="winval ${wv >= 0 ? 'p' : 'n'}">${wv >= 0 ? '+' : ''}${wv.toFixed(1)}</td>
       <td>${p.mpg.toFixed(1)}</td>
       <td>${(p.avail * 100).toFixed(0)}%</td>
@@ -843,10 +930,16 @@ function renderPanel(t, w) {
   const active = t.players.filter(p => !st.off.has(p.id)).concat(st.added);
   const loadMpg = active.reduce((a, p) => a + p.mpg * p.avail, 0);
   const loadCls = loadMpg > 290 ? ' class="mins-flag"' : '';
+  const cr = computeRating(t);
+  const odStat = (label, v, title) => v == null ? '' :
+    `<span class="stat" title="${title}">${label} <b class="odv ${v >= 0 ? 'p' : 'n'}">`
+    + `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}</b></span>`;
 
   return `
     <div class="panel-head">
       <span class="stat">Coach <b>${t.coach}</b></span>
+      ${odStat('Offense', cr.offR, 'Projected team offense versus league average, in points per 100 possessions (the one-year carryover is separate). Positive is good.')}
+      ${odStat('Defense', cr.defR, 'Projected team defense versus league average (positive = fewer points allowed). Built from box-score defense, the model&rsquo;s weakest part — the D-arrow flags in the table mark players where play-by-play RAPM disagrees with it.')}
       <span class="stat">Roster turnover <b>${(t.turnover * 100).toFixed(0)}%</b></span>
       <span class="stat" title="Sum of every active player&rsquo;s minutes-per-game times availability. A real rotation supplies 240 player-minutes per game; well above 240 means an oversized off-season roster the model scales back down.">Minutes supplied <b${loadCls}>${loadMpg.toFixed(0)}</b>/240</span>
       <span class="stat">Range width <b>&plusmn;${((w.p90 - w.p10) / 2).toFixed(1)}</b> wins</span>
@@ -858,8 +951,9 @@ function renderPanel(t, w) {
       <table>
         <thead><tr>
           <th>Player</th><th>Pos</th><th>Age</th>
-          <th class="help" title="Projected net points per 100 possessions the player adds versus an average player. About 0 is average, +4 a star, -1.1 replacement level. This is a RATE, not a win count.">Impact</th>
-          <th class="help" title="Wins the player accounts for versus a replacement-level player taking his minutes -- the WAR-like (wins-above-replacement) translation of Impact. Depends on Impact AND minutes.">&asymp;&nbsp;Wins</th>
+          <th class="help" title="Projected OFFENSIVE impact: net points per 100 possessions the player adds on offense versus an average player. A rate, not a win count.">Off</th>
+          <th class="help" title="Projected DEFENSIVE impact from the box score (steals, blocks, rebounds, fouls, on/off rating). This is the model's weak spot: ~60% of its weight is rebounds+blocks, so it mostly rewards bigs and underrates perimeter defenders. A D↑ / D↓ flag by a player's name marks where play-by-play RAPM disagrees.">Def</th>
+          <th class="help" title="Wins the player accounts for versus a replacement-level player taking his minutes -- the WAR-like (wins-above-replacement) translation of total impact. Depends on impact AND minutes.">&asymp;&nbsp;Wins</th>
           <th class="help" title="Minutes per game, carried from last season's role.">MPG</th>
           <th class="help" title="Projected share of the season available, from games-missed history and age.">Avail</th>
           <th></th>
