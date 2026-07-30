@@ -12,7 +12,7 @@ analytically-driven model disagrees with the market.
 betting.** The deliverable is *explainable per-team disagreement* — "we differ from
 the market on this team, and here is the structural reason why."
 
-Current projection target: **2026-27 season**.
+Current projection target: **2026-27 season**. Shipped backtest MAE (roster mode + carryover): **7.95 wins** vs market 6.88.
 
 See [DESIGN.md](DESIGN.md) for full architecture, statistical traps, and staged plan.
 
@@ -340,54 +340,44 @@ to reputation, is at 0.729 — slightly *more* distributed than average. The unt
 where it should help is a **coaching change**, where prior minutes reflect the departed
 coach.
 
-### Franchise effect, round 2: NOT a quality confound, but worth ~0.04 wins
+### Franchise effect — RESOLVED (four analyses + adversarial verification)
 
-A dedicated workflow re-tested it. The quality-confound explanation is **rejected**:
+The apparent "franchise effect" is **one-year memory, not organizational quality**, and it
+is now shipped as a carryover term.
 
-- Controlling for projected rating removes **4%** of the lag-1 autocorrelation and **0%** of
-  the franchise variance. Across 30 franchises, mean residual correlates just **+0.059**
-  with mean projected rating.
-- **Oklahoma City is projected 1.24 points BELOW average and is the second-largest
-  overperformer** — the opposite of a good-teams-outperform artifact.
-- The persistence is unambiguously real: permutation null z = +5.37, p = 0.0005, and it
-  replicates across independent halves (odd vs even seasons, r = +0.409, p = 0.025).
+- **No permanent component.** The residual autocorrelation decays like AR(1) (lags:
+  +0.35, +0.12, -0.10, ~0) — a permanent franchise trait would stay flat. ML variance-
+  components point estimate for the permanent SD is **zero**; a true 1.08 is marginally
+  rejected. OKC and Boston are max-of-30 selection artifacts.
+- **The "1.08 pts/100 = 2.9 wins" figure was wrong** — it read a lag-1 autocorrelation as a
+  constant level, treating serially-correlated residuals as independent. Retracted.
+- **The "0.41-0.63 wins" was an in-sample number.** The *permanent-mean* estimator is worth
+  ~0.04 wins walk-forward. But the **one-year carryover** form reproduces the value as
+  persistence: **+0.35 wins end-to-end**, verified below.
+- **It is partly a quality confound after all.** The original test used our own projection
+  (orthogonal by construction, no power). Against the external betting market, ~1/3 of the
+  effect is a quality confound — but the market stays diagnostic-only (never a feature).
+- **~70% of the residual is defensive**, and the projection captures only ~12-14% of
+  franchise-level defensive variance vs ~82-90% offensive. Invariant to the ridge sweep and
+  feature deletion within the box-score family. **This is the trigger for the RAPM upgrade.**
 
-But two findings cut against using it:
+### ✅ SHIPPED: one-year residual carryover (`nbaproj/carryover.py`)
 
-- **The permanent part is essentially two teams.** Dropping Boston and OKC takes
-  sd_franchise from 1.140 to **0.535** and ICC from 0.096 to 0.023.
-- **Out-of-sample value is ~0.04 wins, not the 0.41-0.63 originally claimed.** That figure
-  came from subtracting each franchise's IN-SAMPLE mean. Done walk-forward the gain is
-  +0.0178 points per 100; with unshrunk franchise means it is negative.
+`adjusted_pred[N] = pred[N] + rho * residual[N-1]`, rho fitted walk-forward on prior
+residual pairs (lands ~0.36), suppressed after a shortened prior season. Gated end-to-end
+through the simulation in roster mode (`scripts/gate_carryover.py`):
 
-Organisational quality (A) vs measurement error (C) remains **unresolved**, and the lag
-profile leans toward (C). Do NOT add a projected-rating recalibration term — applied
-walk-forward it makes the model materially worse (rating MAE 3.053 → 3.237).
+| | MAE (wins) | 80% coverage |
+|---|---|---|
+| Baseline roster mode | 8.30 | 77.0% |
+| **+ carryover** | **7.95** | **79.6%** |
 
-### ⚠️ CORRECTED: the "franchise effect" is one-year memory, not organisational quality
-
-An earlier analysis claimed a persistent franchise effect (within-franchise residual
-autocorrelation +0.356, implied SD 1.08 points per 100 ≈ 2.9 wins, OKC +3.8 and BOS +4.2
-over 2017-2025). **Both adversarial verifiers refuted it.** Do not build on the original
-framing.
-
-What is actually true:
-
-- **The autocorrelation decays like AR(1), i.e. one-year memory.** Lags 1-5 measure
-  +0.356, +0.118, -0.099, -0.002, -0.059 against AR(1) predictions of +0.356, +0.127,
-  +0.045, +0.016, +0.006. A permanent franchise trait would stay roughly flat across lags.
-  **It is gone by lag 3.**
-- **OKC and Boston are max-of-30 selection artifacts.** Under a pure AR(1) null with no
-  franchise effect, the largest of 30 franchise means has p = 0.174 and the second largest
-  p = 0.066. Their values are unremarkable once you account for picking the top 2 of 30.
-- Permanent-franchise variance share measured **-0.022 (implied SD 0.000)**.
-- **What IS real and robust:** last season's residual predicts this season's, worth
-  **+5.3% to +7.1%** of rating MAE, leave-one-fold-out +4.4% to +7.9%, coefficient stable
-  0.93-1.32, surviving a control for last season's actual rating deviation. Worth using —
-  but as short-memory persistence, NOT as organisational quality.
-- **Not disproven, merely unsupported:** with 9 seasons per franchise the CI does not
-  exclude a true franchise SD up to ~1.75 points per 100. Absence of evidence at this
-  sample size is weak evidence of absence.
++0.35 wins excluding shortened-prior folds, improving 4/5 folds where it fires. This is the
+first change all session that improves the backtest **and** survived adversarial
+verification. Winsorizing extreme prior residuals was tested and does **not** help (cap at
+8 is worse), so the tail residuals — e.g. Detroit/Charlotte, which beat the roster model by
+~10 net-rating points in 2025-26 — are kept at full strength. Those large live adjustments
+are the measurement-error signal, shown per-team in the UI.
 
 ### ⚠️ CORRECTED: the tanking era claim does not hold
 

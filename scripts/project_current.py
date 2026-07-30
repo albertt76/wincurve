@@ -24,6 +24,7 @@ import pandas as pd  # noqa: E402
 from nbaproj.aging import (  # noqa: E402
     aging_curves, build_transitions, project_next_season, replacement_level,
 )
+from nbaproj.carryover import apply_carryover, fit_rho  # noqa: E402
 from nbaproj.project import (  # noqa: E402
     calibrate_projected_ratings, project_team_ratings,
 )
@@ -154,6 +155,15 @@ def main() -> int:
                           "leftover_share": leftover / budget})
     teams = pd.DataFrame(team_rows).merge(turnover, on="team_id", how="left")
     teams["pred_net_rating_dev"] = slope * teams["agg_impact"] + intercept
+
+    # One-year residual carryover: the model's error on a team persists ~one season, so
+    # add rho * last season's residual. rho is fitted on prior residual pairs only, and
+    # the guard suppresses it after a shortened prior season. LAST_HISTORY (2025) is full,
+    # so it fires here. See nbaproj.carryover.
+    teams["season_start"] = TARGET
+    teams = apply_carryover(teams, scored, ts, target_season=TARGET)
+    rho_used = fit_rho(scored, ts, before_season=TARGET)
+
     teams["sigma"] = sigma_base * teams["new_minute_share"].map(
         turnover_sigma_multiplier)
 
@@ -214,7 +224,8 @@ def main() -> int:
             "minutes_budget": budget,
             "full_season_games": FULL_SEASON_GAMES,
             "wins_per_rating_point": 2.38,
-            "backtest_mae": 8.36,
+            "rho_carryover": round(rho_used, 3),
+            "backtest_mae": 7.95,
             "market_mae": 6.88,
         },
         "teams": [],
@@ -245,6 +256,7 @@ def main() -> int:
             "coach": coach_map.get(tid, "unknown"),
             "agg_impact": round(float(tr["agg_impact"]), 4),
             "rating": round(float(tr["pred_net_rating_dev"]), 2),
+            "carryover": round(float(tr.get("carryover", 0.0)), 2),
             "sigma": round(float(tr["sigma"]), 3),
             "turnover": round(float(tr["new_minute_share"]), 3),
             "wins": base["mean"],
