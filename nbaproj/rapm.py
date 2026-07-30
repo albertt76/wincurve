@@ -110,24 +110,60 @@ def build_design(segments: pd.DataFrame) -> tuple[sparse.csr_matrix, np.ndarray,
     return X, np.array(y), np.array(w), players
 
 
-def fit_rapm(segments: pd.DataFrame, *, alpha: float = DEFAULT_ALPHA) -> pd.DataFrame:
+def fit_rapm(segments: pd.DataFrame, *, alpha: float = DEFAULT_ALPHA,
+             prior: pd.DataFrame | None = None) -> pd.DataFrame:
     """Fit offensive and defensive RAPM. One row per player, in points per 100 possessions.
 
     `off_rapm` is points added on offense; `def_rapm` is sign-flipped so positive is good
     defense; `rapm` is their sum, the player's net on-court value.
+
+    ## Box-informed prior (the fix for small-sample noise)
+
+    Plain ridge shrinks every player toward zero. On a partial or single season that
+    over-shrinks elite specialists whose value needs many possessions to emerge -- measured
+    directly here, it rated Wembanyama's defense at +1.2 when the box score (correctly)
+    said +4.3. Shrinking toward a **box-score prior** instead of toward zero fixes this:
+    a player with few possessions stays near his box estimate, and only accumulates
+    evidence to move off it.
+
+    `prior` is a frame with columns player_id, off_prior, def_prior (both points per 100,
+    def positive = good, matching def_rapm's convention). The trick is a change of
+    variables: writing beta = beta_prior + delta turns the penalty ||beta - beta_prior||^2
+    into an ordinary ridge on delta with response y - X @ beta_prior. So we residualise the
+    target against the prior, ridge the remainder, and add the prior back.
     """
     X, y, w, players = build_design(segments)
     if X.shape[0] == 0 or not players:
         return pd.DataFrame(columns=["player_id", "off_rapm", "def_rapm", "rapm",
                                      "poss"])
 
+    n = len(players)
     # Centre the response so the intercept carries the league baseline and coefficients are
     # deviations from average, matching how the box-score impact metric is defined.
     y_mean = np.average(y, weights=w)
+    target = y - y_mean
+
+    beta_prior = np.zeros(2 * n)
+    if prior is not None and not prior.empty:
+        pmap = prior.set_index("player_id")
+
+        def _num(v: object) -> float:
+            # A player with no box estimate that season (below the minutes threshold) has
+            # NaN here; his prior is zero, i.e. plain shrinkage toward average for him.
+            f = float(v) if v is not None else 0.0
+            return 0.0 if np.isnan(f) else f
+
+        for j, p in enumerate(players):
+            if p in pmap.index:
+                row = pmap.loc[p]
+                beta_prior[j] = _num(row.get("off_prior", 0.0))       # offense column
+                beta_prior[n + j] = -_num(row.get("def_prior", 0.0))  # points allowed
+        # Residualise the target against the prior; ridge estimates only the deviation.
+        target = target - X @ beta_prior
+
     model = Ridge(alpha=alpha, fit_intercept=False)
-    model.fit(X, y - y_mean, sample_weight=w)
-    beta = model.coef_
-    n = len(players)
+    model.fit(X, target, sample_weight=w)
+    beta = model.coef_ + beta_prior
 
     # Possessions played per player, for a minutes-style weight downstream.
     seg = segments[segments["poss"] > 0]
