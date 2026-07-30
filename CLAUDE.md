@@ -209,8 +209,27 @@ scripts/
   - Rookie priors by draft bucket: top-3 picks 92% play, ~1,677 minutes, impact -0.10;
     picks 31-60 71% play, ~331 minutes, impact -4.06. All rookie impacts are negative,
     which is correct.
-- ⬜ **Stage 4** — Additive team aggregation → off/def rating
-- ⬜ **Stage 5** — Monte Carlo season simulation → calibrated win distributions
+- ✅ **Stage 4** — Team aggregation built, minute budget enforced, calibration fitted
+  per fold on *projected* aggregates.
+- 🔴 **Stage 5** — Monte Carlo simulation built and running end-to-end, but **FAILS ITS
+  GATE.** On identical seasons (2017-18..2025-26):
+
+  | | MAE (wins) |
+  |---|---|
+  | Market | **6.88** |
+  | Mean-reverted previous wins (the gate) | **8.13** |
+  | Our model, leaky upper bound | 7.93 |
+  | Our model, realistic roster | **8.75** |
+
+  The realistic model loses to the naive baseline. Per the stated discipline,
+  **Stages 6-7 must not be built on this.** Fixing the signal loss below comes first.
+
+  Diagnosis of where it breaks: the model has real skill (predicted vs actual net
+  rating correlates 0.60) but the component chain implies ~0.85 — contemporaneous
+  impact → team rating is 0.94, and projected → actual player impact is 0.90.
+  **~0.25 of correlation is unaccounted for and is the next thing to find.**
+  Roster knowledge is worth only 0.41-0.81 wins, so leakage is not the problem.
+  Interval calibration (are the 80% ranges really 80%?) is not yet checked.
 - ⬜ **Stage 6** — Fit as residual structure (diminishing returns). *Gate may reject.*
 - ⬜ **Stage 7** — Coaching / roster continuity as shrunk effects. *Gate may reject.*
 - ⬜ **Stage 8** — Live Kalshi/Polymarket comparison + contract-year hypothesis test
@@ -230,6 +249,22 @@ July projection cannot know about a November deal. Always record the snapshot da
 any output. Historical injury *reasons* are unavailable — Pro Sports Transactions is
 behind a Cloudflare bot challenge we will not bypass — so absences mix injury with
 rest, suspension and coach's decision. Hence the name "availability", not "health".
+
+### Stage 4-5 bugs found (both were silent, both mattered)
+
+- **Cartesian merge.** Joining simulated results to market data on `team_id` without
+  `season_start` produced 630 rows per season instead of 30, comparing every season's
+  win total against one season's results. It made the market look like MAE 11.7 instead
+  of its known 6.67, and produced a fake "beats market by 2.3 wins". The row-count
+  assertion now in `stage45_report.py` exists so this cannot recur silently.
+  **Lesson: a result that beats a known-good baseline by a wide margin is a bug report,
+  not a success.**
+- **Calibration distribution mismatch.** The impact→rating slope was fitted on
+  *contemporaneous* aggregates and applied to *projected* ones. Projections are far less
+  dispersed (deliberately — shrinkage), so the mismatch produced predictions with spread
+  1.14 against an actual 5.02: every team near .500. Fixed by fitting the calibration on
+  projected aggregates from earlier folds. Worth 0.7-1.1 wins of MAE.
+  **Lesson: fit a calibration on the same kind of quantity you apply it to.**
 
 ### Findings worth keeping
 
