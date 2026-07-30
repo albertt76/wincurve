@@ -483,11 +483,14 @@
           high-turnover rosters).</dd>
 
         <dt>&asymp; Wins</dt>
-        <dd>The <b>WAR-like</b> (wins-above-replacement) translation of Impact: how many of
-          the team's wins the player accounts for versus a replacement-level player taking
-          his minutes. This is the closest thing here to a single "player value" number, and
-          it depends on Impact <em>and</em> minutes &mdash; a +1.3 Impact star playing 32
-          minutes is worth far more wins than a +2.4 Impact reserve playing 18.</dd>
+        <dd>The <b>WAR-like</b> (wins-above-replacement) translation of a player's value: how
+          many of the team's wins he accounts for versus a replacement-level player taking his
+          minutes. It depends on impact <em>and</em> minutes &mdash; a +1.3 star playing 32
+          minutes is worth far more than a +2.4 reserve playing 18 &mdash; and it decomposes the
+          <em>same</em> model the team rating uses: offense and defense priced by their own
+          slopes (defense's is lower), with defense blended toward RAPM by roster turnover. So a
+          rebounding centre the box score over-credits on defense is discounted here, not
+          treated as a star.</dd>
 
         <dt>Wins (big number)</dt>
         <dd>The average of the simulated season &mdash; our single best guess. Trust the
@@ -812,14 +815,28 @@ function marketReadout(t, w) {
 }
 
 // A player's win value: how many of the team's wins he accounts for versus a freely-available
-// replacement-level player taking his minutes. This is the WAR-like ("wins above replacement")
-// translation of the per-100-possession Impact rate: Impact, scaled by minute share and by the
-// impact -> rating -> wins conversion the model uses. It answers "is Impact a win count?" --
-// no, THIS is; Impact is the underlying rate.
+// replacement-level player taking his minutes -- the WAR-like ("wins above replacement")
+// translation of his impact, scaled by minute share and the impact -> rating -> wins
+// conversion. It decomposes the SAME model the team rating uses: offense and defense priced by
+// their own slopes (defense's is lower, since defense is less predictive), and defense is the
+// turnover-weighted blend of the box metric and RAPM -- so a rebounding centre whose box
+// defense the metric inflates is discounted, and a scoring guard is not double-penalised for a
+// weak box-defense estimate. Older snapshots without the split fall back to combined impact.
 const MPG_BUDGET = GMETA.minutes_budget / GMETA.full_season_games;   // 240 player-min/game
-function winVal(p) {
+function winVal(p, team) {
+  const minshare = p.mpg * p.avail / MPG_BUDGET;
+  if (DATA.off_slope != null) {
+    let defDev = p.def - DATA.replacement_def;
+    if (DATA.replacement_def_rapm != null) {
+      const w = Math.min(Math.max(team.turnover || 0, 0), 1);
+      defDev = (1 - w) * (p.def - DATA.replacement_def)
+             + w * ((p.defr != null ? p.defr : p.def) - DATA.replacement_def_rapm);
+    }
+    return GMETA.wins_per_rating_point * minshare
+      * (DATA.off_slope * (p.off - DATA.replacement_off) + DATA.def_slope * defDev);
+  }
   return GMETA.wins_per_rating_point * DATA.rating_slope
-    * (p.mpg * p.avail / MPG_BUDGET) * (p.impact - GMETA.replacement_impact);
+    * minshare * (p.impact - GMETA.replacement_impact);
 }
 
 // Defensive-disagreement flag: our box-score defense vs play-by-play RAPM (regularized
@@ -917,7 +934,7 @@ function renderPanel(t, w) {
   const roster = t.players.map(p => ({ p, off: st.off.has(p.id), added: false }))
     .concat(st.added.map(p => ({ p, off: false, added: true })));
   const rows = roster.map(({ p, off, added }) => {
-    const wv = winVal(p);
+    const wv = winVal(p, t);
     const offv = p.off != null ? p.off : (p.impact || 0);   // fallback if no split
     const defv = p.def != null ? p.def : 0;
     return `

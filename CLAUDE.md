@@ -207,8 +207,12 @@ roster reason). Refresh through the season with `fetch_market.py --refresh`.
 
 **Explainability (added for the "is Impact WAR?" question).** A plain-English glossary
 (`<details>` at the foot) defines every number. The player table now has an **≈ Wins**
-column — the WAR-like (wins-above-replacement) translation of Impact, since **Impact itself
-is a per-100-possession rate, not a win count**. The panel shows **Minutes supplied /240**,
+column — the WAR-like (wins-above-replacement) translation of a player's value, since **Impact
+itself is a per-100-possession rate, not a win count**. It decomposes the *same* model the team
+rating uses: offense and defense priced by their own slopes (defense's is lower, since defense
+is less predictive) and defense blended toward RAPM by roster turnover — so a rebounding centre
+the box score over-credits on defense (Drummond) is discounted rather than tied with a scoring
+guard (Brunson). `winVal(p, team)` in the UI mirrors the team aggregation exactly. The panel shows **Minutes supplied /240**,
 which surfaces deep off-season rosters (see the roster-bloat investigation below — the
 "bloat" was checked and is not a defect). The
 green/red edit delta is now tooltip-labelled "change from the original projection".
