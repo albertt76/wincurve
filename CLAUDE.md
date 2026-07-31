@@ -13,10 +13,11 @@ betting.** The deliverable is *explainable per-team disagreement* — "we differ
 the market on this team, and here is the structural reason why."
 
 Current projection target: **2026-27 season**. Shipped backtest MAE (roster mode + carryover +
-RAPM defensive blend + rim/hustle tracking defense + position-relative rebounding): **7.62 wins**
-vs market 6.88 (7.95 before the RAPM def-blend; 7.77 before tracking defense; 7.74 before the
-position-relative-rebounding fix — that last step is a real +0.11, both more accurate AND fairer
-to guards).
+RAPM defensive blend + rim/hustle tracking defense + position-relative rebounding + BPM position
+fallback for pre-2013-14 seasons): **7.61 wins** vs market 6.88 (7.95 before the RAPM def-blend;
+7.77 before tracking defense; 7.74 before the position-relative-rebounding fix — that last step
+is a real +0.11, both more accurate AND fairer to guards; 7.62 before the position-fallback fix
+that extends it to the 8 seasons with no listed positions — a further +0.01).
 
 See [DESIGN.md](DESIGN.md) for full architecture, statistical traps, and staged plan.
 
@@ -123,7 +124,8 @@ Walk-forward means: to predict season N, train only on seasons before N. All err
 | Model / baseline | MAE | Notes |
 |---|---|---|
 | Market (preseason win totals) | **6.88** | the yardstick; we do not beat it |
-| **wincurve — + position-relative defensive rebounding** | **7.62** | shipped; +0.11 (7.74 → 7.62, ±0.055 SE, 6/9 folds) — first defensive change to help accuracy AND credibility |
+| **wincurve — + BPM position fallback (pre-2013-14)** | **7.61** | shipped; +0.011 (7.622 → 7.612, ±0.0039 SE, 5/6 folds) — fixes position-relative rebounding's silent no-op on 8 of 21 backbone seasons |
+| wincurve — + position-relative defensive rebounding | 7.62 | prior; +0.11 (7.74 → 7.62, ±0.055 SE, 6/9 folds) — first defensive change to help accuracy AND credibility |
 | wincurve — + RAPM def-blend + rim/hustle tracking def | 7.74 | prior; tracking step within noise (7.77 → 7.74) — kept for per-player credibility |
 | wincurve — roster + carryover + RAPM def-blend | 7.77 | before the tracking-defense features |
 | wincurve — roster mode + carryover (box def only) | 7.95 | the shipped model before the RAPM blend |
@@ -683,6 +685,93 @@ box defense by adding box features" prior: this isn't a new feature, it's *remov
 confound* from an existing one. The RAPM box-informed prior still uses the pre-fix box defense
 (conservative, as with rim/hustle); refitting it could recover a little more.
 
+#### ✅ SHIPPED: BPM position fallback for the 8 seasons with no listed position (2026-07-31)
+
+An advanced-metrics deep dive verified a real defect in the step above: `pos_group` comes from
+`rim_defense.PLAYER_POSITION`, which starts 2013-14, and any unknown position maps to `"F"`. So
+for **8 of 21 backbone seasons (2005-06..2012-13 — 34% of the standardization pool)** every
+player collapsed into one group and position-relative defensive rebounding silently degraded to
+plain league-wide standardization for that third of the ridge's training data.
+
+Fix (`nbaproj.impact._bpm_position_estimate`): BPM 2.0's published box-derived continuous
+position formula — `position = clip(2.130 + 8.668·%TeamTRB − 2.486·%TeamSTL + 0.992·%TeamPF −
+3.536·%TeamAST + 1.667·%TeamBLK, 1, 5)`, recursively shifted so each team's minute-weighted mean
+is exactly 3.0 — computed from `player_team_seasons` (correctly attributes traded players; all
+21 seasons available, no new data). Used **only as a fallback** for missing `pos_group`; the real
+rim-tracking position (2013-14+) is never overridden. Validated against real listed positions
+where both exist (6,819 player-seasons): a true guard is bucketed center only 4% of the time, a
+true center bucketed guard 17% — the extremes separate well even though the "forward" middle is
+naturally fuzzy (~60% 3-way accuracy), which is what matters for judging a center's rebounding
+against other centers rather than guards.
+
+Gate (`scripts/gate_bpm_position.py`, 5000 sims, paired seeds): win MAE **7.638 → 7.628 excl-short,
++0.011 ±0.0039 SE (~2.7 SE), 5/6 folds improved**; official-seed headline **7.62 → 7.61**,
+coverage held (78.3% → 79.4%). Gains concentrate exactly as the mechanism predicts: largest in
+2017 (+0.020) and 2018 (+0.018) — folds whose training history is almost entirely pre-2013 — and
+smallest in 2024/2025 (+0.003, +0.007), which already draw mostly on post-2013 training with real
+positions. Individual effect is small and mechanistically clean: correlation between pre- and
+post-fix `def_impact` for scored rows (2013-2025) is 0.9995 (mean |Δ| 0.026), and the biggest
+movers are 2013-scored players — whose calibration is 100% dependent on the newly-fixed
+pre-2013 training rows, exactly as expected.
+
+#### ⚠️ Per-feature shrinkage/recency constants gated and REJECTED (2026-07-31)
+
+The other half of the same deep dive (DARKO/EPM's per-stat stabilization constants): does
+`off_impact`/`def_impact` want its own `shrink_minutes`/`recency_weights` instead of sharing one
+(200, (5,3,2)) pair set before the off/def decouple existed? **Stage 1 (cheap, player-level
+walk-forward projection MAE)**: swept shrink_minutes × 4 recency profiles separately for each
+skill. Turned out NOT to be a per-feature story — off_impact, def_impact, AND the combined
+"impact" all monotonically improve up to shrink=600 (recency staying at (5,3,2) for all three),
+saying the *shared* constant is simply stale post-decouple, not that skills need different
+treatment: off_impact 0.712→0.702 (−1.4%), def_impact 0.523→0.514 (−1.6%), impact 0.896→0.883
+(−1.4%). **Stage 2 (`scripts/gate_shrinkage_constant.py`, real 5000-sim gate)**: the player-level
+gain does **not** survive team aggregation — **7.628 → 7.644, −0.017 ± 0.025 SE, only 2/6 folds
+improved**, no coherent fold pattern (unlike the position-estimator fix, whose gain concentrated
+exactly where predicted). Classic "improves the player metric, dies at the team win number,"
+the same shape as the RAPM finding. **Kept 200.** One harmless fix retained regardless: 
+`project_next_season`'s `shrink_minutes` default used to bind at function-definition time (a
+Python foot-gun), now resolves the module constant at call time — behavior-neutral at 200,
+verified to reproduce the exact same MAE, but needed to make this gate testable at all.
+
+#### ⚠️ DRAYMOND-style all-category shot defense gated and REJECTED (2026-07-31)
+
+The third item from the same deep dive (FiveThirtyEight's DRAYMOND): our tracking defense pulls
+only 1 of 6 `LeagueDashPtDefend` shot-distance categories (the rim). Pulled the other 5
+("Overall", "3 Pointers", "2 Pointers", "Less Than 10Ft", "Greater Than 15Ft" — same endpoint,
+same ToS surface, 2013-14+, now cached in `data/processed/shot_defense.parquet` via
+`nbaproj.ingest.shot_defense_all_categories`, wired into `pull_all()`) to attack perimeter
+containment, the metric's one remaining named weakness.
+
+**Stage 1 (year-over-year player stability, ≥3 attempts/game both seasons) killed exactly the
+zones that would have helped**, and this is worth internalising: 3-pointers r²=0.002 and >15ft
+jumpers r²=0.010 — indistinguishable from noise. This corroborates rather than fixes "perimeter
+containment produces few countable events even with tracking": Second Spectrum's nearest-defender
+labelling has no arm position or facing direction, so a jump-shot closeout is far noisier than a
+rim contest. "Overall" (r²=0.041) was dropped too — likely redundant with `rim_supp`, since it's
+dominated by whichever shots a player defends most (mostly rim shots, for a rotation big). Only
+**2-pointers (r²=0.106)** and **less-than-10ft (r²=0.174)** survived.
+
+**Stage 2 (`scripts/gate_shot_defense_categories.py`, real 5000-sim gate) — decisively worse, not
+neutral**: **7.628 → 7.682, −0.054 ± 0.016 SE (~3.4 SE), only 1/6 folds improved**. The reason is
+exactly what should have been checked before Stage 2 and wasn't: the survivors are stable
+**because they mostly measure "is a rim-patrolling big,"** not because they capture a new skill —
+the biggest movers are Rudy Gobert (5 of the top 8, further inflated +1.0 to +1.4), Joel Embiid
+(+1.09), and Steven Adams (+1.03), the exact profile `POSITION_RELATIVE_FEATURES` was built to
+correct. Because `p2_val`/`lt10_val` are **not** position-relative standardized (unlike
+`dreb_p100`), adding them reintroduces the confound the earlier fix removed. **The lesson: a
+year-over-year-stable feature can still be a reliable measurement of the wrong thing (position),
+not skill — stability alone is not a sufficient pre-check filter.**
+
+**Rejected, but the data pull and the merge code are kept.** `shot_defense.parquet` is a clean,
+already-cached, ToS-safe dataset regardless of outcome. `nbaproj.impact.SHOT_DEFENSE_SURVIVING_
+CATEGORIES` / `SHOT_DEFENSE_FEATURES` / `add_tracking_features`'s `shot_defense` parameter follow
+the same optional-tracking-input pattern as rim/hustle, but `scripts/stage2_report.py`
+**deliberately does not pass it** — the shipped model does not use these features. **One live,
+untested follow-up**: standardizing `p2_val`/`lt10_val` *within position* (adding them to
+`POSITION_RELATIVE_FEATURES`, exactly like `dreb_p100`) targets the identified failure mode
+directly and might redeem them — not attempted here, and not assumed to work just because the
+earlier dreb fix did.
+
 ### ✅ SHIPPED (display only): All-Defense / All-NBA eye-test badges (`nbaproj/awards.py`)
 
 `scripts/pull_awards.py` pulls each candidate player's All-NBA and All-Defensive selections
@@ -739,6 +828,8 @@ is not repeated.
 | **Player-level / reliability-weighted RAPM blend** (`gate_player_level_blend.py`) | The completeness audit's two flagged formulations + variants, all gated real-sim: reliability-weighted team blend (−0.02 to −0.10), rating-space own-slope (−0.05), player-level box-informed (−0.09) and **pure-RAPM moment-matched (−0.07 to −0.21, the audit's literal ask)** — **none beats shipped 7.638**. Reliability is anti-correlated with turnover (−0.43), so it gets the sign backwards (leans RAPM on stable rosters the carryover already fixes); box-informed RAPM already possession-shrinks, so per-player blending double-shrinks (K2000 == pure box). Best move is always "less RAPM," never "redistribute per player." **Player-level family closed.** |
 | **Turnover-conditional carryover** `rho(w)=rho0+rho1*w` (`gate_carryover_turnover.py`) | 538's Elo-memory-by-continuity trick applied to our carryover. Cheap pre-check ambiguous (right sign, 0.2% SSR gain, unstable LOSO); real 5000-sim gate **decisively worse every fold**: 7.638 → 7.692, −0.054 ± 0.053 SE, 0/6. Fitted rho1 unstable fold-to-fold (−0.83 to +0.04) — not enough residual pairs (~180) to identify a second free parameter this way. |
 | **Luck-adjusted carryover residual** (LEBRON-style; `precheck_carryover_luck.py`) | Replace realized 3P%/FT% with league average before computing the residual to persist. Killed at the pre-check: luck-adjusted N−1 correlates **worse** with N's real rating (defense r² 0.306→0.284, offense 0.310→0.226) — own FT%/3P% are far more persistent than assumed (own FT% r²=0.32) while only the *allowed* side is mostly luck (opp 3P% r²=0.058); a blanket adjustment strips real offensive skill along with defensive noise. Joint regression: the "luck" component's coefficient (+0.45) is nearly as large as the "skill" core's (+0.59) — not noise. Corroborates PIPM (the one luck-adjusted metric in the public retrodiction table) finishing 6th of 10. |
+| **Per-feature/shared shrinkage constant bump** (`gate_shrinkage_constant.py`) | DARKO/EPM-style per-stat stabilization constants. Stage 1 found no per-feature story — off_impact, def_impact, and combined impact all want the SAME higher shrink=600 vs shipped 200 (player-level MAE −1.4 to −1.6%). Stage 2 (real 5000-sim gate): doesn't survive team aggregation — **7.628 → 7.644, −0.017 ± 0.025 SE, 2/6 folds**, no coherent fold pattern. Classic player-metric-improves-team-doesn't, same shape as RAPM. **Kept shrink=200.** |
+| **DRAYMOND-style all-category shot defense** (`gate_shot_defense_categories.py`) | Extended nearest-defender tracking from rim-only to all 6 shot-distance categories to attack perimeter containment. Stage 1 killed exactly the perimeter zones (3P r²=0.002, >15ft r²=0.010 — noise); only 2-pointers/less-than-10ft survived stability. Stage 2 real-sim gate: **decisively worse — 7.628 → 7.682, −0.054 ± 0.016 SE (~3.4 SE), 1/6 folds**. Root cause: the survivors are stable because they measure "is a rim-patrolling big" (Gobert/Embiid/Adams further inflated), and — unlike `dreb_p100` — are not position-relative standardized, so they reintroduce the exact confound that fix removed. **Stability alone is not a sufficient pre-check filter.** Data pull + merge code kept (unused by default); untested follow-up is position-relative standardizing these two features specifically. |
 
 **On the roster-"bloat" hypothesis (investigated, rejected).** The live July roster snapshot
 carries 20–24 players and >290 mpg of prior-team minutes for ~8 teams (ATL 465 raw / 353

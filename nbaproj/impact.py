@@ -187,10 +187,31 @@ def add_on_court_features(
     return out
 
 
+# Shot-defense categories beyond the rim, from the same LeagueDashPtDefend endpoint
+# (nbaproj.ingest.shot_defense). A 2026-07-31 deep dive proposed extending nearest-defender
+# tracking from rim-only to all 6 categories to attack perimeter containment -- the one defensive
+# gap tracking still misses. Stage-1 pre-check (year-over-year player stability, min 3
+# attempts/game both seasons) killed exactly the zones that would have addressed perimeter
+# shooting: 3-pointers r^2=0.002 and >15ft jumpers r^2=0.010, both indistinguishable from noise --
+# corroborating rather than fixing "perimeter containment produces few countable events even with
+# tracking." "Overall" (r^2=0.041) is likely redundant with rim_supp (dominated by rim-shot volume
+# for the same big men) and also dropped. Only two zones survive: 2-pointers (r^2=0.106) and
+# less-than-10ft (r^2=0.174) -- both adjacent to the already-covered rim zone, not genuinely new
+# perimeter information, but real enough to gate. Column names differ by category (an API quirk):
+# {category: (makes_col, attempts_col, expected_pct_col, short_name)}.
+SHOT_DEFENSE_SURVIVING_CATEGORIES = {
+    "2 Pointers": ("FG2M", "FG2A", "NS_FG2_PCT", "p2"),
+    "Less Than 10Ft": ("FGM_LT_10", "FGA_LT_10", "NS_LT_10_PCT", "lt10"),
+}
+SHOT_DEFENSE_FEATURES = [f"{short}_val" for *_, short in SHOT_DEFENSE_SURVIVING_CATEGORIES.values()]
+
+
 def add_tracking_features(
     player_seasons: pd.DataFrame,
     rim_defense: pd.DataFrame | None = None,
     hustle: pd.DataFrame | None = None,
+    player_team_seasons: pd.DataFrame | None = None,
+    shot_defense: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Attach the player-tracking defensive features (``TRACKING_DEFENSE_FEATURES``).
 
@@ -199,6 +220,16 @@ def add_tracking_features(
     frame is omitted its features are simply absent and later filled to league-average -- so a
     caller with only partial tracking (older seasons) still works. Merged on
     ``(player_id, season_start)``; the rim frame keys the defender on ``CLOSE_DEF_PERSON_ID``.
+
+    ``player_team_seasons``, if supplied, fills ``pos_group`` with BPM's box-derived position
+    estimate (see ``_bpm_position_estimate``) wherever the real rim-tracking position is missing
+    -- i.e. every player-season before 2013-14, plus the rare post-2013 player rim_defense never
+    covers. Without it those rows silently collapse to "F", which is the pre-fix behavior.
+
+    ``shot_defense``, if supplied (``nbaproj.ingest.shot_defense_all_categories``, all 5
+    non-rim `LeagueDashPtDefend` categories stacked with a ``DEFENSE_CATEGORY`` column), adds
+    ``{short}_val`` for the two categories that survived the stability pre-check (see
+    ``SHOT_DEFENSE_SURVIVING_CATEGORIES``); the rest are intentionally not computed.
     """
     out = player_seasons.copy()
     if rim_defense is not None and len(rim_defense):
@@ -236,6 +267,30 @@ def add_tracking_features(
         g["cont2_p36"] = g["cont2"] / mins * 36               # 2pt shots contested per 36
         out = out.merge(g[["player_id", "season_start", "defl_p36", "cont2_p36"]],
                         on=["player_id", "season_start"], how="left")
+    if player_team_seasons is not None and len(player_team_seasons):
+        bpm_pos = _bpm_position_estimate(player_team_seasons)
+        out = out.merge(bpm_pos, on=["player_id", "season_start"], how="left")
+        if "pos_group" in out.columns:
+            out["pos_group"] = out["pos_group"].fillna(out["pos_group_bpm"])
+        else:
+            out["pos_group"] = out["pos_group_bpm"]
+        out = out.drop(columns=["pos_group_bpm"])
+    if shot_defense is not None and len(shot_defense):
+        for cat, (mk, at, expp, short) in SHOT_DEFENSE_SURVIVING_CATEGORIES.items():
+            sd = shot_defense[shot_defense["DEFENSE_CATEGORY"] == cat].rename(
+                columns={"CLOSE_DEF_PERSON_ID": "player_id", "SEASON_START": "season_start"})
+            if sd.empty:
+                continue
+            sd = sd.copy()
+            sd["_ns_fga"] = sd[expp].astype(float) * sd[at].astype(float)
+            g = sd.groupby(["player_id", "season_start"], as_index=False).agg(
+                fga=(at, "sum"), fgm=(mk, "sum"), games=("G", "sum"), ns_fga=("_ns_fga", "sum"))
+            fga = g["fga"].clip(lower=1)
+            supp = (g["ns_fga"] - g["fgm"]) / fga             # expected minus allowed
+            vol = g["fga"] / g["games"].clip(lower=1)         # attempts defended per game
+            g[f"{short}_val"] = supp * vol                    # points-saved-style proxy
+            out = out.merge(g[["player_id", "season_start", f"{short}_val"]],
+                            on=["player_id", "season_start"], how="left")
     return out
 
 
@@ -245,6 +300,56 @@ def _position_group(pos: object) -> str:
     if not isinstance(pos, str):
         return "F"
     return "C" if "C" in pos else ("G" if "G" in pos else "F")
+
+
+# BPM 2.0's box-derived continuous position estimator (Daniel Myers), used ONLY as a fallback for
+# the 8 of 21 backbone seasons (2005-06..2012-13) that have no `rim_defense`-listed position at
+# all: pos_group silently collapses to "F" for those seasons -- 34% of the standardization pool --
+# so POSITION_RELATIVE_FEATURES quietly stopped correcting the positional confound for a third of
+# its training data. Coefficients are BPM's published ones; %TeamX = a player's season total of X
+# (from real per-team stints, so a traded player is not double-counted) divided by that team's
+# season total. Validated against real listed positions where both exist (2013-14+, 6,819
+# player-seasons): correctly separates the extremes (a true guard is bucketed center only 4% of
+# the time, a true center bucketed guard 17% of the time) even though the true "forward" middle is
+# inherently fuzzy (only ~60% 3-way accuracy) -- which is exactly what matters for telling a
+# center's defensive rebounding from a guard's. Cutoffs below are grid-search-optimized on that
+# same overlap.
+_BPM_POSITION_CUTOFFS = (2.86, 3.33)  # G < 2.86 <= F < 3.33 <= C
+
+
+def _bpm_position_estimate(player_team_seasons: pd.DataFrame) -> pd.DataFrame:
+    """One continuous BPM-style position value per (player_id, season_start), all seasons."""
+    team_tot = player_team_seasons.groupby(["team_id", "season_start"], as_index=False).agg(
+        t_reb=("reb", "sum"), t_ast=("ast", "sum"), t_stl=("stl", "sum"),
+        t_blk=("blk", "sum"), t_pf=("pf", "sum"))
+    d = player_team_seasons.merge(team_tot, on=["team_id", "season_start"])
+    for c in ["reb", "ast", "stl", "blk", "pf"]:
+        d[f"pct_{c}"] = d[c] / d[f"t_{c}"].clip(lower=1)
+    d["position_raw"] = (2.130 + 8.668 * d.pct_reb - 2.486 * d.pct_stl
+                         + 0.992 * d.pct_pf - 3.536 * d.pct_ast + 1.667 * d.pct_blk
+                         ).clip(1, 5)
+
+    # Recursive team recentering: shift every player on a team-season by the same constant so
+    # the team's minute-weighted mean position is exactly 3.0 (five spots -> average of 3).
+    def _recenter(g: pd.DataFrame) -> pd.Series:
+        w = g["minutes"].clip(lower=1)
+        shift = 3.0 - np.average(g["position_raw"], weights=w)
+        return (g["position_raw"] + shift).clip(1, 5)
+
+    d["position"] = d.groupby(["team_id", "season_start"], group_keys=False).apply(
+        _recenter, include_groups=False)
+
+    # Multi-team players: one continuous position per player-SEASON, minutes-weighted across
+    # stints (matches how the project already combines a traded player's stint-level rows
+    # elsewhere, e.g. rim tracking in this same function).
+    out = d.groupby(["player_id", "season_start"]).apply(
+        lambda g: np.average(g["position"], weights=g["minutes"].clip(lower=1)),
+        include_groups=False).rename("position_est").reset_index()
+
+    lo, hi = _BPM_POSITION_CUTOFFS
+    out["pos_group_bpm"] = np.select(
+        [out["position_est"] < lo, out["position_est"] >= hi], ["G", "C"], default="F")
+    return out[["player_id", "season_start", "pos_group_bpm"]]
 
 
 def _standardize_within_position(ps: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
@@ -412,7 +517,8 @@ def build_impact(
     """
     # Use whatever tracking defensive features the caller merged in (see
     # ``add_tracking_features``); fall back to the pure box set if none are present.
-    track = [c for c in TRACKING_DEFENSE_FEATURES if c in player_seasons.columns]
+    track = [c for c in TRACKING_DEFENSE_FEATURES + SHOT_DEFENSE_FEATURES
+             if c in player_seasons.columns]
     def_features = DEFENSE_FEATURES + track
     all_features = list(dict.fromkeys(OFFENSE_FEATURES + def_features))
 

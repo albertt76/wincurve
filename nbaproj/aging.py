@@ -223,7 +223,7 @@ def project_next_season(
     target_season: int,
     skill: str = "impact",
     recency_weights: tuple[float, ...] = (5.0, 3.0, 2.0),
-    shrink_minutes: float = SHRINK_MINUTES,
+    shrink_minutes: float | None = None,
     shrink_toward: str = "age_mean",
 ) -> pd.DataFrame:
     """Project each player's `skill` for `target_season`.
@@ -248,6 +248,9 @@ def project_next_season(
     Uses only seasons strictly before `target_season`, so it is safe for
     walk-forward evaluation.
     """
+    if shrink_minutes is None:
+        shrink_minutes = SHRINK_MINUTES  # read the module global at CALL time, not def time
+
     hist = impact[impact["season_start"] < target_season]
     if hist.empty:
         return pd.DataFrame()
