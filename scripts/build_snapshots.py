@@ -28,6 +28,7 @@ from nbaproj.availability import build_availability, build_features, fit_predict
 from nbaproj.carryover import apply_carryover, fit_rho  # noqa: E402
 from nbaproj.minutes import MINUTES_PER_GAME  # noqa: E402
 from nbaproj.project import roster_opening_day  # noqa: E402
+from nbaproj.awards import honor_lookup, load_honors  # noqa: E402
 from nbaproj.rapm import box_vs_rapm_by_player, build_rapm_impact  # noqa: E402
 from nbaproj.rapm_blend import (  # noqa: E402
     backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def,
@@ -134,6 +135,9 @@ def build_historical(season: int, data: dict) -> dict:
 
     # Per-player box-vs-RAPM defense, from seasons strictly before this one (walk-forward).
     def_cmp = box_vs_rapm_by_player(imp, PROC, last_season=season - 1)
+    # Eye-test honors as of this season (display only; see nbaproj/awards.py). Walk-forward:
+    # before_season=season -> most recent selection strictly before it.
+    honors = honor_lookup(data.get("honors"), before_season=season)
     cal = {"off_slope": off_slope, "off_intercept": off_int,
            "def_slope": def_slope, "def_intercept": def_int,
            "replacement_off": rep_off, "replacement_def": rep_def,
@@ -141,7 +145,7 @@ def build_historical(season: int, data: dict) -> dict:
     games = int(actual["games"].mode().iloc[0]) if not actual.empty else FULL_SEASON_GAMES
     return _assemble(season, ratings, base, data, sigma_base, slope, intercept, rep,
                      rho, is_current=False, actual=actual, games=games,
-                     cal=cal, def_cmp=def_cmp)
+                     cal=cal, def_cmp=def_cmp, honors=honors)
 
 
 def _aggregate_from_roster(base: pd.DataFrame, rep: float, rep_off: float,
@@ -177,7 +181,8 @@ def _age_lookup(ages: pd.DataFrame, season: int) -> dict:
 
 
 def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, rho,
-              *, is_current, actual, games, cal, def_cmp) -> dict:
+              *, is_current, actual, games, cal, def_cmp, honors=None) -> dict:
+    honors = honors or {"all_def": {}, "all_nba": {}}
     ts, abbr = data["ts"], data["abbr"]
     coaches = data["coaches"]
     budget = MINUTES_PER_GAME * games
@@ -244,6 +249,12 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
                 rec["box_def"] = round(float(dc["box_def"]), 3)
                 rec["rapm_def"] = round(float(dc["def_rapm"]), 3)
                 rec["rapm_yr"] = int(dc["season_start"])
+            ad = honors["all_def"].get(int(p["player_id"]))
+            if ad:
+                rec["all_def"] = ad
+            an = honors["all_nba"].get(int(p["player_id"]))
+            if an:
+                rec["all_nba"] = an
             return rec
         players = [_player(p) for _, p in g.iterrows()]
         base = grid[tid][len(RATING_GRID) // 2]
@@ -336,6 +347,7 @@ def main() -> int:
             "SEASON_START": "season_start"}),
         "coaches": pd.read_parquet(PROC / "team_coaches.parquet"),
         "abbr": {t["id"]: t["abbreviation"] for t in static_teams.get_teams()},
+        "honors": load_honors(PROC),
     }
     pa = pd.read_parquet(PROC / "player_advanced.parquet")
     data["ages"] = pd.DataFrame({

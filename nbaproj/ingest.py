@@ -19,6 +19,7 @@ from nba_api.stats.endpoints import (
     leaguedashteamstats,
     leaguegamelog,
     leaguehustlestatsplayer,
+    playerawards,
 )
 
 from .cache import cached_fetch, season_str, seasons
@@ -170,6 +171,22 @@ def player_passing(season: str) -> pd.DataFrame:
             "per_mode_simple": "PerGame",
             "timeout": TIMEOUT,
         },
+    )
+
+
+def player_awards(player_id: int) -> pd.DataFrame:
+    """All honors for one player (All-NBA / All-Defensive team with 1/2/3 number, MVP,
+    All-Star, etc.), keyed by SEASON. One call per player; cached per player_id.
+
+    Used as an eye-test correction layer: prior-year All-Defensive selections flag the
+    perimeter stoppers the box + tracking metric still under-credits (containment produces
+    few countable events). Strictly a PRIOR-year signal, never contemporaneous, to avoid
+    leakage.
+    """
+    return cached_fetch(
+        "player_awards",
+        playerawards.PlayerAwards,
+        {"player_id": int(player_id), "timeout": TIMEOUT},
     )
 
 

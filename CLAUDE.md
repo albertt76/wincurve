@@ -86,8 +86,10 @@ Both move aggregate win MAE only within noise (every team plays centers ~48 min,
 positional bias washes out in aggregate) — their value is a *credible per-player defensive
 number*, which is what the disagreement tool rests on. **What still slips through:** perimeter
 *containment* produces few countable events even with tracking, so celebrated stoppers (Dort,
-NAW, Anunoby, Holiday) still rate near zero — the residual the (in-progress) prior-year
-All-Defense correction targets.
+NAW, Anunoby, Holiday) still rate near zero. Prior-year All-Defense was tested as a correction
+for exactly this residual and **failed the win gate** (redundant at the team level); it ships as
+an eye-test **badge** in the UI instead of a projection input (see the All-Defense/All-NBA
+section).
 
 **Why bottom-up:** 21 seasons x 30 teams = **630 team-seasons**. That is far too few
 rows to fit a team-level model with the many features originally envisioned (positional
@@ -158,6 +160,7 @@ Stored in `data/` (gitignored; regenerate with `python scripts/fetch_all.py`).
 | `rim_defense` (tracking) | 6,823 | 13 | 2013-14 → 2025-26 |
 | `hustle` | 5,455 | 10 | 2016-17 → 2025-26 |
 | `player_passing` (tracking) | 6,942 | 13 | 2013-14 → 2025-26 |
+| `player_awards` (All-NBA/All-Def) | 572 | 29 | 1997 → 2025 (honoree pool) |
 | preseason win totals | 630 | 21 | 2005-06 → 2025-26 |
 
 `rim_defense` + `hustle` now feed the **defensive** metric (`add_tracking_features`);
@@ -554,6 +557,24 @@ fixes what the RAPM blend alone does not. **Follow-up:** the box-informed RAPM p
 the *old* box defense; refitting it on the rim-corrected box could recover a little more (the
 gate above already shows the gain with the old-prior RAPM, so shipping now is conservative).
 
+### ✅ SHIPPED (display only): All-Defense / All-NBA eye-test badges (`nbaproj/awards.py`)
+
+`scripts/pull_awards.py` pulls each candidate player's All-NBA and All-Defensive selections
+(nba_api `PlayerAwards`, one call per player, cached; candidate pool = top-75/season by minutes
+∪ ≥1500 min, which captures every honoree — verified exactly 10 All-Def and 15 All-NBA per
+season). `honor_lookup` surfaces the most recent selection **strictly before** the projected
+season (walk-forward), emitted per-player into the bundle as `all_def` / `all_nba` ({yr, team,
+n}); the UI shows a **🛡 shield** (All-Defensive) and **★ star** (All-NBA) badge with the team
+number and a hover (career count + recency), next to the existing D↑/D↓ RAPM flags.
+
+**They are shown, not scored** — both failed as projection inputs (see the negative-results
+table): prior-year All-Defense is redundant with the metric at the team level and loses the win
+gate at every setting; All-NBA is an offensive honor that would mis-credit defense-poor scorers.
+They earn their place as *context*: a shield next to a low `Def` is the eye test flagging a
+perimeter stopper the box score misses (Herbert Jones, Holiday, Anunoby, Cason Wallace all rate
+≤ 0 with a shield). The nice validation that the two badges separate the axes: Gobert carries a
+9× 🛡 and no ★; Karl-Anthony Towns carries a 3× ★ and no 🛡.
+
 ### ✅ 2025-26 play-by-play via PlayByPlayV3 (`nbaproj.bulk_pbp.build_segments_bulk_v3`)
 
 The bulk mirror (shufinskiy/nba_data) stopped shipping the v2 `nbastats` feed for recent
@@ -586,6 +607,8 @@ is not repeated.
 | Tanking adjustment from lottery reform | 2019 reform *tripled* tanking, not reduced it |
 | Trimming "bloated" current rosters before aggregation | Fails the gate: any roster cap raises MAE (7.95 → 8.04 at cap-18); the minute-weighted mean already down-weights camp bodies, and the tail carries real signal |
 | **Offensive-creation features** (potential/secondary assists, points created, screen assists) | Offense is already saturated: out-of-sample team-offense corr flat 0.930 → 0.930 (calibrated err 0.870 → 0.879, *worse*); win gate +0.018 (noise). Box assists + usage + efficiency already encode creation, so these are collinear refinements — Brunson barely moves (+2.09 → +2.21). Passing data pulled and kept (`player_passing`), features not added. |
+| Prior-year **All-Defense** correction to `def_impact` | Out-of-line bump of under-rated honorees toward an honor floor **fails the win gate at every setting** (−0.007 to −0.029, monotone with strength; `alldef_wingate`). As a plain team feature it also worsens out-of-sample team-defense (corr 0.733 → 0.726). Redundant at the team level — a team's defense is already the sum of its players' countable events. Kept as a display **badge**, not a projection input. |
+| **All-NBA** as a star impact bump | Mechanically wrong, so not gated: All-NBA is largely an OFFENSIVE / reputational honor. The metric's low ratings of All-NBA guards are defense-driven and correct — Brunson is +2.09 off / −2.01 def, a real two-way wash — so bumping impact toward the honor would credit defense he doesn't play (or double-count offense, already R²=0.82). Display **badge** only. |
 
 **On the roster-"bloat" hypothesis (investigated, rejected).** The live July roster snapshot
 carries 20–24 players and >290 mpg of prior-team minutes for ~8 teams (ATL 465 raw / 353
