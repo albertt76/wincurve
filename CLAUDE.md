@@ -893,6 +893,19 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
 - ⬜ Roster definition for backtest: plan is to reconstruct opening-night rosters from
   each season's first games. Using full-season rosters would understate real-world
   error, since February's roster is unknown in October.
+- ⬜ **Historical market lines in the per-season UI (collaborative — data availability).**
+  The UI shows a market marker only for the upcoming season (live Kalshi). The **historical
+  bbref preseason win totals are already pulled** (`market_baseline.parquet` / `nbaproj.odds`,
+  21 seasons 2005-06→2025-26), so each historical season view *can* carry a market marker too —
+  it just is not surfaced yet. Kalshi (`KXNBAWINS`) and Polymarket have **no history** (both too
+  recent), so historical = **bbref Vegas over/under only**; verify per-season coverage/quality
+  before plumbing it through `build_snapshots.py` into the historical bundles. Requested by the
+  user 2026-07-31.
+- ⬜ **Model-vs-market-vs-actual history page (new view).** A dedicated page charting, per
+  season, our projection MAE vs the market's MAE vs the actual end-of-year results — a visible
+  longitudinal backtest of *both* the model and the market, beyond the current single-season MAE
+  in the header. Depends on the historical-market item above for the market series. Requested by
+  the user 2026-07-31. Design TBD together.
 
 ---
 
