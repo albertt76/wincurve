@@ -857,13 +857,24 @@ function marketReadout(t, w) {
 // defense the metric inflates is discounted, and a scoring guard is not double-penalised for a
 // weak box-defense estimate. Older snapshots without the split fall back to combined impact.
 const MPG_BUDGET = GMETA.minutes_budget / GMETA.full_season_games;   // 240 player-min/game
+// The team aggregation caps total minutes at the 240/game budget before minute-weighting, so an
+// over-budget roster (summer camp invites, just-acquired players still carrying their old team's
+// minutes) is scaled down uniformly. ≈Wins must apply the SAME cap or it over-credits every
+// player on a bloated roster -- without it the per-player ≈Wins overstate by the roster's
+// over-budget factor (up to ~1.5x), and their sum no longer reconciles to the team projection.
+// The factor is the team's baseline load, so ≈Wins matches the displayed (unedited) projection;
+// at or under budget it is 1. Mirrors computeRating's `if (used > budget)` scale-down.
+function teamCapFactor(team) {
+  const load = team.players.reduce((a, p) => a + p.mpg * p.avail, 0);
+  return load > MPG_BUDGET ? MPG_BUDGET / load : 1;
+}
 // The WAR-like value split into the OFFENSIVE and DEFENSIVE wins it is built from. Because the
 // team rating is off + def priced by their own slopes, ≈Wins decomposes exactly the same way:
 // offWins comes from offense above replacement, defWins from the turnover-blended (box vs RAPM)
 // defence above replacement. off + def === total, by construction. Older snapshots without the
 // off/def split fall back to a combined total with no meaningful halves.
 function winParts(p, team) {
-  const minshare = p.mpg * p.avail / MPG_BUDGET;
+  const minshare = p.mpg * p.avail / MPG_BUDGET * teamCapFactor(team);
   if (DATA.off_slope != null) {
     let defDev = p.def - DATA.replacement_def;
     if (DATA.replacement_def_rapm != null) {

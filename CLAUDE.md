@@ -244,10 +244,15 @@ itself is a per-100-possession rate, not a win count**. It decomposes the *same*
 rating uses: offense and defense priced by their own slopes (defense's is lower, since defense
 is less predictive) and defense blended toward RAPM by roster turnover — so a rebounding centre
 the box score over-credits on defense (Drummond) is discounted rather than tied with a scoring
-guard (Brunson). `winVal(p, team)` in the UI mirrors the team aggregation exactly. The panel shows **Minutes supplied /240**,
-which surfaces deep off-season rosters (see the roster-bloat investigation below — the
-"bloat" was checked and is not a defect). The
-green/red edit delta is now tooltip-labelled "change from the original projection".
+guard (Brunson). `winParts(p, team)` in the UI mirrors the team aggregation exactly — including
+the **240-min/game budget cap** (`teamCapFactor`, fixed 2026-07): the aggregation scales an
+over-budget summer roster down before minute-weighting, so ≈Wins applies the same factor or it
+over-credits every player on a bloated roster by up to ~1.5×. With the cap, the per-player ≈Wins
+sum **reconciles exactly** to the team's rating-above-replacement (verified 0.000 max error over
+all 30 teams; before the fix ATL/CHA/MIL overstated by 3–6 wins in aggregate). The panel shows
+**Minutes supplied /240**, which surfaces deep off-season rosters (see the roster-bloat
+investigation below — the "bloat" was checked and is not a defect). The green/red edit delta is
+now tooltip-labelled "change from the original projection".
 
 **Offense/defense split + defensive disagreement (added 2026-07).** Every team row shows its
 rating split as **`O ±x · D ±y`** (colored by sign), so you can see whether a projection is
