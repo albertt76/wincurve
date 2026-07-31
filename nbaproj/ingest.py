@@ -15,6 +15,7 @@ from nba_api.stats.endpoints import (
     commonallplayers,
     leaguedashplayerstats,
     leaguedashptdefend,
+    leaguedashptstats,
     leaguedashteamstats,
     leaguegamelog,
     leaguehustlestatsplayer,
@@ -152,6 +153,26 @@ def hustle(season: str) -> pd.DataFrame:
     )
 
 
+def player_passing(season: str) -> pd.DataFrame:
+    """Passing-tracking creation stats: potential assists, points created, secondary
+    ("hockey") assists, passes made -- the playmaking a raw assist count under-credits.
+
+    Empty before 2013-14 (SportVU tracking era). PerGame; normalised by minutes downstream.
+    """
+    return cached_fetch(
+        "player_passing",
+        leaguedashptstats.LeagueDashPtStats,
+        {
+            "season": season,
+            "season_type_all_star": "Regular Season",
+            "player_or_team": "Player",
+            "pt_measure_type": "Passing",
+            "per_mode_simple": "PerGame",
+            "timeout": TIMEOUT,
+        },
+    )
+
+
 def player_bio() -> pd.DataFrame:
     """League-wide player directory with debut year (``FROM_YEAR``).
 
@@ -205,6 +226,8 @@ def pull_all(last_season: int = LAST_COMPLETE_SEASON) -> dict[str, pd.DataFrame]
             "rim_defense", rim_defense, FIRST_TRACKING_SEASON, last_season),
         "hustle": _pull_range(
             "hustle", hustle, FIRST_HUSTLE_SEASON, last_season),
+        "player_passing": _pull_range(
+            "player_passing", player_passing, FIRST_TRACKING_SEASON, last_season),
         # Season-invariant: one row per player ever, no season loop.
         "player_bio": player_bio(),
     }
