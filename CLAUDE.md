@@ -737,6 +737,8 @@ is not repeated.
 | **All-NBA** as a star impact bump | Mechanically wrong, so not gated: All-NBA is largely an OFFENSIVE / reputational honor. The metric's low ratings of All-NBA guards are defense-driven and correct — Brunson is +2.09 off / −2.01 def, a real two-way wash — so bumping impact toward the honor would credit defense he doesn't play (or double-count offense, already R²=0.82). Display **badge** only. |
 | **Re-fitting the box-vs-RAPM blend WEIGHT** (flat constants or walk-forward flat weight) | Rating-space proxy said flat ~0.5 wins +0.13/6-of-9; the real 5000-sim gate (`gate_blend_weight.py`) says otherwise — best candidates +0.02–0.03 wins, paired SE ~0.05–0.09 (noise), everything `w ≥ 0.5` worse, pure RAPM worst. The proxy sign-flipped (nonlinearity). 3-lens adversarial audit: negative-result-trustworthy. Box-metric fixes shrank RAPM's edge (pure RAPM 7.83 > pure box 7.77). **Flat-weight family closed.** |
 | **Player-level / reliability-weighted RAPM blend** (`gate_player_level_blend.py`) | The completeness audit's two flagged formulations + variants, all gated real-sim: reliability-weighted team blend (−0.02 to −0.10), rating-space own-slope (−0.05), player-level box-informed (−0.09) and **pure-RAPM moment-matched (−0.07 to −0.21, the audit's literal ask)** — **none beats shipped 7.638**. Reliability is anti-correlated with turnover (−0.43), so it gets the sign backwards (leans RAPM on stable rosters the carryover already fixes); box-informed RAPM already possession-shrinks, so per-player blending double-shrinks (K2000 == pure box). Best move is always "less RAPM," never "redistribute per player." **Player-level family closed.** |
+| **Turnover-conditional carryover** `rho(w)=rho0+rho1*w` (`gate_carryover_turnover.py`) | 538's Elo-memory-by-continuity trick applied to our carryover. Cheap pre-check ambiguous (right sign, 0.2% SSR gain, unstable LOSO); real 5000-sim gate **decisively worse every fold**: 7.638 → 7.692, −0.054 ± 0.053 SE, 0/6. Fitted rho1 unstable fold-to-fold (−0.83 to +0.04) — not enough residual pairs (~180) to identify a second free parameter this way. |
+| **Luck-adjusted carryover residual** (LEBRON-style; `precheck_carryover_luck.py`) | Replace realized 3P%/FT% with league average before computing the residual to persist. Killed at the pre-check: luck-adjusted N−1 correlates **worse** with N's real rating (defense r² 0.306→0.284, offense 0.310→0.226) — own FT%/3P% are far more persistent than assumed (own FT% r²=0.32) while only the *allowed* side is mostly luck (opp 3P% r²=0.058); a blanket adjustment strips real offensive skill along with defensive noise. Joint regression: the "luck" component's coefficient (+0.45) is nearly as large as the "skill" core's (+0.59) — not noise. Corroborates PIPM (the one luck-adjusted metric in the public retrodiction table) finishing 6th of 10. |
 
 **On the roster-"bloat" hypothesis (investigated, rejected).** The live July roster snapshot
 carries 20–24 players and >290 mpg of prior-team minutes for ~8 teams (ATL 465 raw / 353
@@ -805,6 +807,41 @@ verification. Winsorizing extreme prior residuals was tested and does **not** he
 8 is worse), so the tail residuals — e.g. Detroit/Charlotte, which beat the roster model by
 ~10 net-rating points in 2025-26 — are kept at full strength. Those large live adjustments
 are the measurement-error signal, shown per-team in the UI.
+
+#### ⚠️ Two carryover reshapes gated and REJECTED (2026-07-31) — keep the flat rho
+
+A deep dive on advanced player-projection systems (EPM, LEBRON, DARKO, SCHOENE, BPM, CARMELO)
+surfaced two ideas that reshape the carryover itself rather than swap in an external metric —
+both were built and gated, both failed.
+
+**Turnover-conditional rho** (`scripts/gate_carryover_turnover.py`). Motivated by 538's Elo model
+varying its memory weight by roster continuity: fit `rho(w) = rho0 + rho1*w`, `w` = the *target*
+season's roster turnover (the same `new_minute_share` the RAPM defensive blend already uses),
+instead of one constant. A cheap OLS pre-check was ambiguous (right sign, but the interaction
+explained only 0.2% of additional in-sample variance, the rho-by-turnover-quintile pattern wasn't
+monotone, and leave-one-season-out estimates of the interaction swung from −0.12 to −0.57) — per
+this project's rule that an internal diagnostic is not the verdict, it went to the real 5000-sim
+gate anyway. Result: **decisively worse, every fold** — MAE 7.638 → 7.692, −0.054 ± 0.053 SE,
+0/6 folds improved, run on the shipped config (RAPM blend on). The fitted rho0/rho1 are also
+unstable fold to fold in exactly the way the pre-check warned. Not enough residual pairs (~180) to
+identify a second free parameter this way. **Closed — do not re-attempt this form.**
+
+**Luck-adjusting the carryover residual** (`scripts/precheck_carryover_luck.py`, killed at the
+pre-check, never reached the sim gate). LEBRON's premise: replace realized 3P%/FT% with that
+season's league average (attempt volumes stay real) before computing the residual the carryover
+persists, since shooting variance is mostly luck. Tested directly on `game_log.parquet`: a
+luck-adjusted season-N−1 rating correlates **worse**, not better, with season N's real rating —
+defense r² 0.3055→0.2838, offense 0.3097→0.2256. Root cause, verified directly: **own** FT%/3P%
+are far more persistent across a full season than the "it's mostly luck" premise assumes (own FT%
+r²=0.32, one of the most persistent box-score rates there is), while what a team **allows** really
+is mostly luck (opponent 3P% against r²=0.058, FT% against r²=0.013) — a blanket adjustment
+strips real offensive skill along with defensive noise, and the offensive loss is larger. A joint
+regression confirms it: the "luck" component carries a coefficient (+0.45) almost as large as the
+"skill" core (+0.59) for predicting next season — it is not noise. Corroborates an independent
+public data point from the same deep dive: PIPM, the only metric in the Dunks & Threes retrodiction
+table built on luck-adjusted ratings, finished 6th of 10, behind plain BPM and RAPM. **Closed** —
+a defense-only variant (never adjusting the offensive side) is the one un-killed variant, but it
+would need to clear the same predictive-correlation bar first.
 
 ### ⚠️ CORRECTED: the tanking era claim does not hold
 
