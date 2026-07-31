@@ -6,8 +6,23 @@
     "be worse than asking. Anything not listed here is handled ",
     "statistically by the availability model instead.",
     "games_missed is the expected number of the team's games the player ",
-    "will miss. player_id must match nba_api PERSON_ID."
+    "will miss. player_id must match nba_api PERSON_ID.",
+    "apply_overrides takes the MIN of model availability and the override, so ",
+    "these are a floor on the absence, never a way to make a player healthier."
   ],
-  "snapshot_date": "2026-07-29",
-  "absences": []
+  "snapshot_date": "2026-07-31",
+  "absences": [
+    {"player_name": "Donte DiVincenzo", "player_id": 1628978, "games_missed": 66,
+     "reason": "torn right Achilles, out indefinitely (assume ~80% of season)",
+     "source": "user-provided 2026-07-31"},
+    {"player_name": "Moses Moody", "player_id": 1630541, "games_missed": 41,
+     "reason": "patellar tendon (assume ~50% of season)",
+     "source": "user-provided 2026-07-31"},
+    {"player_name": "Johnny Furphy", "player_id": 1642277, "games_missed": 82,
+     "reason": "torn ACL, out for the season",
+     "source": "user-provided 2026-07-31"},
+    {"player_name": "Jimmy Butler III", "player_id": 202710, "games_missed": 44,
+     "reason": "torn right ACL (Jan 2026), expected back late January 2027",
+     "source": "user-provided 2026-07-31"}
+  ]
 }
