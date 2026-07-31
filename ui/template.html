@@ -579,7 +579,7 @@ const SNAP = __DATA__;              // { meta, snapshots: { "2021-22": {...}, ..
 const GMETA = SNAP.meta;
 const AX_LO = 12, AX_HI = 70;            // win axis bounds
 const pct = w => ((Math.min(Math.max(w, AX_LO), AX_HI) - AX_LO) / (AX_HI - AX_LO)) * 100;
-const CURRENT_MAE = 7.74;               // shipped backtest MAE (RAPM def-blend + rim/hustle def), upcoming season
+const CURRENT_MAE = 7.62;               // shipped MAE (RAPM blend + rim/hustle + position-relative dreb)
 
 // Season-dependent globals, (re)built by loadSeason().
 let DATA, state, byId, allPlayers;

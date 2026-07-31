@@ -98,6 +98,20 @@ DEFENSE_FEATURES = ["stl_p100", "blk_p100", "dreb_p100", "pf_p100", "def_rating_
 # defensive calibration r-squared 0.33 -> 0.48 and make the per-player defensive numbers the
 # UI shows actually credible. Shipped for that player-level credibility, not for aggregate MAE.
 TRACKING_DEFENSE_FEATURES = ["rim_supp", "rim_vol", "rim_val", "defl_p36", "cont2_p36"]
+
+# Features standardized WITHIN position (guard/forward/center) instead of league-wide, so a
+# center's value is measured against other centers and a guard's against other guards. Only
+# defensive REBOUNDING gets this treatment: it is the one defensive box stat that is mostly
+# positional role, not skill (grabbing the ball after a miss), so league-wide it was a 26%-weight
+# proxy for "is a center" -- centers averaged +1.03 def_impact, guards −0.33. Blocks, steals, and
+# rim protection stay league-wide because they are genuine cross-positional defense: an elite rim
+# protector really does prevent more points than a guard, and we must not erase that. Position
+# from ``rim_defense`` (2013-14+); pre-tracking or unknown positions fall back to forward, which
+# collapses to league-wide standardization for those rows. Walk-forward this is a real win, not
+# just a credibility fix: blend win MAE 7.74 -> 7.63, coverage held, AND it lifts the perimeter
+# defenders the metric under-rated (Holiday/Anunoby/Dort flip positive) while cutting the
+# backup-center over-credit (Neemias Queta +0.24 -> −0.68), with Wembanyama still clearly #1.
+POSITION_RELATIVE_FEATURES = ["dreb_p100"]
 ALL_FEATURES = list(dict.fromkeys(OFFENSE_FEATURES + DEFENSE_FEATURES))
 
 # Chosen by DOWNSTREAM projection accuracy, which is the only criterion that matters.
@@ -203,6 +217,14 @@ def add_tracking_features(
         g["rim_val"] = g["rim_supp"] * g["rim_vol"]           # points-saved proxy
         out = out.merge(g[["player_id", "season_start", "rim_supp", "rim_vol", "rim_val"]],
                         on=["player_id", "season_start"], how="left")
+        # Position group (guard/forward/center) for position-relative standardization. One
+        # position per player-season; "F-C"/"C-F" -> C, "G-F"/"F-G" -> G by first match.
+        if "PLAYER_POSITION" in rd.columns:
+            pos = rd.groupby(["player_id", "season_start"], as_index=False)[
+                "PLAYER_POSITION"].first()
+            pos["pos_group"] = pos["PLAYER_POSITION"].map(_position_group)
+            out = out.merge(pos[["player_id", "season_start", "pos_group"]],
+                            on=["player_id", "season_start"], how="left")
     if hustle is not None and len(hustle):
         hu = hustle.rename(columns={"PLAYER_ID": "player_id",
                                     "SEASON_START": "season_start"}).copy()
@@ -214,6 +236,45 @@ def add_tracking_features(
         g["cont2_p36"] = g["cont2"] / mins * 36               # 2pt shots contested per 36
         out = out.merge(g[["player_id", "season_start", "defl_p36", "cont2_p36"]],
                         on=["player_id", "season_start"], how="left")
+    return out
+
+
+def _position_group(pos: object) -> str:
+    """Map a listed position ('C', 'F-C', 'G-F', ...) to a coarse guard/forward/center group.
+    Unknown -> forward, which makes position-relative standardization collapse to league-wide."""
+    if not isinstance(pos, str):
+        return "F"
+    return "C" if "C" in pos else ("G" if "G" in pos else "F")
+
+
+def _standardize_within_position(ps: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Minutes-weighted z-score within each (season, position group), for features that are
+    positional role more than skill (see ``POSITION_RELATIVE_FEATURES``). Same mechanics as
+    ``_standardize_within_season`` but grouped by position too, so a center's rebounding is
+    measured against centers. Needs a ``pos_group`` column (from ``add_tracking_features``)."""
+    out = ps.copy()
+    # Unknown position (pre-tracking seasons, or a player with no rim data) -> forward, so those
+    # rows still standardize (as one group) instead of dropping out of the fit entirely.
+    grp = (out["pos_group"].fillna("F") if "pos_group" in out.columns
+           else pd.Series("F", index=out.index))
+    for col in cols:
+        out[f"{col}_z"] = np.nan
+    for _, sub in out.groupby(["season_start", grp]):
+        ok = sub["has_rates"]
+        if ok.sum() < 12:
+            continue
+        w = sub.loc[ok, "minutes"].to_numpy(dtype=float)
+        for col in cols:
+            v = sub.loc[ok, col].to_numpy(dtype=float)
+            good = ~np.isnan(v)
+            if good.sum() < 12:
+                continue
+            mean = np.average(v[good], weights=w[good])
+            sd = np.sqrt(np.average((v[good] - mean) ** 2, weights=w[good]))
+            if sd > 0:
+                z = np.full(len(v), np.nan)
+                z[good] = (v[good] - mean) / sd
+                out.loc[sub.loc[ok].index, f"{col}_z"] = z
     return out
 
 
@@ -357,7 +418,14 @@ def build_impact(
 
     ps = add_on_court_features(
         player_seasons, player_team_seasons, team_seasons, player_advanced)
-    psz = _standardize_within_season(ps, all_features)
+    # Defensive rebounding is standardized WITHIN position (see POSITION_RELATIVE_FEATURES) when
+    # a position column is available, so it stops being a proxy for "is a center"; everything
+    # else is standardized league-wide.
+    posrel = ([c for c in POSITION_RELATIVE_FEATURES if c in all_features]
+              if "pos_group" in ps.columns else [])
+    psz = _standardize_within_season(ps, [c for c in all_features if c not in posrel])
+    if posrel:
+        psz = _standardize_within_position(psz, posrel)
     # A tracking feature is missing for older seasons (before the data existed) and for
     # players who never register at the rim; treat that as league-average (z = 0) rather
     # than dropping the player, but only for real rotation players (`has_rates`), so the
