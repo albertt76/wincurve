@@ -257,8 +257,14 @@
     color: var(--faint); margin-left: 6px; text-transform: uppercase;
   }
   .imp.p { color: var(--pos); } .imp.n { color: var(--neg); }
-  .winval { color: var(--muted); }
+  .winval { color: var(--muted); white-space: nowrap; }
   .winval.p { color: var(--pos); } .winval.n { color: var(--neg); }
+  /* ≈Wins split into offensive/defensive win value: bold total, smaller o/d line beneath */
+  .wtot { display: block; font-weight: 600; }
+  .wtot.p { color: var(--pos); } .wtot.n { color: var(--neg); }
+  .wsplit { display: block; font-size: 9px; letter-spacing: .01em; margin-top: 1px; }
+  .wsplit > span { margin-right: 5px; }
+  .wsplit .p { color: var(--pos); } .wsplit .n { color: var(--neg); }
   .mins-flag { color: var(--wide); font-weight: 650; }
 
   /* offense/defense split readout in a team row (right column) */
@@ -515,7 +521,10 @@
           <em>same</em> model the team rating uses: offense and defense priced by their own
           slopes (defense's is lower), with defense blended toward RAPM by roster turnover. So a
           rebounding centre the box score over-credits on defense is discounted here, not
-          treated as a star.</dd>
+          treated as a star. The small <b>o / d</b> line beneath each ≈Wins splits it into the
+          <b>offensive</b> and <b>defensive</b> wins it is built from (they add to the total),
+          so you can see whether a player's value is carried by offense or defense &mdash; a
+          two-way wing shows both positive, a scoring guard often shows a negative <b>d</b>.</dd>
 
         <dt>Wins (big number)</dt>
         <dd>The average of the simulated season &mdash; our single best guess. Trust the
@@ -848,7 +857,12 @@ function marketReadout(t, w) {
 // defense the metric inflates is discounted, and a scoring guard is not double-penalised for a
 // weak box-defense estimate. Older snapshots without the split fall back to combined impact.
 const MPG_BUDGET = GMETA.minutes_budget / GMETA.full_season_games;   // 240 player-min/game
-function winVal(p, team) {
+// The WAR-like value split into the OFFENSIVE and DEFENSIVE wins it is built from. Because the
+// team rating is off + def priced by their own slopes, ≈Wins decomposes exactly the same way:
+// offWins comes from offense above replacement, defWins from the turnover-blended (box vs RAPM)
+// defence above replacement. off + def === total, by construction. Older snapshots without the
+// off/def split fall back to a combined total with no meaningful halves.
+function winParts(p, team) {
   const minshare = p.mpg * p.avail / MPG_BUDGET;
   if (DATA.off_slope != null) {
     let defDev = p.def - DATA.replacement_def;
@@ -857,12 +871,16 @@ function winVal(p, team) {
       defDev = (1 - w) * (p.def - DATA.replacement_def)
              + w * ((p.defr != null ? p.defr : p.def) - DATA.replacement_def_rapm);
     }
-    return GMETA.wins_per_rating_point * minshare
-      * (DATA.off_slope * (p.off - DATA.replacement_off) + DATA.def_slope * defDev);
+    const k = GMETA.wins_per_rating_point * minshare;
+    const off = k * DATA.off_slope * (p.off - DATA.replacement_off);
+    const def = k * DATA.def_slope * defDev;
+    return { off, def, total: off + def, split: true };
   }
-  return GMETA.wins_per_rating_point * DATA.rating_slope
+  const total = GMETA.wins_per_rating_point * DATA.rating_slope
     * minshare * (p.impact - GMETA.replacement_impact);
+  return { off: 0, def: 0, total, split: false };
 }
+function winVal(p, team) { return winParts(p, team).total; }
 
 // Defensive-disagreement flag: our box-score defense vs play-by-play RAPM (regularized
 // adjusted plus/minus) from the most recent season with both. A large gap means an
@@ -985,7 +1003,14 @@ function renderPanel(t, w) {
   const roster = t.players.map(p => ({ p, off: st.off.has(p.id), added: false }))
     .concat(st.added.map(p => ({ p, off: false, added: true })));
   const rows = roster.map(({ p, off, added }) => {
-    const wv = winVal(p, t);
+    const wp = winParts(p, t);
+    const wv = wp.total;
+    const sgn = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+    const wcell = wp.split
+      ? `<span class="wtot ${wv >= 0 ? 'p' : 'n'}">${wv >= 0 ? '+' : ''}${wv.toFixed(1)}</span>`
+        + `<span class="wsplit"><span class="${wp.off >= 0 ? 'p' : 'n'}">o&nbsp;${sgn(wp.off)}</span>`
+        + `<span class="${wp.def >= 0 ? 'p' : 'n'}">d&nbsp;${sgn(wp.def)}</span></span>`
+      : `<span class="wtot ${wv >= 0 ? 'p' : 'n'}">${wv >= 0 ? '+' : ''}${wv.toFixed(1)}</span>`;
     const offv = p.off != null ? p.off : (p.impact || 0);   // fallback if no split
     const defv = p.def != null ? p.def : 0;
     return `
@@ -995,7 +1020,7 @@ function renderPanel(t, w) {
       <td>${p.age ?? '&mdash;'}</td>
       <td class="imp ${offv >= 0 ? 'p' : 'n'}">${offv >= 0 ? '+' : ''}${offv.toFixed(2)}</td>
       <td class="imp ${defv >= 0 ? 'p' : 'n'}">${defv >= 0 ? '+' : ''}${defv.toFixed(2)}</td>
-      <td class="winval ${wv >= 0 ? 'p' : 'n'}">${wv >= 0 ? '+' : ''}${wv.toFixed(1)}</td>
+      <td class="winval">${wcell}</td>
       <td>${p.mpg.toFixed(1)}</td>
       <td>${(p.avail * 100).toFixed(0)}%</td>
       <td><button data-pid="${p.id}" data-added="${added}"
@@ -1032,7 +1057,7 @@ function renderPanel(t, w) {
           <th>Player</th><th>Pos</th><th>Age</th>
           <th class="help" title="Projected OFFENSIVE impact: net points per 100 possessions the player adds on offense versus an average player. A rate, not a win count.">Off</th>
           <th class="help" title="Projected DEFENSIVE impact from the box score (steals, blocks, rebounds, fouls, on/off rating). This is the model's weak spot: ~60% of its weight is rebounds+blocks, so it mostly rewards bigs and underrates perimeter defenders. A D↑ / D↓ flag by a player's name marks where play-by-play RAPM disagrees.">Def</th>
-          <th class="help" title="Wins the player accounts for versus a replacement-level player taking his minutes -- the WAR-like (wins-above-replacement) translation of total impact. Depends on impact AND minutes.">&asymp;&nbsp;Wins</th>
+          <th class="help" title="Wins the player accounts for versus a replacement-level player taking his minutes -- the WAR-like (wins-above-replacement) translation of total impact. Depends on impact AND minutes. The small line beneath splits it into the offensive (o) and defensive (d) wins it is built from; they add to the total.">&asymp;&nbsp;Wins</th>
           <th class="help" title="Minutes per game, carried from last season's role.">MPG</th>
           <th class="help" title="Projected share of the season available, from games-missed history and age.">Avail</th>
           <th></th>
