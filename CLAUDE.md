@@ -13,9 +13,10 @@ betting.** The deliverable is *explainable per-team disagreement* — "we differ
 the market on this team, and here is the structural reason why."
 
 Current projection target: **2026-27 season**. Shipped backtest MAE (roster mode + carryover +
-RAPM defensive blend + rim/hustle tracking defense): **7.74 wins** vs market 6.88 (7.95 before
-the RAPM def-blend; 7.77 before the tracking-defense features — that last step is within noise
-on aggregate, kept for per-player defensive credibility, not for MAE).
+RAPM defensive blend + rim/hustle tracking defense + position-relative rebounding): **7.62 wins**
+vs market 6.88 (7.95 before the RAPM def-blend; 7.77 before tracking defense; 7.74 before the
+position-relative-rebounding fix — that last step is a real +0.11, both more accurate AND fairer
+to guards).
 
 See [DESIGN.md](DESIGN.md) for full architecture, statistical traps, and staged plan.
 
@@ -73,21 +74,28 @@ with box-score stats alone the defensive metric is ~60% defensive-rebounds-plus-
 weight (rebounds alone 41%), so `def_impact` correlated 0.82 with defensive rebounding — it
 largely measured *being a center*, over-crediting non-defenders like Karl-Anthony Towns.
 
-Two upgrades now attack that directly, both shipped:
+Three upgrades now attack that directly, all shipped:
+- **Position-relative defensive rebounding** (`POSITION_RELATIVE_FEATURES`, shipped 2026-07):
+  defensive rebounding is standardized *within position* (a center's rebounding vs other centers)
+  instead of league-wide, so it stops being a 26%-weight proxy for "is a center". This is the one
+  change that helped *both* accuracy and credibility: blend win MAE **7.74 → 7.62** (+0.11, ±0.055
+  SE, 6/9 folds), the positional bias collapsed (mean def_impact was C +1.03 / G −0.33, now
+  C +0.09 / G +0.04), guards flipped positive (Holiday −0.09 → +0.25, Anunoby, Dort) and backup
+  centers dropped (Neemias Queta +0.24 → −0.68) — with Wembanyama still clearly #1 (+3.34), since
+  blocks and rim protection stay cross-positional. See the position-relative section below.
 - **Player-tracking defensive features** (`add_tracking_features`, shipped 2026-07): opponent
   FG% suppression *at the rim* with this player as the nearest defender, plus deflections and
-  contested shots. Rim suppression is the block-count-misses signal — deterring a shot without
-  swatting it. It fixes the KAT-type over-credit (KAT's 2024-25 `def_impact` +1.62 → +0.44,
-  below average as he should be) and lifts recent-fold defensive calibration R² 0.33 → 0.48.
+  contested shots. Fixes the KAT-type over-credit (KAT's 2024-25 `def_impact` +1.62 → +0.44) and
+  lifts recent-fold defensive calibration R².
 - **Box-informed RAPM from play-by-play**, blended into the defensive aggregate by roster
   turnover (`nbaproj.rapm_blend`), and surfaced per-player in the UI (box-vs-RAPM "D↑/D↓" flags).
 
-Both move aggregate win MAE only within noise (every team plays centers ~48 min, so the
-positional bias washes out in aggregate) — their value is a *credible per-player defensive
-number*, which is what the disagreement tool rests on. **What still slips through:** perimeter
-*containment* produces few countable events even with tracking, so celebrated stoppers (Dort,
-NAW, Anunoby, Holiday) still rate near zero. Prior-year All-Defense was tested as a correction
-for exactly this residual and **failed the win gate** (redundant at the team level); it ships as
+The tracking + RAPM steps move aggregate win MAE only within noise (their value is a *credible
+per-player defensive number*); the position-relative rebounding fix moves it for real. **What
+still slips through:** perimeter *containment* produces few countable events even with tracking,
+so a few celebrated stoppers still rate modestly. Prior-year All-Defense was tested as a
+correction for exactly this residual and **failed the win gate** (redundant at the team level);
+it ships as
 an eye-test **badge** in the UI instead of a projection input (see the All-Defense/All-NBA
 section).
 
@@ -115,8 +123,9 @@ Walk-forward means: to predict season N, train only on seasons before N. All err
 | Model / baseline | MAE | Notes |
 |---|---|---|
 | Market (preseason win totals) | **6.88** | the yardstick; we do not beat it |
-| **wincurve — + RAPM def-blend + rim/hustle tracking def** | **7.74** | shipped; tracking step is within noise (7.77 → 7.74, ±0.06 SE) — kept for per-player credibility |
-| wincurve — roster + carryover + RAPM def-blend | 7.77 | prior shipped model, before the tracking-defense features |
+| **wincurve — + position-relative defensive rebounding** | **7.62** | shipped; +0.11 (7.74 → 7.62, ±0.055 SE, 6/9 folds) — first defensive change to help accuracy AND credibility |
+| wincurve — + RAPM def-blend + rim/hustle tracking def | 7.74 | prior; tracking step within noise (7.77 → 7.74) — kept for per-player credibility |
+| wincurve — roster + carryover + RAPM def-blend | 7.77 | before the tracking-defense features |
 | wincurve — roster mode + carryover (box def only) | 7.95 | the shipped model before the RAPM blend |
 | Leaky upper bound (actual roster + minutes) | 7.11 | ceiling given perfect roster knowledge |
 | Mean-reverted previous wins ← *the gate* | 8.13 | every stage must clear this |
@@ -272,7 +281,7 @@ per-team grid of simulated win distributions across rating offsets is interpolat
 keeps real schedule strength intact without running a simulation in the browser.
 
 **Caveats are stated in the page itself, deliberately:** that the model does not beat the
-market on aggregate accuracy (7.74 vs 6.88 MAE), that single-player what-ifs extrapolate the
+market on aggregate accuracy (7.62 vs 6.88 MAE), that single-player what-ifs extrapolate the
 calibration slope further than the backtest validated, and (upcoming season) that the market
 ring is shown-only and never an input. Do not remove them.
 
@@ -556,6 +565,31 @@ roster the UI's defense leans on the box component (RAPM only overrides under tu
 fixes what the RAPM blend alone does not. **Follow-up:** the box-informed RAPM prior was fit on
 the *old* box defense; refitting it on the rim-corrected box could recover a little more (the
 gate above already shows the gain with the old-prior RAPM, so shipping now is conservative).
+
+### ✅ SHIPPED: position-relative defensive rebounding (`POSITION_RELATIVE_FEATURES`)
+
+The best defensive change of the batch — the only one that improved accuracy *and* credibility.
+Diagnosis: even after tracking, defensive rebounding was the single largest defensive weight
+(26%) and is mostly positional *role*, not skill (grab the ball after a miss). League-wide it made
+centers average `def_impact` **+1.03** and guards **−0.33**, and put low-minute backup bigs
+(Jonathan Isaac +3.24 at 15 mpg, Kevon Looney, Nurkić) atop the leaderboard.
+
+Fix: standardize **only `dreb_p100` within (season, position-group)** — a center's rebounding vs
+other centers — while blocks, steals, and rim protection stay league-wide (they are genuine
+cross-positional defense; erasing them would wrongly demote elite rim protectors). Position group
+(G/F/C) comes from `rim_defense.PLAYER_POSITION` (2013-14+; unknown → forward, which collapses to
+league-wide). `_standardize_within_position` mirrors `_standardize_within_season` but groups by
+position too; `build_impact` routes `POSITION_RELATIVE_FEATURES` through it.
+
+Result (`scripts/final_gate`-style, 5000 sims): blend win MAE **7.735 → 7.622 excl-short, +0.113
+±0.055 SE, 6/9 folds**, coverage held at 79% — ~2 SE, the first defensive step distinguishable
+from noise. Player-level: positional bias **C +1.03/G −0.33 → C +0.09/G +0.04**; guards flip
+positive (Holiday −0.09 → +0.25, Anunoby −0.09 → +0.21, Dort −0.05 → +0.23); backup-center
+over-credit drops (Queta +0.24 → −0.68, KAT +0.44 → −0.49); **Wembanyama stays #1 at +3.34** (he
+loses only the rebounding-inflated part of his old +4.38). Why it beats the earlier "can't fix
+box defense by adding box features" prior: this isn't a new feature, it's *removing a positional
+confound* from an existing one. The RAPM box-informed prior still uses the pre-fix box defense
+(conservative, as with rim/hustle); refitting it could recover a little more.
 
 ### ✅ SHIPPED (display only): All-Defense / All-NBA eye-test badges (`nbaproj/awards.py`)
 
