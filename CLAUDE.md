@@ -267,6 +267,20 @@ per-team `off_rating`/`def_rating`, per-player `off`/`def`, and each player's mo
 `box_def`/`rapm_def` (via `nbaproj.rapm.box_vs_rapm_by_player`, walk-forward). The client
 recompute is decoupled too, so a roster edit reprices offense and defense independently.
 
+**RAPM-only defensive display arm (added 2026-07).** Beside the shipped projection, every team
+carries a **second win projection with defense priced purely from play-by-play RAPM** instead of
+the box+RAPM turnover blend (same offense, same carryover). It shows as a rose ▼ marker on the
+bar and a **`rapm N · ±diff`** readout (diff = RAPM-only − blend; the panel header shows
+`RAPM-only D ±y → N wins`). The gap isolates the defensive-metric choice and is a
+defensive-uncertainty signal: it is largest on **low-turnover** teams — where the blend leans on
+the box metric that misses perimeter defense — and near-zero on high-turnover ones (where the
+blend already leans on RAPM). Poster child: **New York** (10% turnover, blend 44 → RAPM-only 51,
++6.9), a roster of perimeter defenders the box underrates. Emitted per-team as `rating_rapm` /
+`def_rating_rapm` / `wins_rapm` with meta `def_slope_rapm`/`def_intercept_rapm` (RAPM's own,
+lower ~3.3 defensive slope, calibrated walk-forward on `agg_def_rapm`); the client recomputes it
+live under roster edits (`computeRating` returns `ratingRapm`). **Display only, never an input** —
+re-weighting the blend toward RAPM did not clear the gate (`scripts/gate_blend_weight.py`).
+
 
 `ui/template.html` + `ui/build.py` -> `ui/projections.html` (self-contained, data inlined).
 Rebuild after regenerating projections:

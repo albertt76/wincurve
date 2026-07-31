@@ -24,6 +24,7 @@
     --edit: #6d28d9;
     --mkt: #1d4ed8;         /* prediction-market comparison accent */
     --mkt-soft: #1d4ed822;
+    --rapm: #be185d;        /* RAPM-only defensive arm accent */
 
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -39,7 +40,7 @@
       --tight: #2dd4bf; --tight-fill: #2dd4bf24;
       --wide: #f59e0b; --wide-fill: #f59e0b24;
       --pos: #4ade80; --neg: #f87171; --edit: #a78bfa;
-      --mkt: #60a5fa; --mkt-soft: #60a5fa2e;
+      --mkt: #60a5fa; --mkt-soft: #60a5fa2e; --rapm: #f472b6;
       --shadow: 0 1px 2px #0006, 0 6px 20px #0004;
     }
   }
@@ -51,6 +52,7 @@
     --tight: #2dd4bf; --tight-fill: #2dd4bf24;
     --wide: #f59e0b; --wide-fill: #f59e0b24;
     --pos: #4ade80; --neg: #f87171; --edit: #a78bfa;
+    --mkt: #60a5fa; --mkt-soft: #60a5fa2e; --rapm: #f472b6;
     --shadow: 0 1px 2px #0006, 0 6px 20px #0004;
   }
   :root[data-theme="light"] {
@@ -60,7 +62,7 @@
     --tight: #0f766e; --tight-fill: #0f766e26;
     --wide: #b45309; --wide-fill: #b4530926;
     --pos: #15803d; --neg: #b91c1c; --edit: #6d28d9;
-    --mkt: #1d4ed8; --mkt-soft: #1d4ed822;
+    --mkt: #1d4ed8; --mkt-soft: #1d4ed822; --rapm: #be185d;
     --shadow: 0 1px 2px #0b112008, 0 4px 16px #0b112008;
   }
 
@@ -135,6 +137,22 @@
   .mktnum b { color: var(--mkt); font-weight: 650; }
   .agree { color: var(--faint); }
   .above-mkt { color: var(--pos); } .below-mkt { color: var(--neg); }
+
+  /* RAPM-only defensive arm: a small downward triangle marking where the projection lands if
+     defense were priced purely from play-by-play RAPM instead of the box+RAPM blend. */
+  .rapm-mark {
+    position: absolute; top: 0; width: 0; height: 0; transform: translateX(-50%);
+    border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-top: 6px solid var(--rapm);
+  }
+  .rapmnum { color: var(--muted); font-size: 11px; }
+  .rapmnum b { color: var(--rapm); font-weight: 650; }
+  .rapm-dot {
+    display: inline-block; width: 0; height: 0; vertical-align: middle; margin-right: 3px;
+    border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-top: 6px solid var(--rapm);
+  }
+  .rapm-hi { color: var(--pos); } .rapm-lo { color: var(--neg); }
 
   /* ---- axis + legend ---- */
   .axis-head {
@@ -544,6 +562,17 @@
           by your edit, versus this team's original projection. Removing a good player makes
           it negative.</dd>
 
+        <dt><span class="rapm-dot"></span> rapm (RAPM-only arm)</dt>
+        <dd>The small triangle on the bar and the <span class="rapmnum"><b>rapm</b></span>
+          readout: a <b>second win projection with defense priced purely from play-by-play
+          RAPM</b> (regularized adjusted plus/minus) instead of the shipped box+RAPM blend, all
+          else equal. The signed number is <b>RAPM-only minus the blend</b> &mdash; positive
+          means RAPM rates this team's defense higher than the box score does, a perimeter signal
+          the box misses. The gap is a defensive-uncertainty flag; it is largest on low-turnover
+          teams (where the blend leans on the box metric) and smallest on high-turnover ones
+          (where the blend already leans on RAPM). Display only &mdash; re-weighting the blend
+          toward RAPM did not beat the backtest, so the projection keeps the turnover blend.</dd>
+
         <dt><span class="swatch"></span> market</dt>
         <dd>The hollow ring on the bar and the <span class="mktnum"><b>mkt</b></span> readout
           (upcoming season only): the win total the prediction market implies right now. The
@@ -797,7 +826,17 @@ function computeRating(team) {
     }
     const offR = DATA.off_slope * aggOff + DATA.off_intercept;
     const defR = DATA.def_slope * aggDef + DATA.def_intercept;
-    return { rating: offR + defR + carry, offR, defR, n: roster.length, unabsorbed };
+    // RAPM-only display arm: same offense + carryover, defense priced purely from RAPM (its own
+    // lower slope). Null on older snapshots without the RAPM calibration. Recomputes under edits.
+    let ratingRapm = null, defRrapm = null;
+    if (DATA.def_slope_rapm != null && DATA.replacement_def_rapm != null) {
+      const aggDefRapm = (roster.reduce((a, p, i) => a + mins[i] * (p.defr != null ? p.defr : p.def), 0)
+                          + leftover * DATA.replacement_def_rapm) / budget;
+      defRrapm = DATA.def_slope_rapm * aggDefRapm + DATA.def_intercept_rapm;
+      ratingRapm = offR + defRrapm + carry;
+    }
+    return { rating: offR + defR + carry, offR, defR, ratingRapm, defRrapm,
+             n: roster.length, unabsorbed };
   }
   // Fallback for any snapshot without the off/def split: the original combined slope.
   const agg = (roster.reduce((a, p, i) => a + mins[i] * p.impact, 0)
@@ -954,17 +993,37 @@ function odReadout(offR, defR) {
     + `D <b class="${c(defR)}">${f(defR)}</b></span>`;
 }
 
+// Second, RAPM-only defensive arm: the win projection if defense were priced purely from
+// play-by-play RAPM instead of the shipped box+RAPM blend. The gap wRapm - w isolates the
+// defensive-metric choice; it is largest on low-turnover teams, where the blend leans on the box
+// metric that misses perimeter defense. Display only -- re-weighting the blend toward RAPM did
+// not clear the backtest gate.
+function rapmReadout(t, w, wRapm) {
+  if (wRapm == null) return '';
+  const gap = wRapm.mean - w.mean;
+  const cls = Math.abs(gap) < 1.5 ? 'agree' : (gap > 0 ? 'rapm-hi' : 'rapm-lo');
+  return `<span class="rapmnum" title="RAPM-only projection: wins if defense were priced purely `
+    + `from play-by-play RAPM (regularized adjusted plus/minus) instead of the shipped box+RAPM `
+    + `blend. The second number is RAPM-only minus the blend — positive means RAPM sees this `
+    + `team's defense as better than the box score does (a perimeter-defense signal the box `
+    + `misses). Display only; never an input.">`
+    + `<span class="rapm-dot"></span>rapm <b>${fmt1(wRapm.mean)}</b> `
+    + `<span class="${cls}">${gap >= 0 ? '+' : ''}${fmt1(gap)}</span></span>`;
+}
+
 function render() {
   const host = document.getElementById('rows');
   host.innerHTML = '';
   const rowsData = DATA.teams.map(t => {
-    const { rating, offR, defR } = computeRating(t);
-    const w = winsAt(t, rating);
+    const cr = computeRating(t);
+    const w = winsAt(t, cr.rating);
+    const wRapm = cr.ratingRapm != null ? winsAt(t, cr.ratingRapm) : null;
     const st = state.get(t.id);
-    return { t, w, rating, offR, defR, edited: st.off.size > 0 || st.added.length > 0 };
+    return { t, w, wRapm, rating: cr.rating, offR: cr.offR, defR: cr.defR,
+             edited: st.off.size > 0 || st.added.length > 0 };
   }).sort((a, b) => b.w.mean - a.w.mean);
 
-  rowsData.forEach(({ t, w, offR, defR, edited }) => {
+  rowsData.forEach(({ t, w, wRapm, offR, defR, edited }) => {
     const wide = t.turnover >= WIDE_TURNOVER;
     const wc = wide ? ' w' : '';
     const delta = w.mean - t.wins;
@@ -982,6 +1041,7 @@ function render() {
         <span class="band${wc}" style="left:${pct(w.p10)}%;width:${pct(w.p90) - pct(w.p10)}%"></span>
         <span class="band inner${wc}" style="left:${pct(w.p25)}%;width:${pct(w.p75) - pct(w.p25)}%"></span>
         ${edited ? `<span class="ghost" style="left:${pct(t.wins)}%" title="original projection"></span>` : ''}
+        ${wRapm != null ? `<span class="rapm-mark" style="left:${pct(wRapm.mean)}%" title="RAPM-only defense: ${fmt1(wRapm.mean)} wins"></span>` : ''}
         <span class="mean" style="left:${pct(w.mean)}%"></span>
         ${t.actual != null ? `<span class="actual" style="left:${pct(t.actual)}%" title="actual: ${fmt1(t.actual)} wins"></span>` : ''}
         ${DATA.is_current && t.mkt_wins != null ? `<span class="market" style="left:${pct(t.mkt_wins)}%" title="market (Kalshi): ${fmt1(t.mkt_wins)} wins"></span>` : ''}
@@ -991,6 +1051,7 @@ function render() {
         ${edited ? `<span class="delta ${delta >= 0 ? 'up' : 'down'}" title="change from this team&rsquo;s original projected wins, caused by your roster edit"> ${delta >= 0 ? '+' : ''}${fmt1(delta)}</span>` : ''}
         <br>${t.actual != null ? actualReadout(t, w) : `<span class="rng">${fmt1(w.p10)}&ndash;${fmt1(w.p90)}</span>`}
         ${offR != null ? `<br>${odReadout(offR, defR)}` : ''}
+        ${wRapm != null ? `<br>${rapmReadout(t, w, wRapm)}` : ''}
         ${DATA.is_current && t.mkt_wins != null ? `<br>${marketReadout(t, w)}` : ''}
       </span>`;
 
@@ -1046,6 +1107,7 @@ function renderPanel(t, w) {
   const loadMpg = active.reduce((a, p) => a + p.mpg * p.avail, 0);
   const loadCls = loadMpg > 290 ? ' class="mins-flag"' : '';
   const cr = computeRating(t);
+  const wRapm = cr.ratingRapm != null ? winsAt(t, cr.ratingRapm) : null;
   const odStat = (label, v, title) => v == null ? '' :
     `<span class="stat" title="${title}">${label} <b class="odv ${v >= 0 ? 'p' : 'n'}">`
     + `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}</b></span>`;
@@ -1055,6 +1117,7 @@ function renderPanel(t, w) {
       <span class="stat">Coach <b>${t.coach}</b></span>
       ${odStat('Offense', cr.offR, 'Projected team offense versus league average, in points per 100 possessions (the one-year carryover is separate). Positive is good.')}
       ${odStat('Defense', cr.defR, 'Projected team defense versus league average (positive = fewer points allowed). Built from box-score defense, the model&rsquo;s weakest part — the D-arrow flags in the table mark players where play-by-play RAPM disagrees with it.')}
+      ${wRapm != null ? `<span class="stat rapm-stat" title="RAPM-only arm: defense priced purely from play-by-play RAPM (regularized adjusted plus/minus) instead of the shipped box+RAPM blend, with the same offense. Shows how much the defensive-metric choice moves this team — largest on low-turnover rosters, where the blend leans on the box metric that misses perimeter defense. Display only, never an input.">RAPM-only D <b class="odv ${cr.defRrapm >= 0 ? 'p' : 'n'}">${cr.defRrapm >= 0 ? '+' : '−'}${Math.abs(cr.defRrapm).toFixed(1)}</b> &rarr; <b>${fmt1(wRapm.mean)}</b> wins</span>` : ''}
       <span class="stat">Roster turnover <b>${(t.turnover * 100).toFixed(0)}%</b></span>
       <span class="stat" title="Sum of every active player&rsquo;s minutes-per-game times availability. A real rotation supplies 240 player-minutes per game; well above 240 means an oversized off-season roster the model scales back down.">Minutes supplied <b${loadCls}>${loadMpg.toFixed(0)}</b>/240</span>
       <span class="stat">Range width <b>&plusmn;${((w.p90 - w.p10) / 2).toFixed(1)}</b> wins</span>

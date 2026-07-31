@@ -27,7 +27,7 @@ from nbaproj.aging import (  # noqa: E402
 from nbaproj.availability import build_availability, build_features, fit_predict  # noqa: E402
 from nbaproj.carryover import apply_carryover, fit_rho  # noqa: E402
 from nbaproj.minutes import MINUTES_PER_GAME  # noqa: E402
-from nbaproj.project import roster_opening_day  # noqa: E402
+from nbaproj.project import calibrate_projected_ratings, roster_opening_day  # noqa: E402
 from nbaproj.awards import honor_lookup, load_honors  # noqa: E402
 from nbaproj.rapm import box_vs_rapm_by_player, build_rapm_impact  # noqa: E402
 from nbaproj.rapm_blend import (  # noqa: E402
@@ -125,6 +125,16 @@ def build_historical(season: int, data: dict) -> dict:
     ratings = apply_carryover(ratings, scored, ts, target_season=season)
     rho = fit_rho(scored, ts, before_season=season)
 
+    # RAPM-only display arm: same offense + carryover, defense from pure RAPM (its own
+    # walk-forward slope). rating_rapm - rating is exactly the (RAPM - blend) defensive
+    # difference. Display only -- see scripts/gate_blend_weight.py for why the blend is not
+    # re-weighted toward it.
+    ds_rapm, di_rapm = calibrate_projected_ratings(
+        A, ts, target_season=season, target="def_rating", agg_col="agg_def_rapm")
+    ratings["def_rating_rapm"] = ds_rapm * ratings["agg_def_rapm"] + di_rapm
+    ratings["rating_rapm"] = (ratings["off_rating"] + ratings["def_rating_rapm"]
+                              + ratings["carryover"])
+
     actual = ts[ts["season_start"] == season].copy()
     actual["net_rating_dev"] = actual["net_rating"] - actual["net_rating"].mean()
     sigma_base = fit_rating_sigma(
@@ -140,6 +150,7 @@ def build_historical(season: int, data: dict) -> dict:
     honors = honor_lookup(data.get("honors"), before_season=season)
     cal = {"off_slope": off_slope, "off_intercept": off_int,
            "def_slope": def_slope, "def_intercept": def_int,
+           "def_slope_rapm": ds_rapm, "def_intercept_rapm": di_rapm,
            "replacement_off": rep_off, "replacement_def": rep_def,
            "replacement_def_rapm": rep_def_rapm}
     games = int(actual["games"].mode().iloc[0]) if not actual.empty else FULL_SEASON_GAMES
@@ -178,6 +189,19 @@ def _aggregate_from_roster(base: pd.DataFrame, rep: float, rep_off: float,
 def _age_lookup(ages: pd.DataFrame, season: int) -> dict:
     a = ages[ages["season_start"] == season - 1].set_index("player_id")["age"]
     return a.to_dict()
+
+
+def _grid_mean_wins(grid: list[dict], offset: float) -> float:
+    """Interpolate mean wins from a team's rating-offset grid (mirrors the UI's winsAt)."""
+    if offset <= grid[0]["offset"]:
+        return grid[0]["mean"]
+    if offset >= grid[-1]["offset"]:
+        return grid[-1]["mean"]
+    for a, b in zip(grid, grid[1:]):
+        if a["offset"] <= offset <= b["offset"]:
+            f = (offset - a["offset"]) / (b["offset"] - a["offset"])
+            return a["mean"] + f * (b["mean"] - a["mean"])
+    return grid[len(grid) // 2]["mean"]
 
 
 def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, rho,
@@ -258,6 +282,7 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
             return rec
         players = [_player(p) for _, p in g.iterrows()]
         base = grid[tid][len(RATING_GRID) // 2]
+        rating_rapm = float(tr["rating_rapm"])
         rec = {
             "id": tid, "abbr": abbr.get(tid, name_map.get(tid, {}).get("team", "?")),
             "name": name_map.get(tid, {}).get("team_name", "?"),
@@ -266,6 +291,10 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
             "rating": round(float(tr["pred_net_rating_dev"]), 2),
             "off_rating": round(float(tr["off_rating"]), 2),
             "def_rating": round(float(tr["def_rating"]), 2),
+            "rating_rapm": round(rating_rapm, 2),
+            "def_rating_rapm": round(float(tr["def_rating_rapm"]), 2),
+            "wins_rapm": round(_grid_mean_wins(
+                grid[tid], rating_rapm - float(tr["pred_net_rating_dev"])), 1),
             "carryover": round(float(tr.get("carryover", 0.0)), 2),
             "sigma": round(float(tr["sigma"]), 3),
             "turnover": round(float(tr["new_minute_share"]), 3),
@@ -294,6 +323,8 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
         "off_intercept": round(cal["off_intercept"], 4),
         "def_slope": round(cal["def_slope"], 4),
         "def_intercept": round(cal["def_intercept"], 4),
+        "def_slope_rapm": round(cal["def_slope_rapm"], 4),
+        "def_intercept_rapm": round(cal["def_intercept_rapm"], 4),
         "replacement_off": round(cal["replacement_off"], 4),
         "replacement_def": round(cal["replacement_def"], 4),
         "replacement_def_rapm": round(cal["replacement_def_rapm"], 4),
@@ -386,6 +417,8 @@ def main() -> int:
             "off_intercept": cur["meta"].get("off_intercept"),
             "def_slope": cur["meta"].get("def_slope"),
             "def_intercept": cur["meta"].get("def_intercept"),
+            "def_slope_rapm": cur["meta"].get("def_slope_rapm"),
+            "def_intercept_rapm": cur["meta"].get("def_intercept_rapm"),
             "replacement_off": cur["meta"].get("replacement_off"),
             "replacement_def": cur["meta"].get("replacement_def"),
             "replacement_def_rapm": cur["meta"].get("replacement_def_rapm"),
