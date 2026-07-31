@@ -275,6 +275,20 @@
   }
   .dflag.up { color: var(--pos); }     /* RAPM higher -> our box metric likely underrates him */
   .dflag.dn { color: var(--wide); }    /* RAPM lower  -> our box metric likely overrates him */
+  /* eye-test honor badges: All-Defensive Team / All-NBA. Display only -- never in the
+     projection (prior-year honors did not beat the win gate). */
+  .hflag { font-size: 10px; margin-left: 5px; cursor: help; vertical-align: 1px;
+           white-space: nowrap; letter-spacing: .01em; }
+  .hflag sup { font-size: 7px; font-weight: 700; font-family: var(--mono); }
+  .hflag.def { color: #1d4ed8; }
+  .hflag.nba { color: #a16207; }
+  @media (prefers-color-scheme: dark) {
+    .hflag.def { color: #7aa2f7; } .hflag.nba { color: #d8a531; }
+  }
+  :root[data-theme="dark"]  .hflag.def { color: #7aa2f7; }
+  :root[data-theme="dark"]  .hflag.nba { color: #d8a531; }
+  :root[data-theme="light"] .hflag.def { color: #1d4ed8; }
+  :root[data-theme="light"] .hflag.nba { color: #a16207; }
   th[title], .help { cursor: help; border-bottom: 1px dotted currentColor; }
   td button {
     font-family: var(--mono); font-size: 14px; line-height: 1; width: 22px;
@@ -481,6 +495,17 @@
           <b>overrate</b> him. Hover for both numbers. Comparison only &mdash; RAPM is not yet
           in the projection (its aggregate gain is absorbed by the carryover; it helps most on
           high-turnover rosters).</dd>
+
+        <dt><span class="hflag def" style="cursor:default">🛡<sup>1</sup></span>
+          <span class="hflag nba" style="cursor:default">★<sup>2</sup></span></dt>
+        <dd><b>Eye-test honors</b>, from the player's recent selections (superscript = team,
+          1&ndash;3). <b><span style="color:#1d4ed8">🛡</span></b> = <b>All-Defensive Team</b>,
+          <b><span style="color:#a16207">★</span></b> = <b>All-NBA</b>; hover for how many times
+          and when. These are <b>shown, not scored</b> &mdash; walk-forward, prior-year honors
+          did not beat the backtest (a team's defense is already the sum of its players' countable
+          events, so the honor adds nothing at the team level, and All-NBA is largely an offensive
+          award). They earn their place as <b>context</b>: a shield next to a <em>low</em> Def is
+          the eye test flagging a perimeter stopper the box score misses.</dd>
 
         <dt>&asymp; Wins</dt>
         <dd>The <b>WAR-like</b> (wins-above-replacement) translation of a player's value: how
@@ -860,6 +885,32 @@ function rapmFlag(p) {
     + `D${under ? '↑' : '↓'}</span>`;
 }
 
+// Eye-test honor badges: All-Defensive Team (shield) and All-NBA (star), the most recent
+// selection within the last few seasons. DISPLAY ONLY -- prior-year honors did not beat the
+// win gate (they are redundant with the metric at the team level), so they never touch the
+// projection. The All-Defensive badge is most useful next to a LOW Def number: perimeter
+// defense is the box metric's blind spot, so that pairing marks a likely underrate.
+function honorFlags(p) {
+  const yr = h => `${h.yr}–${String(h.yr + 1).slice(-2)}`;
+  const ord = t => t === 1 ? '1st-team' : t === 2 ? '2nd-team' : t === 3 ? '3rd-team' : '';
+  const times = n => n > 1 ? `${n}× ` : '';
+  let out = '';
+  if (p.all_def) {
+    const h = p.all_def;
+    const t = `${times(h.n)}All-Defensive Team — most recent ${yr(h)} ${ord(h.team)}. `
+      + `Eye-test recognition, not a projection input. Perimeter defense is the box metric's `
+      + `blind spot, so a low Def beside this badge is a likely underrate.`;
+    out += `<span class="hflag def" title="${t}">🛡${h.team ? '<sup>' + h.team + '</sup>' : ''}</span>`;
+  }
+  if (p.all_nba) {
+    const h = p.all_nba;
+    const t = `${times(h.n)}All-NBA — most recent ${yr(h)} ${ord(h.team)}. Eye-test recognition, `
+      + `not a projection input (All-NBA is largely an offensive honor).`;
+    out += `<span class="hflag nba" title="${t}">★${h.team ? '<sup>' + h.team + '</sup>' : ''}</span>`;
+  }
+  return out;
+}
+
 // Offense/defense readout: the two halves of a team's rating deviation, coloured by whether
 // each is above (+) or below (-) league average. Shows at a glance whether a projection is
 // carried or dragged by offense vs defense -- the whole point of decoupling.
@@ -939,7 +990,7 @@ function renderPanel(t, w) {
     const defv = p.def != null ? p.def : 0;
     return `
     <tr class="${off ? 'off' : ''}${added ? ' added' : ''}">
-      <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}${rapmFlag(p)}</td>
+      <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}${rapmFlag(p)}${honorFlags(p)}</td>
       <td>${p.pos || '&mdash;'}</td>
       <td>${p.age ?? '&mdash;'}</td>
       <td class="imp ${offv >= 0 ? 'p' : 'n'}">${offv >= 0 ? '+' : ''}${offv.toFixed(2)}</td>

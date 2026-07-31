@@ -25,6 +25,7 @@ from nbaproj.aging import (  # noqa: E402
     aging_curves, build_transitions, project_next_season, replacement_level,
 )
 from nbaproj.carryover import apply_carryover, fit_rho  # noqa: E402
+from nbaproj.awards import honor_lookup, load_honors  # noqa: E402
 from nbaproj.rapm import box_vs_rapm_by_player, build_rapm_impact  # noqa: E402
 from nbaproj.rapm_blend import (  # noqa: E402
     backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def,
@@ -247,6 +248,11 @@ def main() -> int:
     #     a large positive (rapm - box) flags a defender our metric underrates. ---
     def_cmp = box_vs_rapm_by_player(imp, PROC, last_season=LAST_HISTORY)
 
+    # Eye-test honors (All-Defensive / All-NBA), most recent selection before TARGET. A display
+    # layer only -- prior-year honors did not beat the win gate (see nbaproj/awards.py), so they
+    # never touch the projection; they annotate players the metric may disagree with.
+    honors = honor_lookup(load_honors(PROC), before_season=TARGET)
+
     # --- assemble the bundle ---
     # team_advanced carries no TEAM_ABBREVIATION column, so nbaproj.teams falls back to
     # the full name. Pull real abbreviations from the static team list instead.
@@ -310,6 +316,12 @@ def main() -> int:
                 rec["box_def"] = round(float(dc["box_def"]), 3)
                 rec["rapm_def"] = round(float(dc["def_rapm"]), 3)
                 rec["rapm_yr"] = int(dc["season_start"])
+            ad = honors["all_def"].get(int(p["player_id"]))
+            if ad:
+                rec["all_def"] = ad          # {yr, team (1/2), n = career count}
+            an = honors["all_nba"].get(int(p["player_id"]))
+            if an:
+                rec["all_nba"] = an
             return rec
         players = [_player(p) for _, p in g.iterrows()]
 
