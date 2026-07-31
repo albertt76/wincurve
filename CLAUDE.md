@@ -745,6 +745,19 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
 
 ### Findings worth keeping
 
+- **Win Shares cross-check (`scripts/compare_win_shares.py`).** Compared our ≈Wins to
+  Basketball-Reference **Win Shares** (WS) for 2025-26 (bbref `/leagues/` advanced page,
+  allowed). Overall correlation **0.84**, but split by side: **offense r=0.89 vs defense r=0.52**
+  — the two metrics agree on offense and diverge on defense. The reason is structural: bbref's
+  **Defensive Win Shares is essentially team defense allocated by minutes**, so it over-credits
+  perimeter role players on good-defense teams (Brunson's gap is the league's largest, +7.3,
+  almost entirely defensive — bbref +2.2 vs our −4.3) and under-credits players whose value is
+  their own defense that our tracking features now catch (Dyson Daniels rates +1.8 for us; the
+  rim/hustle shipping is *why* defense-r rose from 0.47 on the old metric). A uniform ~+1.8-win
+  baseline offset (WS counts from zero, ≈W from replacement) sits under every gap. Our defensive
+  win values are probably over-dispersed for guards (−4.3 for Brunson is too harsh in magnitude),
+  the known defensive-metric weakness. Cross-check only, never a projection input.
+
 - **Age × injury-history interaction: directionally real, practically useless.** The
   interaction coefficient had the hypothesised sign in **16 of 16** walk-forward folds
   (history matters more as players age), but adding it moved MAE from 0.1861 to 0.1860.
