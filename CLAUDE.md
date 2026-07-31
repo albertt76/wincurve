@@ -546,6 +546,39 @@ defensive aggregate. The 2025-26 live input was unblocked by the PlayByPlayV3 re
 The what-if editor blends client-side too (per-player `defr` = projected RAPM defense, weight =
 `team.turnover`), so edits stay exact.
 
+#### ⚠️ Re-fitting the blend weight was gated and REJECTED (2026-07) — keep the turnover weight
+
+Motivated by a rating-space sweep that suggested a flat `w ≈ 0.5–0.75` would beat the shipped
+turnover weighting by ~+0.13 wins (6/9 folds), the flat and walk-forward-fitted weights were run
+through the **real 5000-sim gate** (`scripts/gate_blend_weight.py`, paired seeds across schemes):
+
+| scheme | exShort MAE | vs shipped |
+|---|---|---|
+| box (w=0) | 7.769 | −0.131 |
+| **turnover [SHIPPED]** | **7.638** (7.62 under the repo default seed) | — |
+| flat 0.25 | 7.614 | +0.024 (in-sample-best constant) |
+| flat 0.50 | 7.678 | −0.040 |
+| rapm (w=1) | 7.832 | −0.194 (worst) |
+| w_fit (walk-forward flat weight) | 7.610 | +0.028 (honest re-fit; SE ~0.09, weights bounce 0.30–0.75) |
+
+The best candidates gain **+0.02–0.03 wins with paired SE ~0.05–0.09 — within noise**; everything
+at `w ≥ 0.5` is worse. **The rating-space proxy was unfaithful** (flat 0.50: proxy +0.075,
+real-sim −0.045, a sign flip): the rating→wins map is nonlinear and win-MAE weights teams by the
+local slope (steeper near .500), so a scheme that trims tail-team rating error looks good in
+rating space and does nothing in wins. **This is the project paying a _third_ time for tuning on
+an internal diagnostic instead of the downstream objective** — always gate in the simulation.
+Adversarially audited (3 independent lenses: leakage, control-fidelity, completeness) →
+unanimously *negative-result-trustworthy*; the shipped arm reproduces `agg_def_used` to 0.0, and
+the low power (6 folds) means the honest reading is "re-fit **not shown to beat** shipped", which
+defaults to keeping shipped. The deeper reason RAPM's edge shrank: the **box metric was itself
+fixed this cycle** (position-relative rebounding + tracking), so pure RAPM (7.83) is now worse
+than pure box (7.77) and the blend's headroom over box collapsed to ~0.13. **The flat-weight
+family is closed — do not re-attempt.** Two mechanically-distinct formulations remain untested
+(the completeness audit's suggestions): (1) a **rating-space blend giving each metric its own
+slope** (auto-tempers over-dispersed RAPM, SD 2.27× box, for high-turnover teams); (2) a
+**player-level blend weighted by RAPM possession count** — which *must use pure, not box-informed,
+RAPM* or it double-shrinks thin-sample players. See the player-level RAPM test.
+
 ### ✅ SHIPPED: rim + hustle tracking into the defensive metric (`add_tracking_features`)
 
 The box defensive fit now also sees player-tracking features, merged in `nbaproj/impact.py`
@@ -648,6 +681,7 @@ is not repeated.
 | **Offensive-creation features** (potential/secondary assists, points created, screen assists) | Offense is already saturated: out-of-sample team-offense corr flat 0.930 → 0.930 (calibrated err 0.870 → 0.879, *worse*); win gate +0.018 (noise). Box assists + usage + efficiency already encode creation, so these are collinear refinements — Brunson barely moves (+2.09 → +2.21). Passing data pulled and kept (`player_passing`), features not added. |
 | Prior-year **All-Defense** correction to `def_impact` | Out-of-line bump of under-rated honorees toward an honor floor **fails the win gate at every setting** (−0.007 to −0.029, monotone with strength; `alldef_wingate`). As a plain team feature it also worsens out-of-sample team-defense (corr 0.733 → 0.726). Redundant at the team level — a team's defense is already the sum of its players' countable events. Kept as a display **badge**, not a projection input. |
 | **All-NBA** as a star impact bump | Mechanically wrong, so not gated: All-NBA is largely an OFFENSIVE / reputational honor. The metric's low ratings of All-NBA guards are defense-driven and correct — Brunson is +2.09 off / −2.01 def, a real two-way wash — so bumping impact toward the honor would credit defense he doesn't play (or double-count offense, already R²=0.82). Display **badge** only. |
+| **Re-fitting the box-vs-RAPM blend WEIGHT** (flat constants or walk-forward flat weight) | Rating-space proxy said flat ~0.5 wins +0.13/6-of-9; the real 5000-sim gate (`gate_blend_weight.py`) says otherwise — best candidates +0.02–0.03 wins, paired SE ~0.05–0.09 (noise), everything `w ≥ 0.5` worse, pure RAPM worst. The proxy sign-flipped (nonlinearity). 3-lens adversarial audit: negative-result-trustworthy. Box-metric fixes shrank RAPM's edge (pure RAPM 7.83 > pure box 7.77). **Flat-weight family closed.** Untested & distinct: rating-space own-slope blend; player-level weighting by RAPM possessions (pure RAPM only). |
 
 **On the roster-"bloat" hypothesis (investigated, rejected).** The live July roster snapshot
 carries 20–24 players and >290 mpg of prior-team minutes for ~8 teams (ATL 465 raw / 353
