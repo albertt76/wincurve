@@ -46,7 +46,18 @@ def main() -> int:
     # reach (rim 2013-14+, hustle 2016-17+); build_impact fills those to league-average.
     rim = pd.read_parquet(PROC / "rim_defense.parquet")
     hustle = pd.read_parquet(PROC / "hustle.parquet")
-    ps = add_tracking_features(ps, rim_defense=rim, hustle=hustle)
+    # player_team_seasons fills pos_group with BPM's box-derived position estimate wherever the
+    # real rim-tracking position is missing (every season before 2013-14) -- see
+    # nbaproj.impact._bpm_position_estimate.
+    #
+    # shot_defense (nbaproj.ingest.shot_defense_all_categories, data/processed/shot_defense.parquet)
+    # is deliberately NOT passed here. It was gated (scripts/gate_shot_defense_categories.py) and
+    # REJECTED: the two shot-distance categories that survived a stability pre-check (2-pointers,
+    # less-than-10ft) turned out to be stable because they mostly measure "is a rim-patrolling
+    # big" (Gobert/Embiid/Adams get further inflated), not because they capture a new defensive
+    # skill -- they reintroduce the exact positional confound POSITION_RELATIVE_FEATURES removed.
+    # See nbaproj.impact.SHOT_DEFENSE_SURVIVING_CATEGORIES / CLAUDE.md for the full writeup.
+    ps = add_tracking_features(ps, rim_defense=rim, hustle=hustle, player_team_seasons=pts)
 
     scored, diag = build_impact(ps, pts, ts, pa, first_test_season=2013)
     scored.to_parquet(PROC / "player_impact.parquet", index=False)

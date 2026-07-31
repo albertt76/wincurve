@@ -142,6 +142,32 @@ def rim_defense(season: str) -> pd.DataFrame:
     )
 
 
+# LeagueDashPtDefend's other nearest-defender categories -- the rim pull above ("Less Than 6Ft")
+# is only one of six. Perimeter containment (the model's remaining named defensive weakness) has
+# no countable events at the rim; these are the categories that could surface it. Same endpoint,
+# same ToS surface, same 2013-14+ availability -- just a different `defense_category` parameter,
+# which the cache key already includes, so each pulls and caches independently of the rim call.
+SHOT_DEFENSE_CATEGORIES = ["Overall", "3 Pointers", "2 Pointers", "Less Than 10Ft",
+                          "Greater Than 15Ft"]
+
+
+def shot_defense(season: str, category: str) -> pd.DataFrame:
+    """Opponent FG% when this player is the nearest defender, for one shot-distance category.
+
+    `category` must be one of `SHOT_DEFENSE_CATEGORIES` (or "Less Than 6Ft", the rim pull already
+    covered by `rim_defense`). Empty before 2013-14, same as `rim_defense`.
+    """
+    return cached_fetch(
+        "shot_defense",
+        leaguedashptdefend.LeagueDashPtDefend,
+        {
+            "season": season,
+            "defense_category": category,
+            "timeout": TIMEOUT,
+        },
+    )
+
+
 def hustle(season: str) -> pd.DataFrame:
     """Screen assists, deflections, contested shots, loose balls.
 
@@ -205,6 +231,19 @@ def player_bio() -> pd.DataFrame:
     )
 
 
+def shot_defense_all_categories(season: str) -> pd.DataFrame:
+    """All `SHOT_DEFENSE_CATEGORIES` for one season, stacked with a DEFENSE_CATEGORY column."""
+    frames = []
+    for cat in SHOT_DEFENSE_CATEGORIES:
+        df = shot_defense(season, cat)
+        if df.empty:
+            continue
+        df = df.copy()
+        df["DEFENSE_CATEGORY"] = cat
+        frames.append(df)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
 # --- Bulk orchestration ------------------------------------------------------
 
 def _pull_range(name: str, fn, first: int, last: int) -> pd.DataFrame:
@@ -241,6 +280,8 @@ def pull_all(last_season: int = LAST_COMPLETE_SEASON) -> dict[str, pd.DataFrame]
             "player_game_log", player_game_log, FIRST_BOX_SEASON, last_season),
         "rim_defense": _pull_range(
             "rim_defense", rim_defense, FIRST_TRACKING_SEASON, last_season),
+        "shot_defense": _pull_range(
+            "shot_defense", shot_defense_all_categories, FIRST_TRACKING_SEASON, last_season),
         "hustle": _pull_range(
             "hustle", hustle, FIRST_HUSTLE_SEASON, last_season),
         "player_passing": _pull_range(

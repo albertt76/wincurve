@@ -314,7 +314,7 @@ def main() -> int:
             "full_season_games": FULL_SEASON_GAMES,
             "wins_per_rating_point": 2.38,
             "rho_carryover": round(rho_used, 3),
-            "backtest_mae": 7.62,
+            "backtest_mae": 7.61,
             "market_mae": 6.88,
         },
         "teams": [],
