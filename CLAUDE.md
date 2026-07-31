@@ -237,6 +237,23 @@ never touches the model** (that rule is what keeps the disagreement analysis mea
 Mean |ours − market| ≈ 4.2 wins; biggest gaps are the deliverable (open a team for the
 roster reason). Refresh through the season with `fetch_market.py --refresh`.
 
+**Historical market comparison (completed seasons, shipped 2026-07-31).** Each completed
+season's view *also* carries a market ring — the **preseason Vegas over/under** for that year
+(bbref, `market_baseline.parquet`, joined by TEAM_ID in `build_snapshots._attach_historical_market`,
+already 82-game-normalized). With our mean, the Vegas ring, and the actual diamond on one bar,
+you read per team whether the model or the market landed closer. Historical is **Vegas-only** —
+Kalshi/Polymarket are too recent to have any history. Marker/readout are source-aware
+(`marketLabel` → "Kalshi" live, "Vegas" historical); the market is still strictly downstream.
+
+**Track record view (shipped 2026-07-31).** A `Projections / Track record` toggle opens a second
+view that scores the model against the market longitudinally: per completed season, our MAE vs
+the Vegas MAE vs a .500 baseline (bars), the honest aggregate (recent 5: **model 7.89, Vegas
+7.12, model closer in 2 of 5** — we do not beat a sharp market on average, as promised), and the
+per-team **best calls / where the market won** (biggest model-vs-Vegas disagreements ranked by
+who was closer to the actual). All computed **client-side from the inlined snapshots**
+(`renderTrackRecord`, `seasonModelMAE`/`seasonMarketMAE`/`seasonBaselineMAE`) — no new data.
+The per-team disagreement payoff is the whole point of the tool, now made visible and gradeable.
+
 **Explainability (added for the "is Impact WAR?" question).** A plain-English glossary
 (`<details>` at the foot) defines every number. The player table now has an **≈ Wins**
 column — the WAR-like (wins-above-replacement) translation of a player's value, since **Impact
@@ -917,19 +934,21 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
 - ⬜ Roster definition for backtest: plan is to reconstruct opening-night rosters from
   each season's first games. Using full-season rosters would understate real-world
   error, since February's roster is unknown in October.
-- ⬜ **Historical market lines in the per-season UI (collaborative — data availability).**
-  The UI shows a market marker only for the upcoming season (live Kalshi). The **historical
-  bbref preseason win totals are already pulled** (`market_baseline.parquet` / `nbaproj.odds`,
-  21 seasons 2005-06→2025-26), so each historical season view *can* carry a market marker too —
-  it just is not surfaced yet. Kalshi (`KXNBAWINS`) and Polymarket have **no history** (both too
-  recent), so historical = **bbref Vegas over/under only**; verify per-season coverage/quality
-  before plumbing it through `build_snapshots.py` into the historical bundles. Requested by the
-  user 2026-07-31.
-- ⬜ **Model-vs-market-vs-actual history page (new view).** A dedicated page charting, per
-  season, our projection MAE vs the market's MAE vs the actual end-of-year results — a visible
-  longitudinal backtest of *both* the model and the market, beyond the current single-season MAE
-  in the header. Depends on the historical-market item above for the market series. Requested by
-  the user 2026-07-31. Design TBD together.
+- ✅ **Historical market lines in the per-season UI — SHIPPED (2026-07-31).** Each completed
+  season's view now carries the **preseason Vegas over/under** as the hollow blue ring beside our
+  mean and the actual diamond — a three-way per-team read (model vs market vs reality).
+  `build_snapshots._attach_historical_market` joins `market_baseline.parquet` (`market_wins_82`,
+  already 82-game-normalized) by TEAM_ID, emits `mkt_wins` + a per-snapshot `market_source`
+  (`bbref:vegas_ou`). Historical is **Vegas-only** — Kalshi/Polymarket have no history. The UI
+  marker/readout are now source-aware (`marketLabel`); the detailed live-Kalshi caveat stays
+  upcoming-season-only, the hindsight caveat explains the Vegas ring.
+- ✅ **Model-vs-market-vs-actual "Track record" view — SHIPPED (2026-07-31).** A second view
+  (Projections / Track record toggle) charts, per completed season, our MAE vs the Vegas MAE vs a
+  .500 baseline, plus the honest scoreboard (recent 5: **model 7.89, Vegas 7.12, model closer in
+  2 of 5**) and the per-team "best calls / where the market won" (biggest disagreements that paid
+  off or didn't — UTA 22-23 we said 37 vs Vegas 24, actual 37). All computed **client-side from
+  the already-inlined snapshots** (`renderTrackRecord`), no new data. `seasonMarketMAE` /
+  `seasonModelMAE` / `seasonBaselineMAE` in `ui/template.html`.
 
 ---
 

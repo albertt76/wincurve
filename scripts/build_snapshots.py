@@ -364,6 +364,29 @@ def _attach_market(teams: list[dict], season_key: str, meta_out: dict) -> list[d
     return teams
 
 
+def _attach_historical_market(bundle: dict, mkt: pd.DataFrame) -> int:
+    """Attach the historical Vegas over/under (normalized to 82 games) to a completed season's
+    teams, by TEAM_ID. Source is bbref preseason win totals (`nbaproj.odds` / `market_baseline`)
+    -- the only market with a multi-season history; Kalshi and Polymarket are both too recent.
+    Downstream-only, exactly like the live line: it is placed beside our projection, never a
+    feature. Sets `market_source` on the bundle so the UI can label it (Vegas, not Kalshi).
+    """
+    sub = mkt[mkt["season"] == bundle["season"]]
+    if sub.empty:
+        return 0
+    line = dict(zip(sub["team_id"].astype("int64"), sub["market_wins_82"].astype(float)))
+    n = 0
+    for t in bundle["teams"]:
+        w = line.get(int(t["id"]))
+        if w is None:
+            continue
+        t["mkt_wins"] = round(float(w), 1)
+        n += 1
+    if n:
+        bundle["market_source"] = "bbref:vegas_ou"
+    return n
+
+
 def main() -> int:
     logging.basicConfig(level=logging.WARNING)
     from nba_api.stats.static import teams as static_teams
@@ -393,13 +416,15 @@ def main() -> int:
         data["imp"], data["rapm_imp"], data["pts"], data["pgl"], data["ts"], data["ages"],
         data["rosters"], range(2017, max(HISTORICAL) + 1))
 
+    mkt_hist = pd.read_parquet(PROC / "market_baseline.parquet")
     snapshots = {}
     for season in HISTORICAL:
         b = build_historical(season, data)
         if b:
+            nm = _attach_historical_market(b, mkt_hist)
             snapshots[b["season"]] = b
             print(f"  {b['season']}: MAE {b['season_mae']}  "
-                  f"({len(b['teams'])} teams, rho {b['rho_carryover']})")
+                  f"({len(b['teams'])} teams, rho {b['rho_carryover']}, Vegas {nm}/30)")
 
     # Current season from the existing live bundle.
     cur_path = PROC / "projections_current.json"
@@ -411,6 +436,7 @@ def main() -> int:
         snapshots[key] = {
             "season": key, "season_start": int(key[:4]), "is_current": True,
             "snapshot_date": cur["meta"].get("snapshot_date"),
+            "market_source": market_meta.get("market_source"),
             "rating_slope": cur["meta"].get("rating_slope"),
             "rating_intercept": cur["meta"].get("rating_intercept"),
             "off_slope": cur["meta"].get("off_slope"),
