@@ -587,11 +587,34 @@ the low power (6 folds) means the honest reading is "re-fit **not shown to beat*
 defaults to keeping shipped. The deeper reason RAPM's edge shrank: the **box metric was itself
 fixed this cycle** (position-relative rebounding + tracking), so pure RAPM (7.83) is now worse
 than pure box (7.77) and the blend's headroom over box collapsed to ~0.13. **The flat-weight
-family is closed — do not re-attempt.** Two mechanically-distinct formulations remain untested
-(the completeness audit's suggestions): (1) a **rating-space blend giving each metric its own
-slope** (auto-tempers over-dispersed RAPM, SD 2.27× box, for high-turnover teams); (2) a
-**player-level blend weighted by RAPM possession count** — which *must use pure, not box-informed,
-RAPM* or it double-shrinks thin-sample players. See the player-level RAPM test.
+family is closed — do not re-attempt.**
+
+#### ⚠️ Player-level & reliability-weighted blends were gated and REJECTED (2026-07)
+
+The completeness audit's two "still could win" formulations — plus their variants — were all
+built and gated (`scripts/gate_player_level_blend.py`, real 5000-sim, paired seeds). **None beats
+the shipped turnover blend (7.638):**
+
+| formulation | best exShort MAE | vs shipped |
+|---|---|---|
+| **turnover [SHIPPED]** | **7.638** | — |
+| **B** reliability-weighted team blend (`w` = minute-weighted mean of player RAPM `poss/(poss+K)`) | 7.661 | −0.023 (monotone worse as it trusts RAPM more) |
+| **C** rating-space own-slope (each metric its own slope, turnover weight) | 7.686 | −0.048 |
+| **A1** true player-level blend, box-informed RAPM | 7.729 | −0.090 (K2000 collapses to pure box) |
+| **A2** true player-level blend, **pure** RAPM moment-matched (the audit's literal ask) | 7.709 | −0.071 |
+
+Two clean lessons. **(1) The turnover weight puts RAPM in the right _places_, not just less of
+it.** RAPM reliability (possessions) is **anti-correlated with turnover (−0.43)** — churned
+rosters have thin-sample newcomers — so reliability-weighting leans on RAPM for *stable* rosters,
+exactly where the one-year carryover already fixes team defense, and leans on box for *churned*
+rosters, exactly where RAPM's player-level value was supposed to travel. It gets the sign
+backwards. **(2) Box-informed RAPM is already a possession-weighted shrink of pure RAPM toward the
+box**, so an explicit per-player possession blend (A1) double-shrinks — K2000 lands exactly on
+pure box (7.769). Even pure RAPM (A2), which avoids that, only *approaches* the shipped number
+from below as K rises (more shrinkage → less RAPM): the best move is always "use less RAPM," never
+"redistribute it per player." Root cause is the same as the weight re-fit: after the box metric
+was fixed this cycle, RAPM's marginal edge is only ~0.13 wins, and the turnover blend already
+extracts it. **Player-level / reliability family closed — do not re-attempt.**
 
 ### ✅ SHIPPED: rim + hustle tracking into the defensive metric (`add_tracking_features`)
 
@@ -695,7 +718,8 @@ is not repeated.
 | **Offensive-creation features** (potential/secondary assists, points created, screen assists) | Offense is already saturated: out-of-sample team-offense corr flat 0.930 → 0.930 (calibrated err 0.870 → 0.879, *worse*); win gate +0.018 (noise). Box assists + usage + efficiency already encode creation, so these are collinear refinements — Brunson barely moves (+2.09 → +2.21). Passing data pulled and kept (`player_passing`), features not added. |
 | Prior-year **All-Defense** correction to `def_impact` | Out-of-line bump of under-rated honorees toward an honor floor **fails the win gate at every setting** (−0.007 to −0.029, monotone with strength; `alldef_wingate`). As a plain team feature it also worsens out-of-sample team-defense (corr 0.733 → 0.726). Redundant at the team level — a team's defense is already the sum of its players' countable events. Kept as a display **badge**, not a projection input. |
 | **All-NBA** as a star impact bump | Mechanically wrong, so not gated: All-NBA is largely an OFFENSIVE / reputational honor. The metric's low ratings of All-NBA guards are defense-driven and correct — Brunson is +2.09 off / −2.01 def, a real two-way wash — so bumping impact toward the honor would credit defense he doesn't play (or double-count offense, already R²=0.82). Display **badge** only. |
-| **Re-fitting the box-vs-RAPM blend WEIGHT** (flat constants or walk-forward flat weight) | Rating-space proxy said flat ~0.5 wins +0.13/6-of-9; the real 5000-sim gate (`gate_blend_weight.py`) says otherwise — best candidates +0.02–0.03 wins, paired SE ~0.05–0.09 (noise), everything `w ≥ 0.5` worse, pure RAPM worst. The proxy sign-flipped (nonlinearity). 3-lens adversarial audit: negative-result-trustworthy. Box-metric fixes shrank RAPM's edge (pure RAPM 7.83 > pure box 7.77). **Flat-weight family closed.** Untested & distinct: rating-space own-slope blend; player-level weighting by RAPM possessions (pure RAPM only). |
+| **Re-fitting the box-vs-RAPM blend WEIGHT** (flat constants or walk-forward flat weight) | Rating-space proxy said flat ~0.5 wins +0.13/6-of-9; the real 5000-sim gate (`gate_blend_weight.py`) says otherwise — best candidates +0.02–0.03 wins, paired SE ~0.05–0.09 (noise), everything `w ≥ 0.5` worse, pure RAPM worst. The proxy sign-flipped (nonlinearity). 3-lens adversarial audit: negative-result-trustworthy. Box-metric fixes shrank RAPM's edge (pure RAPM 7.83 > pure box 7.77). **Flat-weight family closed.** |
+| **Player-level / reliability-weighted RAPM blend** (`gate_player_level_blend.py`) | The completeness audit's two flagged formulations + variants, all gated real-sim: reliability-weighted team blend (−0.02 to −0.10), rating-space own-slope (−0.05), player-level box-informed (−0.09) and **pure-RAPM moment-matched (−0.07 to −0.21, the audit's literal ask)** — **none beats shipped 7.638**. Reliability is anti-correlated with turnover (−0.43), so it gets the sign backwards (leans RAPM on stable rosters the carryover already fixes); box-informed RAPM already possession-shrinks, so per-player blending double-shrinks (K2000 == pure box). Best move is always "less RAPM," never "redistribute per player." **Player-level family closed.** |
 
 **On the roster-"bloat" hypothesis (investigated, rejected).** The live July roster snapshot
 carries 20–24 players and >290 mpg of prior-team minutes for ~8 teams (ATL 465 raw / 353
