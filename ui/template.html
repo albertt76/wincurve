@@ -416,6 +416,66 @@
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; }
   }
+
+  /* ---- view toggle (Projections / Track record) ---- */
+  .view-toggle { display: inline-flex; gap: 2px; margin: 4px 0 20px; padding: 3px;
+    background: var(--surface-2); border-radius: 8px; }
+  .vt-btn { font: inherit; font-size: 13px; font-weight: 600; letter-spacing: -.01em;
+    color: var(--muted); background: transparent; border: 0; border-radius: 6px;
+    padding: 6px 14px; cursor: pointer; transition: background .15s, color .15s; }
+  .vt-btn:hover { color: var(--ink); }
+  .vt-btn.active { color: var(--ink); background: var(--surface);
+    box-shadow: 0 1px 2px #0b112012; }
+  .vt-btn:focus-visible { outline: 2px solid var(--tight); outline-offset: 1px; }
+
+  /* ---- track-record view ---- */
+  #view-track { margin-top: 4px; }
+  .tr-h { font-size: 22px; font-weight: 650; letter-spacing: -.02em; margin: 0 0 6px; }
+  .tr-lead { color: var(--muted); max-width: 74ch; margin: 0 0 22px; font-size: 14.5px; }
+  .tr-lead b { color: var(--ink); }
+  .tr-seasons { display: flex; flex-direction: column; gap: 0; margin-bottom: 30px; }
+  .tr-row { display: grid; grid-template-columns: 82px 1fr 118px; align-items: center;
+    gap: 14px; padding: 11px 0; border-top: 1px solid var(--line-soft); }
+  .tr-row:last-child { border-bottom: 1px solid var(--line-soft); }
+  .tr-row.tr-agg { border-top: 2px solid var(--line); font-weight: 650; }
+  .tr-season { font-family: var(--mono); font-weight: 650; font-size: 13.5px; }
+  .tr-bars { display: flex; flex-direction: column; gap: 5px; }
+  .tr-bar { position: relative; height: 15px; display: flex; align-items: center; }
+  .tr-bar .fill { height: 15px; border-radius: 3px; min-width: 2px; }
+  .tr-bar.ours .fill { background: var(--tight); }
+  .tr-bar.mkt .fill { background: var(--mkt); }
+  .tr-bar .lbl { position: absolute; left: 8px; font-family: var(--mono); font-size: 10.5px;
+    color: #fff; font-weight: 600; white-space: nowrap; }
+  .tr-bar .cap { font-family: var(--mono); font-size: 11px; color: var(--muted);
+    margin-left: 7px; }
+  .tr-base { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--faint);
+    opacity: .55; }
+  .tr-winner { font-size: 12px; text-align: right; font-weight: 600; }
+  .tr-winner.model { color: var(--tight); } .tr-winner.mkt { color: var(--mkt); }
+  .tr-winner.tie { color: var(--faint); }
+  .tr-legend { display: flex; gap: 16px; margin: -12px 0 22px; font-size: 12px;
+    color: var(--muted); font-family: var(--mono); }
+  .tr-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .tr-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  .tr-legend i.ours { background: var(--tight); } .tr-legend i.mkt { background: var(--mkt); }
+  .tr-calls { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-bottom: 26px; }
+  .tr-sub { font-size: 14px; font-weight: 650; margin: 0 0 4px; }
+  .tr-note { font-weight: 400; color: var(--faint); font-size: 12px; }
+  .tr-call { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; align-items: baseline;
+    padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+  .tr-call .cteam { font-family: var(--mono); font-weight: 650; }
+  .tr-call .cyr { font-family: var(--mono); color: var(--faint); font-size: 11px; }
+  .tr-call .cdesc { color: var(--muted); }
+  .tr-call .cdesc b { color: var(--ink); font-weight: 600; }
+  .tr-call .cedge { font-family: var(--mono); font-weight: 650; white-space: nowrap; }
+  .tr-call .cedge.model { color: var(--tight); } .tr-call .cedge.mkt { color: var(--mkt); }
+  .tr-foot { color: var(--muted); font-size: 12.5px; max-width: 78ch; line-height: 1.5;
+    border-top: 1px solid var(--line-soft); padding-top: 14px; }
+  .tr-foot b { color: var(--ink); }
+  @media (max-width: 640px) {
+    .tr-calls { grid-template-columns: 1fr; gap: 18px; }
+    .tr-row { grid-template-columns: 66px 1fr 78px; gap: 8px; }
+  }
 </style>
 
 <div class="wrap">
@@ -437,6 +497,12 @@
     </p>
   </header>
 
+  <nav class="view-toggle" role="tablist" aria-label="View">
+    <button id="tab-proj" class="vt-btn active" role="tab" aria-selected="true">Projections</button>
+    <button id="tab-track" class="vt-btn" role="tab" aria-selected="false">Track record</button>
+  </nav>
+
+  <div id="view-projections">
   <div class="axis-head">
     <div class="col-label">Team</div>
     <div>
@@ -470,10 +536,13 @@
     <div class="caveat" id="cav-hist" style="display:none;border-left-color:var(--pos)">
       <strong>Hindsight view.</strong> This is what the model <em>would have</em> projected
       before <span class="hyr"></span> tipped off, using only data available then &mdash; no
-      peeking at the results. The white diamond &#9670; on each bar is what actually happened.
-      The model's average miss this season was <strong class="smae"></strong> wins
-      (market lines average about 6.7). A well-calibrated model lands the diamond inside the
-      80% range about 80% of the time.
+      peeking at the results. The white diamond &#9670; is what actually happened; the hollow
+      blue ring <span class="swatch"></span> is the <em>preseason Vegas over/under</em> for that
+      season (bbref), also set before tip-off &mdash; so you can see, per team, whether the model
+      or the market landed closer to the diamond. The model's average miss this season was
+      <strong class="smae"></strong> wins (Vegas averaged <strong class="vmae">&mdash;</strong>).
+      A well-calibrated model lands the diamond inside the 80% range about 80% of the time.
+      <em>Which was closer, model or market, is quantified in the Track record view.</em>
     </div>
     <div class="caveat" style="border-left-color:var(--edit)">
       <strong>On the what-if tool.</strong> Roster edits are computed the same way the model
@@ -488,6 +557,31 @@
       cannot cover falls to replacement level.
     </div>
   </div>
+  </div><!-- /view-projections -->
+
+  <section id="view-track" style="display:none" aria-label="Track record">
+    <h2 class="tr-h">How the model has done &mdash; against the market, and against reality</h2>
+    <p class="tr-lead" id="tr-lead"></p>
+    <div class="tr-seasons" id="tr-seasons"></div>
+    <div class="tr-calls">
+      <div class="tr-col">
+        <h3 class="tr-sub">Model's best calls <span class="tr-note">(we disagreed with Vegas and were closer to what happened)</span></h3>
+        <div id="tr-wins"></div>
+      </div>
+      <div class="tr-col">
+        <h3 class="tr-sub">Where the market won <span class="tr-note">(Vegas was closer than our projection)</span></h3>
+        <div id="tr-losses"></div>
+      </div>
+    </div>
+    <p class="tr-foot">
+      Error is <b>MAE</b> (mean absolute error &mdash; the average miss in wins, ignoring
+      direction). Lower is better. &ldquo;.500 baseline&rdquo; projects every team to 41 wins;
+      both the model and the market clear it comfortably. Historical market is the
+      <b>preseason Vegas over/under</b> (bbref) &mdash; the only market with a multi-season
+      history. All figures are 82-game-equivalent and exclude no completed season shown.
+      The market is never an input to the model.
+    </p>
+  </section>
 
   <details class="legend">
     <summary>What every number means &mdash; plain-English glossary</summary>
@@ -574,10 +668,12 @@
           toward RAPM did not beat the backtest, so the projection keeps the turnover blend.</dd>
 
         <dt><span class="swatch"></span> market</dt>
-        <dd>The hollow ring on the bar and the <span class="mktnum"><b>mkt</b></span> readout
-          (upcoming season only): the win total the prediction market implies right now. The
-          signed number is <b>our projection minus the market</b>. Comparison only &mdash; the
-          market never feeds the model.</dd>
+        <dd>The hollow ring on the bar and the market readout: the win total the market implies.
+          For the <b>upcoming</b> season it is the live <b>Kalshi</b> line; for a <b>completed</b>
+          season it is that year's <b>preseason Vegas over/under</b> (bbref), set before tip-off,
+          which you can now grade against the actual diamond on the same bar. The signed number is
+          <b>our projection minus the market</b>. Comparison only &mdash; the market never feeds
+          the model. Season-by-season, who was closer is in the <b>Track record</b> view.</dd>
 
         <dt>MPG / Avail</dt>
         <dd><b>MPG</b> = minutes per game from last season's role. <b>Avail</b> = projected
@@ -654,13 +750,15 @@ function loadSeason(key) {
   document.getElementById('snap').textContent = cur
     ? ('snapshot ' + (DATA.snapshot_date || ''))
     : 'hindsight — projected before the season, shown against what happened';
-  const hasMarket = cur && DATA.teams.some(t => t.mkt_wins != null);
+  const hasMarket = DATA.teams.some(t => t.mkt_wins != null);
   document.getElementById('cav-current').style.display = cur ? '' : 'none';
-  document.getElementById('cav-market').style.display = hasMarket ? '' : 'none';
+  // The detailed live-market caveat is Kalshi-specific, so it shows for the upcoming season only;
+  // the hindsight caveat explains the historical Vegas ring.
+  document.getElementById('cav-market').style.display = (cur && hasMarket) ? '' : 'none';
   document.getElementById('cav-hist').style.display = cur ? 'none' : '';
-  if (hasMarket && GMETA.market_source) {
+  if (cur && hasMarket && DATA.market_source) {
     document.getElementById('mkt-src').textContent =
-      GMETA.market_source.split(':')[0] === 'kalshi' ? 'Kalshi' : GMETA.market_source;
+      DATA.market_source.split(':')[0] === 'kalshi' ? 'Kalshi' : DATA.market_source;
   }
   if (cur) {
     document.getElementById('mae').textContent = CURRENT_MAE.toFixed(1);
@@ -668,6 +766,9 @@ function loadSeason(key) {
     document.querySelectorAll('.hyr').forEach(e => e.textContent = DATA.season);
     document.querySelectorAll('.smae').forEach(e =>
       e.textContent = DATA.season_mae != null ? DATA.season_mae.toFixed(1) : '—');
+    const vm = seasonMarketMAE(DATA);
+    document.querySelectorAll('.vmae').forEach(e =>
+      e.textContent = vm != null ? vm.toFixed(1) : '—');
   }
   document.getElementById('meta-line').textContent =
     `Impact-to-rating slope ${DATA.rating_slope}. Carryover coefficient ${DATA.rho_carryover}. ` +
@@ -875,15 +976,35 @@ function actualReadout(t, w) {
   return `<span class="anum">actual <b>${fmt1(a)}</b> <span class="${cls}">&#9670; ${mark}</span></span>`;
 }
 
-// Live-market readout (upcoming season only): the crowd's implied wins and our gap to it.
-// gap > 0 means our model is HIGHER than the market on this team. This is a comparison, not
-// an input -- the market never touches the projection.
+// Short, honest label for whichever market this season carries: the live Kalshi win-total
+// market for the upcoming season, or the bbref preseason Vegas over/under for a completed one
+// (the only market with multi-season history — Kalshi/Polymarket are too recent).
+function marketLabel() {
+  const s = (DATA.market_source || GMETA.market_source || '').split(':')[0];
+  return s === 'kalshi' ? 'Kalshi' : s === 'bbref' ? 'Vegas' : 'market';
+}
+
+// Mean absolute error of a season's market lines against the actual results (only teams that
+// have both a market line and an actual). Null for the upcoming season (no actual yet).
+function seasonMarketMAE(snap) {
+  const es = snap.teams.filter(t => t.mkt_wins != null && t.actual != null)
+    .map(t => Math.abs(t.mkt_wins - t.actual));
+  return es.length ? es.reduce((a, b) => a + b, 0) / es.length : null;
+}
+
+// Market readout: the market's implied wins and our gap to it. gap > 0 means our model is HIGHER
+// than the market on this team. A comparison, not an input -- the market never touches the model.
+// For a completed season this is the preseason Vegas line, now gradeable against the actual
+// diamond on the same bar (the Track record view quantifies who was closer, season by season).
 function marketReadout(t, w) {
   const gap = w.mean - t.mkt_wins;
   const cls = Math.abs(gap) < 1.5 ? 'agree' : (gap > 0 ? 'above-mkt' : 'below-mkt');
-  return `<span class="mktnum" title="Kalshi market-implied wins; the second number is `
-    + `our projection minus the market (positive = we are higher than the crowd)">`
-    + `<span class="swatch"></span>mkt <b>${fmt1(t.mkt_wins)}</b> `
+  const lab = marketLabel();
+  const src = lab === 'Vegas' ? 'preseason Vegas over/under (bbref)'
+    : lab === 'Kalshi' ? 'Kalshi market-implied wins' : 'market-implied wins';
+  return `<span class="mktnum" title="${src}; the second number is our projection minus the `
+    + `market (positive = we are higher than the market).">`
+    + `<span class="swatch"></span>${lab.toLowerCase()} <b>${fmt1(t.mkt_wins)}</b> `
     + `<span class="${cls}">${gap >= 0 ? '+' : ''}${fmt1(gap)}</span></span>`;
 }
 
@@ -1044,7 +1165,7 @@ function render() {
         ${wRapm != null ? `<span class="rapm-mark" style="left:${pct(wRapm.mean)}%" title="RAPM-only defense: ${fmt1(wRapm.mean)} wins"></span>` : ''}
         <span class="mean" style="left:${pct(w.mean)}%"></span>
         ${t.actual != null ? `<span class="actual" style="left:${pct(t.actual)}%" title="actual: ${fmt1(t.actual)} wins"></span>` : ''}
-        ${DATA.is_current && t.mkt_wins != null ? `<span class="market" style="left:${pct(t.mkt_wins)}%" title="market (Kalshi): ${fmt1(t.mkt_wins)} wins"></span>` : ''}
+        ${t.mkt_wins != null ? `<span class="market" style="left:${pct(t.mkt_wins)}%" title="${marketLabel()}: ${fmt1(t.mkt_wins)} wins"></span>` : ''}
       </span>
       <span class="nums">
         <span class="wins">${fmt1(w.mean)}</span>
@@ -1052,7 +1173,7 @@ function render() {
         <br>${t.actual != null ? actualReadout(t, w) : `<span class="rng">${fmt1(w.p10)}&ndash;${fmt1(w.p90)}</span>`}
         ${offR != null ? `<br>${odReadout(offR, defR)}` : ''}
         ${wRapm != null ? `<br>${rapmReadout(t, w, wRapm)}` : ''}
-        ${DATA.is_current && t.mkt_wins != null ? `<br>${marketReadout(t, w)}` : ''}
+        ${t.mkt_wins != null ? `<br>${marketReadout(t, w)}` : ''}
       </span>`;
 
     const panel = document.createElement('div');
@@ -1193,6 +1314,125 @@ function wirePanel(panel, t) {
       });
   });
 }
+
+/* ===== Track record: model vs market vs actual, across completed seasons ================
+   Everything here is computed client-side from the already-inlined snapshots. A season counts
+   if its teams carry both actual results and a Vegas line. Model error uses the team's projected
+   wins (t.wins); market error uses the preseason Vegas line (t.mkt_wins); both against t.actual. */
+const BASELINE_WINS = 41;   // ".500 baseline": project every team to 41 wins
+
+function completedSeasons() {
+  return GMETA.seasons
+    .map(k => SNAP.snapshots[k])
+    .filter(s => !s.is_current && s.teams.some(t => t.actual != null && t.mkt_wins != null))
+    .sort((a, b) => a.season_start - b.season_start);
+}
+
+function seasonModelMAE(snap) {
+  const es = snap.teams.filter(t => t.actual != null).map(t => Math.abs(t.wins - t.actual));
+  return es.length ? es.reduce((a, b) => a + b, 0) / es.length : null;
+}
+function seasonBaselineMAE(snap) {
+  const es = snap.teams.filter(t => t.actual != null).map(t => Math.abs(BASELINE_WINS - t.actual));
+  return es.length ? es.reduce((a, b) => a + b, 0) / es.length : null;
+}
+
+let trackRendered = false;
+function renderTrackRecord() {
+  const seasons = completedSeasons();
+  const rows = seasons.map(s => ({
+    key: s.season, model: seasonModelMAE(s), market: seasonMarketMAE(s),
+    base: seasonBaselineMAE(s),
+  }));
+  const mAvg = rows.reduce((a, r) => a + r.model, 0) / rows.length;
+  const kAvg = rows.reduce((a, r) => a + r.market, 0) / rows.length;
+  const bAvg = rows.reduce((a, r) => a + r.base, 0) / rows.length;
+  const wins = rows.filter(r => r.model < r.market).length;
+
+  // Lower MAE = more accurate. The market being sharper (kAvg < mAvg) is the expected case.
+  const verb = kAvg < mAvg ? 'edged out' : 'trailed';
+  document.getElementById('tr-lead').innerHTML =
+    `Over the ${rows.length} completed seasons the app covers, our projection missed by `
+    + `<b>${mAvg.toFixed(2)}</b> wins on average; the preseason Vegas line missed by `
+    + `<b>${kAvg.toFixed(2)}</b> — so the market ${verb} the model on aggregate accuracy, as `
+    + `expected. The honest scoreboard: <b>the model was closer in ${wins} of ${rows.length}</b> `
+    + `seasons. Both sit far under the <b>${bAvg.toFixed(1)}</b> of a .500 baseline — projecting `
+    + `is clearly worth doing; beating a sharp market on average is not the promise. The value is `
+    + `the per-team disagreements below.`;
+
+  // shared scale for the MAE bars
+  const maxMAE = Math.max(...rows.flatMap(r => [r.model, r.market]), bAvg) * 1.08;
+  const barW = v => (v / maxMAE * 100).toFixed(1);
+  const seasonRow = (label, model, market, base, agg) => {
+    const winner = Math.abs(model - market) < 0.05 ? 'tie' : (model < market ? 'model' : 'mkt');
+    const wtxt = winner === 'tie' ? 'tie' : winner === 'model' ? 'model closer' : 'market closer';
+    const baseTick = base != null
+      ? `<span class="tr-base" style="left:${barW(base)}%" title=".500 baseline ${base.toFixed(1)}"></span>` : '';
+    return `<div class="tr-row${agg ? ' tr-agg' : ''}">
+      <span class="tr-season">${label}</span>
+      <span class="tr-bars">
+        <span class="tr-bar ours"><span class="fill" style="width:${barW(model)}%"></span>
+          <span class="lbl">${model.toFixed(2)}</span>${baseTick}<span class="cap">model</span></span>
+        <span class="tr-bar mkt"><span class="fill" style="width:${barW(market)}%"></span>
+          <span class="lbl">${market.toFixed(2)}</span>${baseTick}<span class="cap">Vegas</span></span>
+      </span>
+      <span class="tr-winner ${winner}">${wtxt}</span>
+    </div>`;
+  };
+  document.getElementById('tr-seasons').innerHTML =
+    `<div class="tr-legend"><span><i class="ours"></i>model (our projection)</span>`
+    + `<span><i class="mkt"></i>Vegas preseason line</span>`
+    + `<span>&#124; .500 baseline ${bAvg.toFixed(1)}</span></div>`
+    + rows.map(r => seasonRow(r.key, r.model, r.market, r.base, false)).join('')
+    + seasonRow(`${rows.length}-yr avg`, mAvg, kAvg, bAvg, true);
+
+  // Per-team calls: where we disagreed with Vegas most and it paid off (or didn't).
+  const calls = [];
+  for (const s of seasons) {
+    for (const t of s.teams) {
+      if (t.actual == null || t.mkt_wins == null) continue;
+      const disagree = t.wins - t.mkt_wins;
+      if (Math.abs(disagree) < 3) continue;             // only real disagreements
+      const modelErr = Math.abs(t.wins - t.actual);
+      const mktErr = Math.abs(t.mkt_wins - t.actual);
+      calls.push({ abbr: t.abbr, yr: s.season, disagree, modelErr, mktErr,
+        edge: mktErr - modelErr, ours: t.wins, vegas: t.mkt_wins, actual: t.actual });
+    }
+  }
+  const fmtSigned = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(0);
+  const callRow = (c, side) => {
+    const dir = c.ours > c.vegas ? 'higher' : 'lower';
+    return `<div class="tr-call">
+      <span><span class="cteam">${c.abbr}</span> <span class="cyr">${c.yr.slice(2)}</span></span>
+      <span class="cdesc">we said <b>${c.ours.toFixed(0)}</b> vs Vegas <b>${c.vegas.toFixed(0)}</b>
+        (${dir}); actual <b>${c.actual.toFixed(0)}</b></span>
+      <span class="cedge ${side}">${fmtSigned(c.edge)}</span>
+    </div>`;
+  };
+  const bestWins = calls.filter(c => c.edge > 0).sort((a, b) => b.edge - a.edge).slice(0, 6);
+  const bestLoss = calls.filter(c => c.edge < 0).sort((a, b) => a.edge - b.edge).slice(0, 6);
+  document.getElementById('tr-wins').innerHTML =
+    bestWins.map(c => callRow(c, 'model')).join('') || '<p class="tr-note">none</p>';
+  document.getElementById('tr-losses').innerHTML =
+    bestLoss.map(c => callRow(c, 'mkt')).join('') || '<p class="tr-note">none</p>';
+  trackRendered = true;
+}
+
+// view toggle
+const tabProj = document.getElementById('tab-proj');
+const tabTrack = document.getElementById('tab-track');
+function setView(track) {
+  document.getElementById('view-projections').style.display = track ? 'none' : '';
+  document.getElementById('view-track').style.display = track ? '' : 'none';
+  document.querySelector('.season-pick').style.visibility = track ? 'hidden' : '';
+  tabProj.classList.toggle('active', !track);
+  tabTrack.classList.toggle('active', track);
+  tabProj.setAttribute('aria-selected', String(!track));
+  tabTrack.setAttribute('aria-selected', String(track));
+  if (track && !trackRendered) renderTrackRecord();
+}
+tabProj.addEventListener('click', () => setView(false));
+tabTrack.addEventListener('click', () => setView(true));
 
 // default to the upcoming season (last in the sorted list)
 loadSeason(GMETA.seasons[GMETA.seasons.length - 1]);
