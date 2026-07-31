@@ -24,9 +24,18 @@ from pathlib import Path
 PROC = Path("data/processed")
 
 
-def _wparts(p: dict, meta: dict, turnover: float) -> tuple[float, float]:
+def _cap_factor(team: dict, meta: dict) -> float:
+    """Budget-cap factor: the team aggregation scales an over-budget roster down to the
+    240-min/game budget before weighting, so ≈Wins must too or it over-credits every player on
+    a bloated summer roster. At/under budget it is 1. Mirrors the UI's teamCapFactor()."""
+    mpg_budget = meta["minutes_budget"] / meta["full_season_games"]
+    load = sum(p["mpg"] * p["avail"] for p in team["players"])
+    return mpg_budget / load if load > mpg_budget else 1.0
+
+
+def _wparts(p: dict, meta: dict, turnover: float, cap: float = 1.0) -> tuple[float, float]:
     """A player's offensive and defensive ≈Wins, mirroring the UI's winParts()."""
-    minshare = p["mpg"] * p["avail"] / (meta["minutes_budget"] / meta["full_season_games"])
+    minshare = p["mpg"] * p["avail"] / (meta["minutes_budget"] / meta["full_season_games"]) * cap
     wpp = meta["wins_per_rating_point"]
     ow = wpp * minshare * meta["off_slope"] * (p["off"] - meta["replacement_off"])
     dev = p["def"] - meta["replacement_def"]
@@ -83,7 +92,8 @@ def main() -> int:
               f"turnover {t['turnover'] * 100:.0f}%, roster {rmpg:.0f} mpg / 240)")
         print(f"  {'player':<22}{'age':>4}{'mpg':>5}{'avl':>5}{'off':>6}{'def':>6}"
               f"{'oW':>6}{'dW':>6}{'≈W':>6}  flags")
-        scored = [(p, *_wparts(p, meta, t["turnover"])) for p in t["players"]]
+        cap = _cap_factor(t, meta)
+        scored = [(p, *_wparts(p, meta, t["turnover"], cap)) for p in t["players"]]
         for p, ow, dw in sorted(scored, key=lambda x: -(x[1] + x[2]))[:9]:
             print(f"  {p['name']:<22}{(p.get('age') or '-'):>4}{p['mpg']:>5.1f}{p['avail'] * 100:>4.0f}%"
                   f"{p['off']:>+6.2f}{p['def']:>+6.2f}{ow:>+6.1f}{dw:>+6.1f}{ow + dw:>+6.1f}  {_flags(p)}")
