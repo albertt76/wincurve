@@ -464,6 +464,13 @@ def main() -> int:
         }
         print(f"  {key}: current (live snapshot {cur['meta'].get('snapshot_date')})")
 
+    # Projection drift time-series (each logged run of project_current / project_inseason),
+    # for the UI's Drift view. Tracked at data/projection_history.json; absent = no runs yet.
+    history = {"runs": []}
+    hist_path = Path("data/projection_history.json")
+    if hist_path.exists():
+        history = json.loads(hist_path.read_text())
+
     out = {
         "meta": {
             "minutes_budget": 240.0 * FULL_SEASON_GAMES,
@@ -476,6 +483,7 @@ def main() -> int:
             "seasons": sorted(snapshots.keys()),
         },
         "snapshots": snapshots,
+        "projection_history": history.get("runs", []),
     }
     path = PROC / "snapshots.json"
     path.write_text(json.dumps(out, separators=(",", ":")))
