@@ -47,7 +47,7 @@ should carry their own legend.
 |---|---|---|
 | Player impact metric | **Compute our own** from nba_api | Guarantees full 21-season point-in-time coverage, no licensing constraints, we control era normalization. Full RAPM-from-play-by-play kept as documented upgrade path. |
 | Fit / coaching modules | **Strict backtest gate, but report findings either way** | Keeps the production projection trustworthy; still answers the user's curiosity. A module that fails its gate gets dropped from the projection and written up as a finding. |
-| Timing scope | **Preseason projection only** | Matches how win-total markets are priced; keeps backtest protocol clean. No in-season updating. |
+| Timing scope | **Preseason projection is the shipped default** | Matches how win-total markets are priced; keeps the backtest protocol clean. A SEPARATE in-season / rest-of-season model (own gate) now also exists for mid-season re-runs — see the shipped in-season item in the roadmap. |
 | Modeling target | **Win percentage**, not wins | Three seasons in the window are not 82 games. Wins are a presentation-layer conversion. |
 | Franchise join key | **`TEAM_ID`** | Stable across relocations and renames (Seattle→OKC, New Jersey→Brooklyn, Bobcats→Hornets). Never join on name or abbreviation. |
 | Market data role | **Strictly downstream, never a feature** | If market prices touch training, the disagreement analysis becomes circular and meaningless. |
@@ -365,11 +365,15 @@ nbaproj/
   odds.py         historical preseason win totals scraper + strict franchise join
   market_live.py  LIVE Kalshi win-total ladders -> implied distribution (downstream only)
   rosters.py      draft priors + rookie projection; known-absence AND injury-return overrides
+  inseason.py     rest-of-season (in-season) model core: SRS state at game N, w(N) shrinkage
 scripts/
   fetch_all.py       full historical pull (idempotent, resumable)
   baseline_report.py Stage 1 report: the bar
   fetch_market.py    pull live Kalshi lines -> data/processed/market_2026_27.json
   injury_return_candidates.py  scan for injury_returns.json candidates (data-only shortlist)
+  gate_inseason_model.py       walk-forward gate for the in-season model (N=25, N=50)
+  project_inseason.py          produce a rest-of-season projection bundle for a season+N
+  log_projection.py            append a run to data/projection_history.json (drift time-series)
 ```
 
 Override files (hand-authored, tracked in git; `data/overrides/` is NOT gitignored):
@@ -1195,21 +1199,20 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   comparable). All client-side from the inlined snapshots (`renderTrackRecord`), no new data.
   Further back is blocked on the `team_rosters` 2016-17 floor (Vegas lines go to 2005-06) — a
   historical `commonteamroster` pull would unblock the full ~19 seasons.
-- ⬜ **Projection time series: re-run on a schedule, log each run, chart the drift (user-requested
-  2026-08-01).** Run `project_current.py` on a cadence — roughly monthly in the offseason, a few
-  times in-season with a run right after the trade deadline — and **persist each run's per-team
-  projection keyed by run date** (append to a `data/processed/projection_history.json`, or one
-  file per run under `data/processed/history/`), building a time series of how the 2026-27
-  projection moves. Then a UI view with **30-team line charts** of projected wins over time. What
-  moves the line: offseason = near-flat unless a major trade lands (the live `commonteamroster`
-  snapshot + `known_absences.json` overrides are what re-running picks up); in-season = trades and
-  injury overrides. **Honest scope caveat to surface in the UI:** the model is **preseason by
-  design (no in-season updating** — see the Timing-scope decision), so a mid-season re-run
-  re-projects from the *current roster* using prior-season player talent + carryover — it captures
-  **roster changes (trades/injuries), NOT how players are actually performing this season** ("new
-  system" fit won't show up). So the drift is a roster-composition signal, not a hot/cold-form
-  signal; label it as such or it will be misread. Low-risk build once the cadence + storage format
-  are decided; the charting is client-side like the Track record view.
+- ✅ **Projection time series + drift charts — SHIPPED (2026-08-02).** `scripts/log_projection.py`
+  appends each run of `project_current.py` (preseason) or `project_inseason.py` (in-season) to
+  **`data/projection_history.json`** — a compact per-team record keyed by (run_date, model, season),
+  idempotent per key. It lives at the `data/` root (**tracked**, not under gitignored
+  `data/processed/`), so the series persists across checkouts/deploys, like the override files.
+  `build_snapshots.py` inlines it (`projection_history`) into `snapshots.json`. A new **Drift** view
+  (`renderDrift`, third toggle beside Projections / Track record) charts, per team, projected wins
+  over run dates as small-multiple SVG sparklines (latest wins + change-since-first chip), sorted by
+  latest wins, shared y-axis. Client-side from the inlined history. **Honest scope caveat surfaced in
+  the view (`modelNote`):** a *preseason*-model run's drift is a **roster-composition** signal
+  (trades/injuries/overrides), NOT this-year form (the preseason model has no in-season updating); an
+  *in-season*-model run's drift additionally reflects **team form**. Seeded with the current
+  preseason run (1 point); it fills in as you re-run on a cadence (monthly offseason; ~25 & ~50 games
+  in-season, esp. post trade deadline).
 - ⬜ **Trade "undo": project a team as if a trade hadn't happened (user-requested 2026-08-01).**
   The mechanism already exists — the what-if editor moves players between teams and recomputes each
   team's rating client-side, exactly. "Undo trade X" is just a pre-populated edit: put the traded
@@ -1224,46 +1227,45 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   the real blocker for retro-dating. Doesn't need to be logged itself (user noted this); it is a
   presentation layer over a transactions source + the existing recompute. UX: a "trades" list per
   team with an "undo" toggle that shows before/after win projections.
-- ⬜ **In-season / rest-of-season projection model (user-requested 2026-08-01; the big one).**
-  Today the model is **preseason-only by design** (see the Timing-scope decision), so a mid-season
-  re-run of `project_current.py` re-projects from the current roster using *last* season's player
-  talent + carryover — it sees trades/injuries but **not a single game played this year**. This
-  item is a genuinely **new model** (its own calibration + its own walk-forward gate — NOT a flag
-  on the current one) that folds in-season data in, intended for runs at ~20-25 games and again
-  after the trade deadline (~50 games). It is also what makes the projection-time-series charts
-  above show *team form* rather than only roster composition.
+- ✅ **In-season / rest-of-season projection model — SHIPPED (2026-08-02; the big one).** A
+  genuinely NEW model (its own calibration + its own walk-forward gate, not a flag on the preseason
+  one), for runs at ~25 games and ~50 games (post trade deadline). Core is a **regression-to-the-
+  mean shrinkage estimator** (`nbaproj/inseason.py`):
 
-  **The target changes.** Preseason predicts full-season win% from a standing start; this predicts
-  **rest-of-season** win%, then adds the wins already banked (which have zero error). So report the
-  honest metric as **rest-of-season MAE**, not full-season MAE — the latter mechanically collapses
-  as the banked share grows (~60% of games are decided by game 50) and would flatter the model
-  for the wrong reason.
+      rest_rating[T] = w(N)·obs_rating[T] + (1−w(N))·preseason_prior[T]  →  simulate remaining games
 
-  **Two signals, unequal value:**
-  1. *Team results so far* — the big, cheap lever. Schedule-adjusted point differential through
-     N games is a strong rest-of-season predictor from the game log we already have (the sim
-     already opponent-adjusts margins). The current carryover is a weaker version of this idea
-     (it corrects by *last* season's residual); in-season results correct by *this* season's,
-     fresher and stronger.
-  2. *Per-player talent update* — blend this-season production into each player's projection,
-     weighted by sample seen (~30% at 25 games, ~61% at 50), DARKO-style. **Sequencing matters:**
-     box stats stabilize fast (points ~64 poss) while plus-minus/RAPM stabilize slowly (1000+
-     poss), so lean on the in-season **box** update at the 25-game run and let in-season **RAPM**
-     (computable on partial-season stints via `nbaproj.bulk_pbp`, but thin early) matter more by
-     the 50-game run.
+  `obs_rating` = a schedule-adjusted SRS (simple rating system) built from only the games before a
+  calendar split date `d_N` (median team's Nth-game date, so remaining-game matchups stay coherent
+  for the sim), ×1.017 onto the prior's per-100 net-rating-deviation scale. `preseason_prior` is the
+  shipped walk-forward projection (reused verbatim). `w(N)` RISES with games played — a hot start is
+  part skill, part luck — and is fit walk-forward by minimizing rest-of-season **win** MAE directly
+  (a fast deterministic expected-wins objective, NOT a rating-space proxy, which has misled this
+  project three times). Banked wins add back with zero error, so the honest metric is **rest-of-
+  season MAE**, never full-season MAE (which mechanically collapses as banked share grows).
 
-  **The trap to get right: regression to the mean.** A hot 20-game start is part skill, part luck
-  (full-season luck SD ~4.3 wins; larger in win% terms over 20 games). Naïvely projecting current
-  pace to 82 massively overreacts. The correct blend *is* the regression, and calibrating that
-  weight (rising with games played) is most of the modeling effort — get it wrong and the model
-  screams about every fast starter.
+  **Gate (`scripts/gate_inseason_model.py`, 5000-sim walk-forward, 6 folds exShort):** beats both
+  baselines — preseason-carried-forward AND naive current-pace —
 
-  **Backtest design (mandatory before shipping, per project discipline):** walk-forward, for each
-  past season reconstruct the state at game 25/50 (opening-adjusted roster, box + PBP stats-so-far,
-  record-so-far) and predict the remaining games; score rest-of-season MAE against actual, vs two
-  baselines — (i) preseason projection carried forward unchanged, and (ii) naïve "current pace to
-  82." Data supports this: game logs back to 2005, PBP back to 2013. Expect it to beat both, more
-  so at 50 than 25.
+  | split | model | vs preseason-carried-fwd | vs naive pace | fitted w |
+  |---|---|---|---|---|
+  | N=25 | 5.17 | **+0.75 ±0.15, 6/6** | **+0.43 ±0.20, 5/6** | 0.35 |
+  | N=50 | 3.27 | **+0.84 ±0.12, 6/6** | −0.06 ±0.05, 3/6 (≈tie) | 0.83 |
+
+  It crushes the stale prior at both splits, and the regression-to-mean does real work at N=25
+  (beats naive pace by +0.43, ~2 SE); by N=50 the season has spoken and w→0.83, so naive is ~optimal
+  — exactly the predicted shape. `w` rising 0.35→0.83 as games double is textbook shrinkage.
+
+  **Runnable:** `scripts/project_inseason.py --season <s> --games <N>` produces a rest-of-season
+  bundle (banked / projected-remaining / projected-full wins per team, `w`, obs-vs-prior rating),
+  validated on completed seasons (2024-25 @ N=25: sum=1230, OKC's 19-6 start correctly regressed to
+  a 61-win projection). Live use once 2026-27 games are pulled into `game_log`; the remaining
+  schedule comes from the real post-split games (exact) or a prior-season stand-in (flagged) before
+  a schedule pull.
+
+  **v1 is TEAM-RESULTS only** — the big, cheap lever. ⬜ **v2 (still open): per-player in-season
+  talent update** (blend this-season box production into each player's projection, weighted by
+  sample seen, DARKO-style; box stabilizes fast, in-season RAPM slowly). Left as the documented next
+  increment.
 - ✅ **Defensive-metric experiments — ALL FIVE RESOLVED (user-requested 2026-08-02).** Defense is
   the model's weakest link; a parallel scoping workflow pre-checked all five untried directions, and
   each was then taken to the point its verdict was decisive. **The meta-finding: after this cycle's

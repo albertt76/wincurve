@@ -475,6 +475,20 @@
     color: var(--muted); font-family: var(--mono); }
   .tr-legend span { display: inline-flex; align-items: center; gap: 5px; }
   .tr-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+  /* ---- drift view: small-multiple sparklines of projected wins over run dates ---- */
+  .drift-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px 18px; margin-bottom: 26px; }
+  .drift-cell { border: 1px solid var(--line-soft); border-radius: 7px; padding: 8px 10px 6px; }
+  .drift-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .drift-abbr { font-family: var(--mono); font-weight: 650; font-size: 13px; }
+  .drift-now { font-family: var(--mono); font-size: 13px; font-weight: 650; }
+  .drift-delta { font-family: var(--mono); font-size: 10px; margin-left: 4px; }
+  .drift-delta.p { color: var(--pos); } .drift-delta.n { color: var(--neg); }
+  .drift-cell svg { display: block; width: 100%; height: 34px; margin-top: 3px; overflow: visible; }
+  .drift-spark { fill: none; stroke: var(--tight); stroke-width: 1.6; }
+  .drift-dot { fill: var(--tight); }
+  .drift-single { font-size: 10px; color: var(--faint); font-family: var(--mono); margin-top: 4px; }
   .tr-legend i.ours { background: var(--tight); } .tr-legend i.mkt { background: var(--mkt); }
   .tr-calls { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-bottom: 26px; }
   .tr-sub { font-size: 14px; font-weight: 650; margin: 0 0 4px; }
@@ -518,6 +532,7 @@
   <nav class="view-toggle" role="tablist" aria-label="View">
     <button id="tab-proj" class="vt-btn active" role="tab" aria-selected="true">Projections</button>
     <button id="tab-track" class="vt-btn" role="tab" aria-selected="false">Track record</button>
+    <button id="tab-drift" class="vt-btn" role="tab" aria-selected="false">Drift</button>
   </nav>
 
   <div id="view-projections">
@@ -599,6 +614,13 @@
       history. All figures are 82-game-equivalent and exclude no completed season shown.
       The market is never an input to the model.
     </p>
+  </section>
+
+  <section id="view-drift" style="display:none" aria-label="Projection drift">
+    <h2 class="tr-h">Projection drift over time</h2>
+    <p class="tr-lead" id="drift-lead"></p>
+    <div id="drift-grid" class="drift-grid"></div>
+    <p class="tr-foot" id="drift-foot"></p>
   </section>
 
   <details class="legend">
@@ -1510,21 +1532,98 @@ function renderTrackRecord() {
   trackRendered = true;
 }
 
-// view toggle
-const tabProj = document.getElementById('tab-proj');
-const tabTrack = document.getElementById('tab-track');
-function setView(track) {
-  document.getElementById('view-projections').style.display = track ? 'none' : '';
-  document.getElementById('view-track').style.display = track ? '' : 'none';
-  document.querySelector('.season-pick').style.visibility = track ? 'hidden' : '';
-  tabProj.classList.toggle('active', !track);
-  tabTrack.classList.toggle('active', track);
-  tabProj.setAttribute('aria-selected', String(!track));
-  tabTrack.setAttribute('aria-selected', String(track));
-  if (track && !trackRendered) renderTrackRecord();
+/* ===== Drift: how each team's projected wins move across logged runs ==================
+   Each run of project_current (preseason) / project_inseason (in-season) is appended to
+   projection_history.json by scripts/log_projection.py. This charts, per team, projected wins
+   over run dates for the season with the most logged runs. Client-side from the inlined history. */
+let driftRendered = false;
+function renderDrift() {
+  const hist = SNAP.projection_history || [];
+  const lead = document.getElementById('drift-lead');
+  const grid = document.getElementById('drift-grid');
+  const foot = document.getElementById('drift-foot');
+  if (!hist.length) {
+    lead.textContent = 'No projection runs have been logged yet.';
+    grid.innerHTML = '';
+    foot.innerHTML = 'Log a run with <code>python scripts/log_projection.py</code> after '
+      + '<code>project_current.py</code> (or <code>project_inseason.py --model inseason</code>), '
+      + 'then rebuild. The series fills in as you re-run on a cadence.';
+    driftRendered = true;
+    return;
+  }
+  // Pick the season with the most runs (ties -> latest season).
+  const bySeason = {};
+  hist.forEach(r => (bySeason[r.season] = bySeason[r.season] || []).push(r));
+  const season = Object.keys(bySeason).sort((a, b) =>
+    bySeason[b].length - bySeason[a].length || (a < b ? 1 : -1))[0];
+  const runs = bySeason[season].slice().sort((a, b) => a.run_date < b.run_date ? -1 : 1);
+  const models = [...new Set(runs.map(r => r.model))];
+
+  // Per-team series of {date, wins}; shared y-axis across all teams for comparability.
+  const teams = {};
+  runs.forEach(r => r.teams.forEach(t => (teams[t.abbr] = teams[t.abbr] || [])
+    .push({ date: r.run_date, wins: t.wins })));
+  const allWins = runs.flatMap(r => r.teams.map(t => t.wins));
+  const lo = Math.min(...allWins) - 1, hi = Math.max(...allWins) + 1;
+  const yfor = w => 30 - ((w - lo) / Math.max(hi - lo, 1)) * 28;   // svg 0..30, padded
+  const xfor = (i, n) => n <= 1 ? 50 : (i / (n - 1)) * 100;
+
+  const order = Object.keys(teams).sort((a, b) =>
+    teams[b][teams[b].length - 1].wins - teams[a][teams[a].length - 1].wins);
+  grid.innerHTML = order.map(abbr => {
+    const s = teams[abbr], n = s.length, now = s[n - 1].wins, first = s[0].wins;
+    const d = now - first;
+    const dChip = n > 1
+      ? `<span class="drift-delta ${d >= 0 ? 'p' : 'n'}">${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(1)}</span>`
+      : '';
+    let svg;
+    if (n === 1) {
+      svg = `<svg viewBox="0 0 100 30" preserveAspectRatio="none">`
+        + `<circle class="drift-dot" cx="50" cy="${yfor(now).toFixed(1)}" r="2"/></svg>`
+        + `<div class="drift-single">1 run logged</div>`;
+    } else {
+      const pts = s.map((p, i) => `${xfor(i, n).toFixed(1)},${yfor(p.wins).toFixed(1)}`).join(' ');
+      const dots = s.map((p, i) =>
+        `<circle class="drift-dot" cx="${xfor(i, n).toFixed(1)}" cy="${yfor(p.wins).toFixed(1)}" r="1.5"/>`).join('');
+      svg = `<svg viewBox="0 0 100 30" preserveAspectRatio="none">`
+        + `<polyline class="drift-spark" points="${pts}"/>${dots}</svg>`;
+    }
+    return `<div class="drift-cell"><div class="drift-top"><span class="drift-abbr">${abbr}</span>`
+      + `<span class="drift-now">${now.toFixed(1)}${dChip}</span></div>${svg}</div>`;
+  }).join('');
+
+  const modelNote = models.length === 1
+    ? (models[0] === 'inseason'
+        ? 'These are <b>in-season</b> runs, so the drift reflects both roster changes and <b>team form</b> (results so far).'
+        : 'These are <b>preseason-model</b> runs, so the drift is a <b>roster-composition</b> signal (trades, injuries, overrides) &mdash; not how players are performing this year (the preseason model has no in-season updating).')
+    : 'Mixed preseason and in-season runs: early points reflect roster composition, later in-season points also reflect team form.';
+  lead.innerHTML = `Season <b>${season}</b> &middot; <b>${runs.length}</b> logged run`
+    + `${runs.length > 1 ? 's' : ''} (${runs[0].run_date}${runs.length > 1 ? ' → ' + runs[runs.length - 1].run_date : ''}). `
+    + modelNote + ' Sorted by latest projected wins; the number is the latest, the chip is the change since the first run.';
+  foot.innerHTML = 'Add points by re-running the projection on a cadence '
+    + '(roughly monthly in the offseason; after ~25 and ~50 games in-season, especially post trade '
+    + 'deadline) and logging each with <code>scripts/log_projection.py</code>.';
+  driftRendered = true;
 }
-tabProj.addEventListener('click', () => setView(false));
-tabTrack.addEventListener('click', () => setView(true));
+
+// view toggle (3-way)
+const VIEWS = { proj: 'view-projections', track: 'view-track', drift: 'view-drift' };
+const tabs = { proj: document.getElementById('tab-proj'),
+               track: document.getElementById('tab-track'),
+               drift: document.getElementById('tab-drift') };
+function setView(v) {
+  for (const [k, id] of Object.entries(VIEWS)) {
+    document.getElementById(id).style.display = k === v ? '' : 'none';
+    tabs[k].classList.toggle('active', k === v);
+    tabs[k].setAttribute('aria-selected', String(k === v));
+  }
+  document.querySelector('.season-pick').style.visibility = v === 'proj' ? '' : 'hidden';
+  if (v === 'track' && !trackRendered) renderTrackRecord();
+  if (v === 'drift' && !driftRendered) renderDrift();
+}
+tabs.proj.addEventListener('click', () => setView('proj'));
+tabs.track.addEventListener('click', () => setView('track'));
+tabs.drift.addEventListener('click', () => setView('drift'));
 
 // default to the upcoming season (last in the sorted list)
 loadSeason(GMETA.seasons[GMETA.seasons.length - 1]);
