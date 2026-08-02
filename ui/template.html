@@ -254,6 +254,22 @@
   button.act:focus-visible { outline: 2px solid var(--tight); outline-offset: 1px; }
   button.act[disabled] { opacity: .4; cursor: default; }
 
+  /* disagreement attribution + conviction (the deliverable), shown in the expanded panel */
+  .disagree { border: 1px solid var(--line); border-radius: var(--r); padding: 11px 13px;
+    margin: 2px 0 14px; background: var(--surface-2); font-size: 13px; line-height: 1.5; }
+  .disagree.agree-box { color: var(--muted); }
+  .disagree b { color: var(--ink); font-weight: 650; }
+  .dis-head { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .dis-gap.up { color: var(--pos); font-weight: 650; }
+  .dis-gap.down { color: var(--neg); font-weight: 650; }
+  .dis-body { color: var(--muted); margin-bottom: 6px; }
+  .dis-conv { font-size: 12.5px; display: inline-block; padding: 3px 9px; border-radius: 999px;
+    font-weight: 600; }
+  .dis-conv b { font-weight: 700; }
+  .conv-high { background: var(--tight-fill); color: var(--tight); }
+  .conv-med  { background: var(--wide-fill); color: var(--wide); }
+  .conv-low  { background: #b91c1c1a; color: var(--neg); }
+
   .tbl-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 680px; }
   th {
@@ -1008,6 +1024,68 @@ function marketReadout(t, w) {
     + `<span class="${cls}">${gap >= 0 ? '+' : ''}${fmt1(gap)}</span></span>`;
 }
 
+// Where does our disagreement with the market come from, and how much should you trust it?
+// This is the tool's actual deliverable -- shown in the expanded panel (the "details" surface).
+// It ADDS to the row readout: the offense/defense/carryover split of our edge, the players
+// driving it, and a conviction tag. `cr` is computeRating(t) (has offR/defR); `wRapm` is the
+// RAPM-only arm's win distribution (may be null on old snapshots).
+function disagreementBlock(t, w, cr, wRapm) {
+  if (t.mkt_wins == null || cr.offR == null) return '';
+  const gap = w.mean - t.mkt_wins;
+  const carry = t.carryover || 0;
+  const offR = cr.offR, defR = cr.defR;
+  const lab = marketLabel();
+
+  // Which component leads OUR number. Offense (calibration r^2 ~0.88) is the reliable side;
+  // defense (~0.5) is the metric we trust least, so a defense-led edge is lower-conviction.
+  const parts = [
+    { key: 'offense', v: offR, reliable: true },
+    { key: 'defense', v: defR, reliable: false },
+    { key: 'the one-year carryover', v: carry, reliable: true },
+  ].sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+  const lead = parts[0];
+  const sgn = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+
+  // Top players driving our number (largest |WAR-like contribution|). Full names -- last-token
+  // extraction mangles suffixes ("Robert Williams III" -> "III").
+  const drivers = t.players.map(p => ({ name: p.name, wp: winParts(p, t) }))
+    .sort((a, b) => Math.abs(b.wp.total) - Math.abs(a.wp.total)).slice(0, 3)
+    .map(d => `${d.name} ${d.wp.total >= 0 ? '+' : ''}${d.wp.total.toFixed(1)}`);
+
+  // Conviction: a research aid, NOT a calibrated probability. Lower it when our edge leans on
+  // the weak defensive metric, when the roster has turned over a lot (our projection is less
+  // certain there), or when the RAPM-only arm disagrees sharply with the shipped blend (our
+  // defense is genuinely ambiguous for this team).
+  const defLed = lead.key === 'defense' && Math.abs(defR) > 1.5;
+  const highTurnover = (t.turnover || 0) > 0.35;
+  const rapmSwing = wRapm != null && Math.abs(wRapm.mean - w.mean) > 2.5;
+  const reasons = [];
+  if (defLed) reasons.push('defense-led (our least-trusted metric)');
+  if (highTurnover) reasons.push(`high roster turnover (${(t.turnover * 100).toFixed(0)}%)`);
+  if (rapmSwing) reasons.push(`RAPM-only defense disagrees by ${sgn(wRapm.mean - w.mean)} wins`);
+  const flags = reasons.length;
+  const level = flags === 0 ? 'High' : flags === 1 ? 'Medium' : 'Low';
+  const lvlClass = flags === 0 ? 'conv-high' : flags === 1 ? 'conv-med' : 'conv-low';
+  // If we essentially agree with the market, say so instead of manufacturing a story.
+  if (Math.abs(gap) < 1.5) {
+    return `<div class="disagree agree-box">We project <b>${fmt1(w.mean)}</b> wins, `
+      + `${lab} implies <b>${fmt1(t.mkt_wins)}</b> — <b>we broadly agree</b> here `
+      + `(within ${Math.abs(gap).toFixed(1)}).</div>`;
+  }
+  const dir = gap > 0 ? 'higher than' : 'lower than';
+  return `<div class="disagree">
+    <div class="dis-head">We project <b>${fmt1(w.mean)}</b> wins &middot; ${lab} implies
+      <b>${fmt1(t.mkt_wins)}</b> &middot;
+      <span class="dis-gap ${gap > 0 ? 'up' : 'down'}">we are ${sgn(gap)} vs the market</span></div>
+    <div class="dis-body">Driven mostly by <b>${lead.key}</b>
+      (O ${sgn(offR)} &middot; D ${sgn(defR)} &middot; carryover ${sgn(carry)}, points per 100).
+      Roster's top pieces: ${drivers.join(', ')}.</div>
+    <div class="dis-conv ${lvlClass}">Conviction: <b>${level}</b>${reasons.length
+      ? ' — ' + reasons.join('; ')
+      : ' — stable roster, not reliant on our weak defensive metric; our more reliable kind of call'}.</div>
+  </div>`;
+}
+
 // A player's win value: how many of the team's wins he accounts for versus a freely-available
 // replacement-level player taking his minutes -- the WAR-like ("wins above replacement")
 // translation of his impact, scaled by minute share and the impact -> rating -> wins
@@ -1246,6 +1324,7 @@ function renderPanel(t, w) {
       <button class="act" data-reset="${t.id}"
         ${st.off.size || st.added.length ? '' : 'disabled'}>Reset roster</button>
     </div>
+    ${disagreementBlock(t, w, cr, wRapm)}
     <div class="tbl-scroll">
       <table>
         <thead><tr>
