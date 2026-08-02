@@ -256,6 +256,20 @@ who was closer to the actual). All computed **client-side from the inlined snaps
 (`renderTrackRecord`, `seasonModelMAE`/`seasonMarketMAE`/`seasonBaselineMAE`) — no new data.
 The per-team disagreement payoff is the whole point of the tool, now made visible and gradeable.
 
+**Disagreement attribution + conviction (shipped 2026-08-02).** The tool's core deliverable, in
+each team's expanded panel (the "details" surface — the natural place to gate behind auth later).
+Whenever a market line exists (Kalshi live / Vegas historical), a banner (`disagreementBlock`)
+shows: the gap framed as *we project X · market implies Y · we are ±Z*, then **what drives our
+number** — which of offense / defense / one-year-carryover leads (in points/100), plus the
+roster's top pieces by ≈Wins — then a **conviction tag** (High / Medium / Low). Conviction is a
+*research aid, not a calibrated probability*: it starts High and drops one level for each of
+(a) the gap being **defense-led** (our least-trusted metric), (b) **roster turnover > 35%**, and
+(c) the **RAPM-only arm disagreeing with the blend by > 2.5 wins** — so it flags exactly which
+disagreements to distrust (e.g. BOS +9.9 → Medium, defense-led; ATL −10.8 → High, offense-led on
+a stable roster; NYK −7.3 → Medium, RAPM disagrees). Within 1.5 wins it says "we broadly agree"
+rather than manufacturing a story. All client-side from data already computed; no gate (it is an
+explanation layer, not a projection input).
+
 **Explainability (added for the "is Impact WAR?" question).** A plain-English glossary
 (`<details>` at the foot) defines every number. The player table now has an **≈ Wins**
 column — the WAR-like (wins-above-replacement) translation of a player's value, since **Impact
