@@ -372,6 +372,7 @@ scripts/
   fetch_market.py    pull live Kalshi lines -> data/processed/market_2026_27.json
   injury_return_candidates.py  scan for injury_returns.json candidates (data-only shortlist)
   gate_inseason_model.py       walk-forward gate for the in-season model (N=25, N=50)
+  gate_inseason_v2.py          gate for the v2 per-player talent update (rejected: b->0)
   project_inseason.py          produce a rest-of-season projection bundle for a season+N
   log_projection.py            append a run to data/projection_history.json (drift time-series)
 ```
@@ -950,6 +951,7 @@ is not repeated.
 | **Player-level box→pure-RAPM refit with team FE** — root cause (`gate_defense_playerlevel_refit.py`) | Refit the box defensive metric at the PLAYER level against PURE RAPM (2013-25) with team fixed effects, instead of the team-defensive-rating target that makes box defense ~60% rebounds+blocks. Mechanism confirmed (dreb weight collapses, `def_impact`-vs-`dreb` 0.52 → 0.46), but the win is **circular** (the on/off feature `def_rating_rel` ≈ a crude RAPM carries most of it) and the honest box-only version is weak (player-level R²0.13) and **neutral-to-worse at the win level: 7.59 → 7.69 (no FE) / 7.65 (FE), within ~1 SE but negative, 3/6 folds**. blocks/steals do NOT rise (individual box stops are weak RAPM predictors). Same shape as the RAPM-swap / shrinkage-constant negatives — improves the player metric, dies at the team win number. |
 | **Multi-season decayed RAPM** (`precheck_multiseason_rapm.py`) | Pool 2-3yr of stints with decay for a stabler RAPM. Killed at the pre-check: multi-season is ≤ single-season on the next-season team-defense predictive test in **all 6 variant-transitions** (box-informed & pure, two decays), and the box metric now out-predicts every RAPM variant (0.611 box vs 0.591 single vs 0.583 multi). At alpha=2000 single-season regulars already have ample possessions, so pooling injects staleness, not stability. Corroborates pure-RAPM 7.83 > pure-box 7.77 at the win level after this cycle's box fixes. |
 | **nba_api matchup data for perimeter containment** (`precheck_matchup_defense.py`) | `MatchupsRollup` (who guarded whom, points/FG% allowed as primary defender). Feasibility is a clean positive (1 call/season, ToS-safe) so the pull is **wired and the data kept** (`nbaproj.ingest.matchups`, `data/processed/matchups.parquet`, 2017-18+). But the containment feature `m_fgpct` fails YoY stability even multi-season-pooled (r²≈0.05→0.08, well below usable) — DRAYMOND redux, because nearest-defender labels lack arm position/facing. The one stable feature (`m_tovp100`) restates steals; the other (`m_ptsp100`) is assignment-endogenous (hides weak defenders on weak scorers → Trae Young rates "elite"). No feature worth a gate. |
+| **In-season model v2 — per-player talent update** (`gate_inseason_v2.py`) | Added a player-updated team arm to v1's rest-of-season blend (`a·SRS + b·player_updated + (1−a−b)·prior`): each player's through-N box production, scored with build_impact's own coefficients, k-blended into his preseason projection and re-aggregated by through-N minutes. Walk-forward fit drove **b→0** — N=25 b=0.00 (v2≡v1, 0/6), N=50 b=0.03 (−0.012, 0/6), churn subgroup no benefit. The team SRS already saturates the rest-of-season signal; the box-only player arm is defense-thin (compresses stars); and the through-N roster can't see a deadline acquisition, so v2's one theorized use case (post-deadline trades) isn't even reachable as built. Real at the player level, dies at the team-win number — same as the RAPM-blend and defensive negatives. Machinery + gate kept for the one untested redemption path (post-deadline current-roster snapshot). |
 
 **On the roster-"bloat" hypothesis (investigated, rejected).** The live July roster snapshot
 carries 20–24 players and >290 mpg of prior-team minutes for ~8 teams (ATL 465 raw / 353
@@ -1262,10 +1264,21 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   schedule comes from the real post-split games (exact) or a prior-season stand-in (flagged) before
   a schedule pull.
 
-  **v1 is TEAM-RESULTS only** — the big, cheap lever. ⬜ **v2 (still open): per-player in-season
-  talent update** (blend this-season box production into each player's projection, weighted by
-  sample seen, DARKO-style; box stabilizes fast, in-season RAPM slowly). Left as the documented next
-  increment.
+  **v1 is TEAM-RESULTS only** — the big, cheap lever. ⚠️ **v2 (per-player in-season talent update)
+  — BUILT, GATED, REJECTED (2026-08-02).** Blended each player's through-N box production into his
+  preseason-projected impact (k = poss/(poss+800), DARKO-style; scored with build_impact's own
+  fitted coefs, on/off + tracking held at preseason since they aren't computable per-player mid-
+  season), re-aggregated the current roster by through-N minutes, and added it as a third arm:
+  `rest_rating = a·SRS + b·player_updated + (1−a−b)·prior`, (a,b) fit walk-forward
+  (`scripts/gate_inseason_v2.py`). **The fit put b→0: N=25 b=0.00 (v2 ≡ v1, 6/6), N=50 b=0.03
+  (−0.012, 0/6), and the churn subgroup showed no benefit either.** Three reasons, all instructive:
+  (1) the team SRS already saturates the rest-of-season signal; (2) the player arm is defense-thin
+  (compresses stars toward zero); (3) v2-as-built uses the through-N roster, which **cannot see a
+  deadline acquisition** (the incoming player hasn't played for the new team yet), so the one case
+  it was meant to help isn't reachable. Same shape as the RAPM-blend/defensive negatives: real at
+  the player level, dies at the team-win number. **Untested redemption path** (not built; narrow
+  value): a post-deadline split using the *current* (post-trade) roster snapshot instead of the
+  through-N roster, restricted to actual deadline-trade teams. Machinery + gate kept for that.
 - ✅ **Defensive-metric experiments — ALL FIVE RESOLVED (user-requested 2026-08-02).** Defense is
   the model's weakest link; a parallel scoping workflow pre-checked all five untried directions, and
   each was then taken to the point its verdict was decisive. **The meta-finding: after this cycle's
