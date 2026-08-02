@@ -1077,6 +1077,35 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   off or didn't — UTA 22-23 we said 37 vs Vegas 24, actual 37). All computed **client-side from
   the already-inlined snapshots** (`renderTrackRecord`), no new data. `seasonMarketMAE` /
   `seasonModelMAE` / `seasonBaselineMAE` in `ui/template.html`.
+- ⬜ **Projection time series: re-run on a schedule, log each run, chart the drift (user-requested
+  2026-08-01).** Run `project_current.py` on a cadence — roughly monthly in the offseason, a few
+  times in-season with a run right after the trade deadline — and **persist each run's per-team
+  projection keyed by run date** (append to a `data/processed/projection_history.json`, or one
+  file per run under `data/processed/history/`), building a time series of how the 2026-27
+  projection moves. Then a UI view with **30-team line charts** of projected wins over time. What
+  moves the line: offseason = near-flat unless a major trade lands (the live `commonteamroster`
+  snapshot + `known_absences.json` overrides are what re-running picks up); in-season = trades and
+  injury overrides. **Honest scope caveat to surface in the UI:** the model is **preseason by
+  design (no in-season updating** — see the Timing-scope decision), so a mid-season re-run
+  re-projects from the *current roster* using prior-season player talent + carryover — it captures
+  **roster changes (trades/injuries), NOT how players are actually performing this season** ("new
+  system" fit won't show up). So the drift is a roster-composition signal, not a hot/cold-form
+  signal; label it as such or it will be misread. Low-risk build once the cadence + storage format
+  are decided; the charting is client-side like the Track record view.
+- ⬜ **Trade "undo": project a team as if a trade hadn't happened (user-requested 2026-08-01).**
+  The mechanism already exists — the what-if editor moves players between teams and recomputes each
+  team's rating client-side, exactly. "Undo trade X" is just a pre-populated edit: put the traded
+  players back on their original teams and recompute both sides. **The gap is transaction data** —
+  who moved where, and when — to auto-populate the reversal (today a user can do it by hand in the
+  editor). Options, cheapest first: (a) **derive trades by diffing the periodic roster snapshots
+  from the item above** — a player who leaves team A's roster and appears on team B's between two
+  snapshots *is* a transaction, so this falls out of the time-series logging **for trades that
+  happen after we start logging**, at zero extra data cost; (b) for **past** trades (before
+  logging began) we need an external transactions feed — Pro Sports Transactions is behind
+  Cloudflare (won't bypass), and there is no clean free nba_api transactions endpoint, so this is
+  the real blocker for retro-dating. Doesn't need to be logged itself (user noted this); it is a
+  presentation layer over a transactions source + the existing recompute. UX: a "trades" list per
+  team with an "undo" toggle that shows before/after win projections.
 
 ---
 
