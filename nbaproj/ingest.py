@@ -19,6 +19,7 @@ from nba_api.stats.endpoints import (
     leaguedashteamstats,
     leaguegamelog,
     leaguehustlestatsplayer,
+    matchupsrollup,
     playerawards,
 )
 
@@ -32,6 +33,7 @@ TIMEOUT = 60
 FIRST_BOX_SEASON = 2005      # advanced box score: confirmed 458 players in 2005-06
 FIRST_TRACKING_SEASON = 2013  # shot/defensive tracking: 2012-13 returns empty
 FIRST_HUSTLE_SEASON = 2016    # hustle: 2015-16 is a partial rollout (147 rows)
+FIRST_MATCHUP_SEASON = 2017   # matchups: 2016-17 is a partial rollout (1145 vs ~2200 rows)
 
 LAST_COMPLETE_SEASON = 2025   # 2025-26 verified complete (all 30 teams at 82 GP)
 
@@ -200,6 +202,34 @@ def player_passing(season: str) -> pd.DataFrame:
     )
 
 
+def matchups(season: str) -> pd.DataFrame:
+    """Defensive matchup rollup: per (defender, offensive-position) totals of possessions,
+    points, FG, and turnovers allowed as the PRIMARY defender (who guarded whom).
+
+    One call returns the entire league (~2,200 rows/season, broken out by the offensive
+    player's position F/G/C). Empty before 2016-17; 2016-17 is a partial rollout (~1,145 rows),
+    so ``FIRST_MATCHUP_SEASON`` = 2017. This is the only public source that counts perimeter
+    containment (points/FG% allowed as primary defender), which the rim/hustle/shot-zone tracking
+    cannot see.
+
+    Kept as a clean, ToS-safe, cheap (1 call/season) dataset. A perimeter-containment feature
+    from it (matchup FG% allowed) was evaluated and REJECTED -- single- and multi-season
+    year-over-year stability stays r^2 ~0.05-0.08 (noise), the DRAYMOND failure mode, because
+    nearest-defender labelling has no arm position or facing direction. See CLAUDE.md. Retained
+    for future work regardless (e.g. if a forced-turnover feature or richer tracking arrives).
+    """
+    return cached_fetch(
+        "matchups_rollup",
+        matchupsrollup.MatchupsRollup,
+        {
+            "season": season,
+            "season_type_playoffs": "Regular Season",
+            "per_mode_simple": "Totals",
+            "timeout": TIMEOUT,
+        },
+    )
+
+
 def player_awards(player_id: int) -> pd.DataFrame:
     """All honors for one player (All-NBA / All-Defensive team with 1/2/3 number, MVP,
     All-Star, etc.), keyed by SEASON. One call per player; cached per player_id.
@@ -286,6 +316,8 @@ def pull_all(last_season: int = LAST_COMPLETE_SEASON) -> dict[str, pd.DataFrame]
             "hustle", hustle, FIRST_HUSTLE_SEASON, last_season),
         "player_passing": _pull_range(
             "player_passing", player_passing, FIRST_TRACKING_SEASON, last_season),
+        "matchups": _pull_range(
+            "matchups", matchups, FIRST_MATCHUP_SEASON, last_season),
         # Season-invariant: one row per player ever, no season loop.
         "player_bio": player_bio(),
     }
