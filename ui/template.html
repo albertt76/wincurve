@@ -290,6 +290,8 @@
     padding: 1px 4px; border-radius: 3px; border: 1px solid var(--line);
     color: var(--faint); margin-left: 6px; text-transform: uppercase;
   }
+  /* injury-return override: this player is projected AS his last healthy season (manual). */
+  .tag.ret { color: var(--edit); border-color: var(--edit); cursor: help; }
   .imp.p { color: var(--pos); } .imp.n { color: var(--neg); }
   .winval { color: var(--muted); white-space: nowrap; }
   .winval.p { color: var(--pos); } .winval.n { color: var(--neg); }
@@ -640,6 +642,17 @@
           events, so the honor adds nothing at the team level, and All-NBA is largely an offensive
           award). They earn their place as <b>context</b>: a shield next to a <em>low</em> Def is
           the eye test flagging a perimeter stopper the box score misses.</dd>
+
+        <dt><span class="tag ret" style="cursor:default">back</span></dt>
+        <dd>An <b>injury-return</b> override (upcoming season only). A star who missed most or all
+          of last season is otherwise mis-projected &mdash; his minutes fall back to a bench
+          default and the availability model marks him down &mdash; so he is projected <b>as his
+          last healthy season</b>: pre-injury offense/defense, that season's minutes, at a
+          hand-set expected availability (eased-in where noted). Hover for the specific reason.
+          These are <b>manual, forward-looking judgment calls</b> applied to this projection only;
+          they never touch the backtest (which uses real historical rosters). Note the metric
+          restores what <em>it</em> thought of the player when healthy &mdash; which for some names
+          (e.g. Fred VanVleet) is below average, so the fix is mostly to his minutes, not a boost.</dd>
 
         <dt>&asymp; Wins</dt>
         <dd>The <b>WAR-like</b> (wins-above-replacement) translation of a player's value: how
@@ -1286,7 +1299,7 @@ function renderPanel(t, w) {
     const defv = p.def != null ? p.def : 0;
     return `
     <tr class="${off ? 'off' : ''}${added ? ' added' : ''}">
-      <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}${rapmFlag(p)}${honorFlags(p)}</td>
+      <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}${p.ret_override ? `<span class="tag ret" title="${(p.ret_reason || 'Injury return: projected as his last healthy season (manual override).').replace(/"/g, '&quot;')}">back</span>` : ''}${rapmFlag(p)}${honorFlags(p)}</td>
       <td>${p.pos || '&mdash;'}</td>
       <td>${p.age ?? '&mdash;'}</td>
       <td class="imp ${offv >= 0 ? 'p' : 'n'}">${offv >= 0 ? '+' : ''}${offv.toFixed(2)}</td>
