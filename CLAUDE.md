@@ -351,8 +351,20 @@ Vercel Hobby deploys the private repo and still serves a public URL. The site is
 to serve **only `ui/`** (Vercel *Root Directory* = `ui`), so `data/`, `nbaproj/`, and
 `scripts/` are never uploaded or reachable. `ui/vercel.json` serves `projections.html` at
 `/`; `ui/.vercelignore` keeps `build.py`/`template.html` out. Full steps in
-[ui/DEPLOY.md](ui/DEPLOY.md). The self-contained `projections.html` already inlines its data,
-so nothing beyond the app's own numbers is exposed.
+[ui/DEPLOY.md](ui/DEPLOY.md).
+
+**Freemium gate (shipped 2026-08-02).** `ui/build.py` splits the bundle into a **public** payload
+(inlined in `projections.html`: bars, ranges, off/def + RAPM-arm readouts, market comparison,
+Track-record + Drift views, glossary) and a **premium** payload (each team's `players` + what-if
+`grid` — the expanded detail panels: per-player Off/Def and ≈Wins, RAPM flags, disagreement +
+conviction, trade-undo, live editor). Premium is embedded in the serverless function
+`ui/api/premium.js` and returned only when the request's `x-unlock-password` matches the
+`PREMIUM_PASSWORD` env var — Vercel runs `api/*.js` as functions, so the source (and its embedded
+data) is never served as a static asset. The client (`teamView`/`lockedPanel`/`doUnlock` in
+`template.html`) shows the public bars to anyone; "Unlock details" fetches the premium payload,
+caches it in `sessionStorage`, and re-renders with full panels. Real server-enforced gating; still
+one **shared** password (no accounts). Next step for real subscriptions: per-user auth
+(Clerk/Supabase) + Stripe — the serverless function is the seam to add it (see the auth roadmap item).
 
 ## Layout
 
@@ -1304,18 +1316,24 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
      neutralize the confound damage (the league-wide version was −0.054; this is −0.025, within
      noise) but yields no net gain — redundant with the shipped rim tracking
      (`scripts/gate_shot_defense_posrel.py`).
-- ⬜ **Auth / freemium access + eventual subscription (user-requested 2026-08-02).** Goal: anonymous
-  visitors see a limited view; login unlocks the explanations/details; a subscription tier later.
-  **Architectural implication (important):** the app is currently a *self-contained static file*
-  (`ui/projections.html`, all data inlined, no backend, served from `ui/` on Vercel). Anything
-  inlined is visible via view-source, so gating requires moving the premium content behind a
-  **server-side gate** — an auth provider (Clerk / Supabase / Auth0) + a serverless endpoint that
-  returns the premium JSON only to logged-in users, with the bundle split into public-limited
-  (inlined) and premium (fetched after auth). That likely turns `ui/` from a static file into a
-  small app. **Payment (Stripe) is a further step and must be wired by the user** — handling
-  payment credentials is out of scope for the assistant. Two paths: (a) near-term lightweight — a
-  single shared-password gate on the details panel (~an afternoon, no accounts); (b) real freemium
-  — the per-user architecture above, Stripe later. Decide (a) vs deferring to (b) when picked up.
+- ✅ **Auth / freemium access — SHIPPED as serverless + shared password (2026-08-02).** Chosen from
+  four options (soft reveal / static-encrypted / **serverless+password** / managed-auth+Stripe); the
+  user picked serverless+password for real gating with the cleanest runway to per-user auth. The
+  bundle is split (`ui/build.py`) into a **public** inlined payload (bars, ranges, readouts, Track
+  record, Drift, glossary) and a **premium** payload (each team's `players` + what-if `grid` → the
+  expanded detail panels) embedded in the Vercel serverless function `ui/api/premium.js`, returned
+  only when `x-unlock-password` matches the `PREMIUM_PASSWORD` env var. Vercel runs `api/*.js` as
+  functions, so the source + embedded data are never served statically — real server-enforced gating
+  (unlike inlining, which view-source exposes). Client: `teamView`/`lockedPanel`/`doUnlock` in
+  `template.html` — public bars for anyone; "Unlock details" fetches + caches (`sessionStorage`) +
+  re-renders full panels. Verified end-to-end (locked path: bars render, panels locked; unlock:
+  premium merges, 19-row rosters + moves + disagreement + live recompute). Set-up in
+  [ui/DEPLOY.md](ui/DEPLOY.md).
+  ⬜ **Next for real subscriptions** (the shared password is one-for-all, no accounts): swap the
+  password check in `ui/api/premium.js` for **per-user auth** (Clerk / Supabase / Auth0 — verify a
+  session token instead of a shared password) and add **Stripe** billing to gate on subscription
+  status. The serverless function is the seam. **Payment/Stripe must be wired by the user** —
+  handling payment credentials is out of scope for the assistant.
 
 ---
 
