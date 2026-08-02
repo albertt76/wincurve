@@ -213,10 +213,13 @@ team-seasons), roughly half the backbone's coverage.
 
 ## UI
 
-**Multi-season app.** The UI now shows the last 5 completed seasons (2021-22..2025-26) plus
-the upcoming one, via a season selector. Historical seasons are walk-forward hindsight
-projections (only pre-season data) with the ACTUAL result shown as a diamond marker and the
-season's MAE in the header -- a visible backtest. Bundles built by `scripts/build_snapshots.py`
+**Multi-season app.** The UI shows the **7 full seasons in the backtest window** (2017-18, 2018-19,
+2021-22..2025-26 — the two shortened seasons 2019-20/2020-21 are skipped) plus the upcoming one,
+via a season selector. Historical seasons are walk-forward hindsight projections (only pre-season
+data) with the ACTUAL result shown as a diamond marker and the season's MAE in the header -- a
+visible backtest. (Older than 2016-17 is blocked on data: `team_rosters` for opening-day roster
+reconstruction only exists 2016-17+, though Vegas lines go back to 2005-06 — see the Open-items
+roadmap for the historical-roster pull that would unblock the rest.) Bundles built by `scripts/build_snapshots.py`
 into `data/processed/snapshots.json` (~700 KB, all seasons inlined); the what-if editor works
 on every season and reproduces each baseline to rounding. Rebuild:
 
@@ -247,11 +250,12 @@ you read per team whether the model or the market landed closer. Historical is *
 Kalshi/Polymarket are too recent to have any history. Marker/readout are source-aware
 (`marketLabel` → "Kalshi" live, "Vegas" historical); the market is still strictly downstream.
 
-**Track record view (shipped 2026-07-31).** A `Projections / Track record` toggle opens a second
-view that scores the model against the market longitudinally: per completed season, our MAE vs
-the Vegas MAE vs a .500 baseline (bars), the honest aggregate (recent 5: **model 7.89, Vegas
-7.12, model closer in 2 of 5** — we do not beat a sharp market on average, as promised), and the
-per-team **best calls / where the market won** (biggest model-vs-Vegas disagreements ranked by
+**Track record view (shipped 2026-07-31, extended to 7 seasons 2026-08-02).** A `Projections /
+Track record` toggle opens a second view that scores the model against the market longitudinally:
+per completed season, our MAE vs the Vegas MAE vs a .500 baseline (bars), the honest aggregate
+(**7 full seasons: model 7.75, Vegas 6.90, model closer in 2 of 7** — we do not beat a sharp
+market on average, as promised), and the per-team **best calls / where the market won**
+(biggest model-vs-Vegas disagreements ranked by
 who was closer to the actual). All computed **client-side from the inlined snapshots**
 (`renderTrackRecord`, `seasonModelMAE`/`seasonMarketMAE`/`seasonBaselineMAE`) — no new data.
 The per-team disagreement payoff is the whole point of the tool, now made visible and gradeable.
@@ -1084,13 +1088,15 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   (`bbref:vegas_ou`). Historical is **Vegas-only** — Kalshi/Polymarket have no history. The UI
   marker/readout are now source-aware (`marketLabel`); the detailed live-Kalshi caveat stays
   upcoming-season-only, the hindsight caveat explains the Vegas ring.
-- ✅ **Model-vs-market-vs-actual "Track record" view — SHIPPED (2026-07-31).** A second view
-  (Projections / Track record toggle) charts, per completed season, our MAE vs the Vegas MAE vs a
-  .500 baseline, plus the honest scoreboard (recent 5: **model 7.89, Vegas 7.12, model closer in
-  2 of 5**) and the per-team "best calls / where the market won" (biggest disagreements that paid
-  off or didn't — UTA 22-23 we said 37 vs Vegas 24, actual 37). All computed **client-side from
-  the already-inlined snapshots** (`renderTrackRecord`), no new data. `seasonMarketMAE` /
-  `seasonModelMAE` / `seasonBaselineMAE` in `ui/template.html`.
+- ✅ **Model-vs-market-vs-actual "Track record" view — SHIPPED (2026-07-31), extended to 7 seasons
+  (2026-08-02).** A second view (Projections / Track record toggle) charts, per completed season,
+  our MAE vs the Vegas MAE vs a .500 baseline, plus the honest scoreboard (**7 full seasons:
+  model 7.75, Vegas 6.90, model closer in 2 of 7**) and the per-team "best calls / where the
+  market won." Extended from 5 to 7 by adding the two remaining FULL seasons in the backtest
+  window (2017-18, 2018-19); the shortened 2019-20/2020-21 are skipped (bubble/covid, market not
+  comparable). All client-side from the inlined snapshots (`renderTrackRecord`), no new data.
+  Further back is blocked on the `team_rosters` 2016-17 floor (Vegas lines go to 2005-06) — a
+  historical `commonteamroster` pull would unblock the full ~19 seasons.
 - ⬜ **Projection time series: re-run on a schedule, log each run, chart the drift (user-requested
   2026-08-01).** Run `project_current.py` on a cadence — roughly monthly in the offseason, a few
   times in-season with a run right after the trade deadline — and **persist each run's per-team
