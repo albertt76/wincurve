@@ -216,3 +216,180 @@ def apply_overrides(projected: pd.DataFrame, overrides: pd.DataFrame,
         out["proj_availability"])
     out["has_override"] = out["override_availability"].notna()
     return out
+
+
+# --- Injury returns (the inverse of known absences) ---------------------------
+
+RETURN_OVERRIDE_PATH = DATA_DIR / "overrides" / "injury_returns.json"
+
+# What counts as a "healthy" season, for auto-detecting the basis when none is given.
+MIN_HEALTHY_MINUTES = 1500
+
+
+def load_return_overrides(path: Path = RETURN_OVERRIDE_PATH) -> pd.DataFrame:
+    """Read manually-entered injury returns: stars who missed most/all of last season
+    but are expected (near-)available this one.
+
+    The INVERSE of load_overrides. A returning star is otherwise mis-projected: his
+    minutes fall back to a bench default (he supplied ~none last year), the availability
+    model drags him down on his games-missed history, and a partial injured-season sample
+    can distort his talent. Each entry re-projects him AS his last healthy season.
+
+    Expected JSON shape (see write_return_override_template):
+
+        {"snapshot_date": "2026-08-02",
+         "returns": [
+           {"player_name": "...", "player_id": 1234, "basis_season": 2024,
+            "expected_availability": 0.95, "minute_restriction": 1.0,
+            "reason": "...", "source": "..."}]}
+
+    basis_season is season_start of the last healthy season to project from (null =
+    auto-detect the most recent >= MIN_HEALTHY_MINUTES season). expected_availability is
+    the share of games we expect him available this year (RAISES the model estimate).
+    minute_restriction (default 1.0) scales the basis minutes for an eased-in return.
+
+    Returns an empty frame when the file is absent -- a legitimate "no returns" state.
+    """
+    cols = ["player_id", "player_name", "basis_season", "expected_availability",
+            "minute_restriction", "reason", "source"]
+    if not path.exists():
+        log.info("no injury-return file at %s; assuming none", path)
+        return pd.DataFrame(columns=cols)
+    payload = json.loads(path.read_text())
+    df = pd.DataFrame(payload.get("returns", []))
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    df["player_id"] = pd.to_numeric(df["player_id"], errors="coerce")
+    df["basis_season"] = pd.to_numeric(df.get("basis_season"), errors="coerce")
+    df["expected_availability"] = pd.to_numeric(
+        df.get("expected_availability"), errors="coerce")
+    if "minute_restriction" not in df.columns:
+        df["minute_restriction"] = 1.0
+    df["minute_restriction"] = pd.to_numeric(
+        df["minute_restriction"], errors="coerce").fillna(1.0)
+    return df.dropna(subset=["player_id"])
+
+
+def write_return_override_template(path: Path = RETURN_OVERRIDE_PATH,
+                                   snapshot_date: str = "") -> Path:
+    """Create a documented, empty injury-return file for hand-editing."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        return path
+    template = {
+        "_README": [
+            "Injury returns -- the INVERSE of known_absences.json. Stars who missed most ",
+            "or all of last season but are expected (near-)available this one. Each entry ",
+            "re-projects the player AS his last healthy season (basis_season): his injured ",
+            "seasons after basis are dropped from the projection inputs so aging + ",
+            "shrinkage restore his pre-injury offense/defense, his minutes are taken from ",
+            "the basis season, and his availability is set to expected_availability. ",
+            "Manual and forward-looking; applied to the LIVE bundle only, never the ",
+            "backtest. basis_season null = auto-detect the most recent healthy season.",
+        ],
+        "snapshot_date": snapshot_date,
+        "returns": [],
+    }
+    path.write_text(json.dumps(template, indent=2))
+    log.info("wrote injury-return template to %s", path)
+    return path
+
+
+def resolve_return_overrides(returns: pd.DataFrame, imp: pd.DataFrame,
+                             *, min_minutes: int = MIN_HEALTHY_MINUTES) -> pd.DataFrame:
+    """Attach each return's basis season and that season's role (minutes per game).
+
+    Fills basis_season where null with the player's most recent season of at least
+    ``min_minutes`` minutes (falling back to his highest-history season). basis_mpg is
+    that season's minutes/games from the impact table. A return for a player with no
+    history is dropped with a warning -- there is nothing to restore him to.
+    """
+    empty = returns.iloc[0:0].assign(
+        basis_season=pd.Series(dtype="int64"), basis_mpg=pd.Series(dtype="float64"))
+    if returns.empty:
+        return empty
+    rows = []
+    for _, e in returns.iterrows():
+        pid = int(e["player_id"])
+        hist = imp[imp["player_id"] == pid].sort_values("season_start")
+        if hist.empty:
+            log.warning("injury-return override for unknown player_id %s (%s); skipping",
+                        pid, e.get("player_name"))
+            continue
+        basis = e.get("basis_season")
+        if pd.isna(basis):
+            healthy = hist[hist["minutes"] >= min_minutes]
+            src = healthy if not healthy.empty else hist
+            basis = int(src["season_start"].iloc[-1])
+        basis = int(basis)
+        brow = hist[hist["season_start"] == basis]
+        if brow.empty:
+            log.warning("basis season %s not found for %s; using latest available",
+                        basis, e.get("player_name"))
+            brow = hist.tail(1)
+            basis = int(brow["season_start"].iloc[0])
+        games = float(brow["games"].iloc[0])
+        basis_mpg = float(brow["minutes"].iloc[0]) / max(games, 1.0)
+        rows.append({
+            "player_id": pid,
+            "player_name": e.get("player_name"),
+            "basis_season": basis,
+            "basis_mpg": basis_mpg,
+            "expected_availability": (float(e["expected_availability"])
+                                      if pd.notna(e.get("expected_availability"))
+                                      else np.nan),
+            "minute_restriction": float(e.get("minute_restriction", 1.0)),
+            "reason": e.get("reason", ""),
+        })
+    if not rows:
+        return empty
+    return pd.DataFrame(rows)
+
+
+def injured_season_mask(frame: pd.DataFrame, resolved: pd.DataFrame) -> pd.Series:
+    """Boolean mask over ``frame`` rows to DROP: a listed player's seasons AFTER his
+    basis season.
+
+    Removing the post-injury partial seasons from a projection input restores pre-injury
+    talent through the normal aging/shrinkage path -- no hand-entered impact numbers.
+    ``frame`` needs player_id and season_start columns (the impact or RAPM tables).
+    """
+    if resolved.empty or frame.empty:
+        return pd.Series(False, index=frame.index)
+    basis = dict(zip(resolved["player_id"].astype("int64"),
+                     resolved["basis_season"].astype(int)))
+    b = frame["player_id"].astype("int64").map(basis)
+    return b.notna() & (frame["season_start"].astype(int) > b)
+
+
+def apply_return_overrides(projected: pd.DataFrame,
+                           resolved: pd.DataFrame) -> pd.DataFrame:
+    """Restore a returning star's role and availability on the roster frame.
+
+    Sets prior_mpg to the basis season's minutes per game (times any eased-in
+    minute_restriction) and proj_availability to the expected value. Unlike
+    apply_overrides -- an absence FLOOR via minimum -- this RAISES: a returning star's
+    expected availability should overwrite the model's injury-history estimate, not be
+    capped by it. Talent is restored upstream by dropping his injured seasons from the
+    projection inputs (injured_season_mask). Sets has_return_override / return_reason for
+    the UI. Applied AFTER apply_overrides, so an explicit return wins over a stale
+    absence entry for the same player.
+    """
+    out = projected.copy()
+    out["has_return_override"] = False
+    out["return_reason"] = ""
+    if resolved.empty or projected.empty:
+        return out
+    mpg = dict(zip(resolved["player_id"].astype("int64"),
+                   resolved["basis_mpg"] * resolved["minute_restriction"]))
+    avail = dict(zip(resolved["player_id"].astype("int64"),
+                     resolved["expected_availability"]))
+    reason = dict(zip(resolved["player_id"].astype("int64"), resolved["reason"]))
+    ids = set(resolved["player_id"].astype("int64"))
+    pid = out["player_id"].astype("int64")
+    ov_mpg, ov_av = pid.map(mpg), pid.map(avail)
+    out["prior_mpg"] = np.where(ov_mpg.notna(), ov_mpg, out["prior_mpg"])
+    out["proj_availability"] = np.where(ov_av.notna(), ov_av, out["proj_availability"])
+    out["has_return_override"] = pid.isin(ids)
+    out["return_reason"] = pid.map(reason).fillna("")
+    return out
