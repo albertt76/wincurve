@@ -1,0 +1,116 @@
+{
+  "_README": [
+    "Injury returns -- the INVERSE of known_absences.json. Superstars who missed most or",
+    "all of LAST season but are expected (near-)available this season. Such a player is",
+    "otherwise mis-projected three ways: (1) his minutes fall back to a bench default",
+    "because he supplied almost none last year (Haliburton -> 8.0 mpg), (2) the availability",
+    "model drags him down on his games-missed history, and (3) a partial injured-season",
+    "sample can distort his talent split (Tatum's 16 games in 2025-26 inflated his defense).",
+    "",
+    "Each entry re-projects the player AS his last healthy season (basis_season): his",
+    "injured/partial seasons after basis are dropped from the projection inputs, so the",
+    "normal aging + shrinkage machinery restores his pre-injury offense/defense (box AND",
+    "RAPM) instead of us hand-entering numbers; his role (minutes per game) is taken from",
+    "the basis season; and his availability is set to the expected value here.",
+    "",
+    "This file is MANUAL and forward-looking, exactly like known_absences.json -- there is",
+    "no reliable free feed for 'expected back and how eased-in'. It is applied to the LIVE",
+    "upcoming-season bundle ONLY, never to the walk-forward backtest (which uses real",
+    "historical rosters and cannot see the future). The numbers below are USER JUDGMENT and",
+    "are meant to be edited. Anything not listed here is handled statistically as usual.",
+    "",
+    "Fields:",
+    "  basis_season          season_start of the last healthy season to project from",
+    "                        (e.g. 2024 = 2024-25). null = auto-detect the most recent",
+    "                        season with >= 1500 minutes.",
+    "  expected_availability share of the 82 games we expect the player available, 0-1.",
+    "                        RAISES the model estimate (an absence floor would lower it).",
+    "  minute_restriction    multiplier on the basis season's minutes-per-game for an",
+    "                        eased-in return (1.0 = full role; 0.95 = light early limit).",
+    "  player_id             must match nba_api PERSON_ID."
+  ],
+  "snapshot_date": "2026-08-02",
+  "returns": [
+    {
+      "player_name": "Jayson Tatum",
+      "player_id": 1628369,
+      "basis_season": 2024,
+      "expected_availability": 0.97,
+      "minute_restriction": 1.0,
+      "reason": "Ruptured right Achilles (May 2025, 2024-25 playoffs). User expects ~100% by opening night. Basis 2024-25: 72 G, 36.4 mpg, +3.5 impact. Drops the distorted 16-game 2025-26 return sample.",
+      "source": "user judgment 2026-08-02"
+    },
+    {
+      "player_name": "Tyrese Haliburton",
+      "player_id": 1630169,
+      "basis_season": 2024,
+      "expected_availability": 0.90,
+      "minute_restriction": 0.95,
+      "reason": "Ruptured right Achilles (June 2025, 2024-25 Finals); missed all of 2025-26. User expects him back near opening night but eased in through ~the first quarter (minute limits, some back-to-back rest). Basis 2024-25: 73 G, 33.6 mpg, +1.9 impact.",
+      "source": "user judgment 2026-08-02"
+    },
+    {
+      "player_name": "Fred VanVleet",
+      "player_id": 1627832,
+      "basis_season": 2024,
+      "expected_availability": 0.90,
+      "minute_restriction": 0.95,
+      "reason": "Torn right ACL (Sept 2025 camp); missed all of 2025-26. Back near opening night at ~13 months out. NOTE: our metric rated his last healthy season (2024-25) at -1.1 impact (below replacement), so restoring 'pre-injury level' restores a slightly negative rating -- the real effect here is fixing his minutes (bench fallback -> ~33 mpg). Basis 2024-25: 60 G, 35.2 mpg, -1.1 impact.",
+      "source": "user judgment 2026-08-02"
+    },
+    {
+      "player_name": "Kyrie Irving",
+      "player_id": 202681,
+      "basis_season": 2024,
+      "expected_availability": 0.88,
+      "minute_restriction": 0.92,
+      "reason": "Torn left ACL (March 2025); missed all of 2025-26. ~19 months out by opening night, so physically back, but 34 and Dallas likely cautious -- eased-in estimate. Basis 2024-25: 50 G (pre-injury), 36.0 mpg, +1.3 impact.",
+      "source": "user judgment 2026-08-02 -- CONFIRM availability"
+    },
+    {
+      "player_name": "Damian Lillard",
+      "player_id": 203081,
+      "basis_season": 2024,
+      "expected_availability": 0.78,
+      "minute_restriction": 0.85,
+      "reason": "Ruptured Achilles (April 2025 playoffs); missed all of 2025-26. Biggest question mark of this list: 36 years old and Achilles ruptures at that age are the least likely to return to prior level -- 'pre-injury contribution' is optimistic here, so availability + minutes are set conservatively. Basis 2024-25: 58 G (pre-injury), 36.1 mpg, +2.2 impact.",
+      "source": "user judgment 2026-08-02 -- CONFIRM; pre-injury level is optimistic at 36 post-Achilles"
+    },
+    {
+      "player_name": "Walker Kessler",
+      "player_id": 1631117,
+      "basis_season": 2024,
+      "expected_availability": 0.90,
+      "minute_restriction": 0.95,
+      "reason": "Played only 5 of 82 last season (2025-26); added per user as an expected injury-return. Young (25) so a near-full recovery is the reasonable base case. Basis 2024-25: 58 G, 30.1 mpg, +2.5 impact.",
+      "source": "user selection 2026-08-02"
+    },
+    {
+      "player_name": "Jalen Williams",
+      "player_id": 1631114,
+      "basis_season": 2024,
+      "expected_availability": 0.90,
+      "minute_restriction": 0.95,
+      "reason": "Missed ~half of last season (33 of 82); added per user as an expected injury-return. Young (26) two-way starter. Basis 2024-25: 69 G, 32.4 mpg, +2.9 impact.",
+      "source": "user selection 2026-08-02"
+    },
+    {
+      "player_name": "Kristaps Porzingis",
+      "player_id": 204001,
+      "basis_season": 2024,
+      "expected_availability": 0.72,
+      "minute_restriction": 0.90,
+      "reason": "Missed most of last season (32 of 82); added per user. Chronically injury-prone (his 2024-25 basis was itself only 42 G), so availability is set conservatively even in a 'return' -- durability, not talent, is the question. Basis 2024-25: 42 G, 28.8 mpg, +3.4 impact.",
+      "source": "user selection 2026-08-02 -- durability discount applied"
+    },
+    {
+      "player_name": "Domantas Sabonis",
+      "player_id": 1627734,
+      "basis_season": 2024,
+      "expected_availability": 0.85,
+      "minute_restriction": 0.95,
+      "reason": "Missed most of last season (19 of 82); added per user as an expected injury-return. Basis 2024-25: 70 G, 34.7 mpg, +1.7 impact.",
+      "source": "user selection 2026-08-02"
+    }
+  ]
+}

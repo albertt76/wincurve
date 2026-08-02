@@ -32,8 +32,9 @@ from nbaproj.rapm_blend import (  # noqa: E402
     backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def,
 )
 from nbaproj.rosters import (  # noqa: E402
-    apply_overrides, draft_history, fit_rookie_priors, load_overrides,
-    rookie_projection,
+    apply_overrides, apply_return_overrides, draft_history, fit_rookie_priors,
+    injured_season_mask, load_overrides, load_return_overrides,
+    resolve_return_overrides, rookie_projection,
 )
 from nbaproj.simulate import (  # noqa: E402
     estimate_game_params, extract_schedule, fit_rating_sigma, roster_turnover,
@@ -89,11 +90,29 @@ def main() -> int:
     #     aggregated separately (decoupled): net-neutral on accuracy, but it lets us attribute
     #     a team's rating to its offense vs its defense, and surface where our (weak) box-score
     #     defense disagrees with play-by-play RAPM. ---
+    # --- injury-return overrides (inverse of known_absences): stars back from a
+    #     season-long injury, projected AS their last healthy season. A returning star's
+    #     post-injury partial seasons are dropped from the projection INPUTS, so the normal
+    #     aging + shrinkage restore his pre-injury offense/defense (box AND RAPM) instead of
+    #     us hand-entering numbers; his minutes and availability are restored later, after
+    #     the roster merge. Live bundle only -- these never touch the walk-forward backtest.
+    #     Filtering only fires for a basis within two seasons of TARGET (else the reprojected
+    #     player would fail project_next_season's "seen recently" gate and fall to a rookie
+    #     prior); an older basis keeps its natural minute-weighted projection, which already
+    #     leans on the last healthy season. Minutes/availability still restore for any basis.
+    returns_raw = load_return_overrides()
+    returns = resolve_return_overrides(returns_raw, imp)
+    returns_recent = returns[returns["basis_season"] >= TARGET - 2] if not returns.empty \
+        else returns
+    imp_proj = imp[~injured_season_mask(imp, returns_recent)]
+
     curves = aging_curves(build_transitions(imp, min_minutes=500),
                           ["impact", "off_impact", "def_impact"], corrected=True)
-    proj = project_next_season(imp, curves, target_season=TARGET, skill="impact")
-    proj_off = project_next_season(imp, curves, target_season=TARGET, skill="off_impact")
-    proj_def = project_next_season(imp, curves, target_season=TARGET, skill="def_impact")
+    proj = project_next_season(imp_proj, curves, target_season=TARGET, skill="impact")
+    proj_off = project_next_season(imp_proj, curves, target_season=TARGET,
+                                   skill="off_impact")
+    proj_def = project_next_season(imp_proj, curves, target_season=TARGET,
+                                   skill="def_impact")
     rep = replacement_level(imp, "impact")
     rep_off = replacement_level(imp, "off_impact")
     rep_def = replacement_level(imp, "def_impact")
@@ -102,7 +121,8 @@ def main() -> int:
     # a turned-over roster (whose defense the carryover can't follow) leans on RAPM. Worth
     # +0.19 wins walk-forward, all folds -- see nbaproj.rapm_blend / scripts/gate_rapm_blend.py.
     rapm_imp = build_rapm_impact(imp, PROC)
-    proj_def_rapm = project_rapm_def(rapm_imp, TARGET)
+    proj_def_rapm = project_rapm_def(
+        rapm_imp[~injured_season_mask(rapm_imp, returns_recent)], TARGET)
     rep_def_rapm = replacement_level(rapm_imp, "def_impact")
 
     # --- rookies: no NBA record, so priors by draft slot ---
@@ -158,6 +178,10 @@ def main() -> int:
                           how="left")
     roster["proj_availability"] = roster["proj_availability"].fillna(0.85)
     roster = apply_overrides(roster, load_overrides(), team_games=FULL_SEASON_GAMES)
+    # Injury returns: restore the returning star's role (prior_mpg from the basis season,
+    # times any eased-in minute_restriction) and set his availability to the expected value.
+    # Applied AFTER the absence floor so an explicit return wins for the same player.
+    roster = apply_return_overrides(roster, returns)
 
     # --- calibration and uncertainty, fitted on history. Decoupled offense/defense; the
     #     defensive aggregate blends the box and RAPM arms by roster turnover, and the defensive
@@ -340,7 +364,10 @@ def main() -> int:
                 "avail": round(float(p["proj_availability"]), 5),
                 "rookie": bool(p["is_rookie"]),
                 "override": bool(p.get("has_override", False)),
+                "ret_override": bool(p.get("has_return_override", False)),
             }
+            if p.get("has_return_override", False):
+                rec["ret_reason"] = str(p.get("return_reason", ""))
             dc = def_cmp.get(int(p["player_id"]))
             if dc:
                 rec["box_def"] = round(float(dc["box_def"]), 3)
