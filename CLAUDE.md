@@ -1106,6 +1106,46 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   the real blocker for retro-dating. Doesn't need to be logged itself (user noted this); it is a
   presentation layer over a transactions source + the existing recompute. UX: a "trades" list per
   team with an "undo" toggle that shows before/after win projections.
+- ⬜ **In-season / rest-of-season projection model (user-requested 2026-08-01; the big one).**
+  Today the model is **preseason-only by design** (see the Timing-scope decision), so a mid-season
+  re-run of `project_current.py` re-projects from the current roster using *last* season's player
+  talent + carryover — it sees trades/injuries but **not a single game played this year**. This
+  item is a genuinely **new model** (its own calibration + its own walk-forward gate — NOT a flag
+  on the current one) that folds in-season data in, intended for runs at ~20-25 games and again
+  after the trade deadline (~50 games). It is also what makes the projection-time-series charts
+  above show *team form* rather than only roster composition.
+
+  **The target changes.** Preseason predicts full-season win% from a standing start; this predicts
+  **rest-of-season** win%, then adds the wins already banked (which have zero error). So report the
+  honest metric as **rest-of-season MAE**, not full-season MAE — the latter mechanically collapses
+  as the banked share grows (~60% of games are decided by game 50) and would flatter the model
+  for the wrong reason.
+
+  **Two signals, unequal value:**
+  1. *Team results so far* — the big, cheap lever. Schedule-adjusted point differential through
+     N games is a strong rest-of-season predictor from the game log we already have (the sim
+     already opponent-adjusts margins). The current carryover is a weaker version of this idea
+     (it corrects by *last* season's residual); in-season results correct by *this* season's,
+     fresher and stronger.
+  2. *Per-player talent update* — blend this-season production into each player's projection,
+     weighted by sample seen (~30% at 25 games, ~61% at 50), DARKO-style. **Sequencing matters:**
+     box stats stabilize fast (points ~64 poss) while plus-minus/RAPM stabilize slowly (1000+
+     poss), so lean on the in-season **box** update at the 25-game run and let in-season **RAPM**
+     (computable on partial-season stints via `nbaproj.bulk_pbp`, but thin early) matter more by
+     the 50-game run.
+
+  **The trap to get right: regression to the mean.** A hot 20-game start is part skill, part luck
+  (full-season luck SD ~4.3 wins; larger in win% terms over 20 games). Naïvely projecting current
+  pace to 82 massively overreacts. The correct blend *is* the regression, and calibrating that
+  weight (rising with games played) is most of the modeling effort — get it wrong and the model
+  screams about every fast starter.
+
+  **Backtest design (mandatory before shipping, per project discipline):** walk-forward, for each
+  past season reconstruct the state at game 25/50 (opening-adjusted roster, box + PBP stats-so-far,
+  record-so-far) and predict the remaining games; score rest-of-season MAE against actual, vs two
+  baselines — (i) preseason projection carried forward unchanged, and (ii) naïve "current pace to
+  82." Data supports this: game logs back to 2005, PBP back to 2013. Expect it to beat both, more
+  so at 50 than 25.
 
 ---
 
