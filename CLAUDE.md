@@ -1146,6 +1146,46 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   baselines — (i) preseason projection carried forward unchanged, and (ii) naïve "current pace to
   82." Data supports this: game logs back to 2005, PBP back to 2013. Expect it to beat both, more
   so at 50 than 25.
+- ⬜ **Defensive-metric experiments — remaining untried directions (user-requested 2026-08-02).**
+  Defense is the model's weakest link; the obvious ideas are shipped or in the negative-results
+  table (RAPM blend-weight, DRAYMOND all-category shot defense, All-Defense as input). What is
+  genuinely untried, ranked by value/effort — most will land "flat aggregate MAE, better per-player
+  credibility" (the recurring pattern), except #4 which targets the root cause:
+  1. **Refit the box-informed RAPM prior on the CURRENT box defense (cheapest).** The RAPM prior
+     still anchors on the *pre-fix* box defense (before position-relative rebounding, tracking, and
+     the BPM position fallback). Refit it on the improved box; low effort, gate-able. Flagged
+     low-hanging in the RAPM sections above.
+  2. **Multi-season (2-3yr, decayed) RAPM.** Ours is single-season, which is why it is noisy and
+     needs heavy box-shrinkage; real RAPM systems use multi-year windows. All seasons' stints exist
+     via `nbaproj.bulk_pbp`. A more stable defensive signal that could change the blend calculus.
+  3. **nba_api matchup data (`leagueseasonmatchups` / box-score matchups, 2017-18+, free).** The
+     one public data class that counts perimeter-containment possessions (who guarded whom, points
+     allowed as primary defender) — the exact thing shot-zone tracking can't see. LEBRON's
+     defensive-role input. Expect flat aggregate MAE, materially better per-player defense (same
+     trade rim/hustle made). The honest frontier for perimeter defense.
+  4. **Player-level box→PURE-RAPM refit with team fixed effects (root cause; deep-dive item 6).**
+     Box weights are currently fit against TEAM ratings, which is why defense is ~60%
+     rebounds+blocks. Refit at the PLAYER level against pure RAPM with a per-team constant, so
+     defensive coefficients come from teammate-vs-teammate contrasts — generalizes the
+     one-feature-at-a-time confound removal to all features. Highest ceiling, most work; may come
+     out MAE-neutral (carryover substitutes), but principled. Use PURE (not box-informed) RAPM to
+     avoid circularity; pure RAPM already generated 2013-2025 in `data/processed/pure_rapm/`.
+  5. **Position-relative standardize the rejected shot-defense features.** `p2_val`/`lt10_val`
+     (already pulled, `data/processed/shot_defense.parquet`) lost the gate because — unlike
+     `dreb_p100` — they were standardized league-wide and reinflated the "is a big" confound.
+     Adding them to `POSITION_RELATIVE_FEATURES` targets that exact failure mode. Cheap.
+- ⬜ **Auth / freemium access + eventual subscription (user-requested 2026-08-02).** Goal: anonymous
+  visitors see a limited view; login unlocks the explanations/details; a subscription tier later.
+  **Architectural implication (important):** the app is currently a *self-contained static file*
+  (`ui/projections.html`, all data inlined, no backend, served from `ui/` on Vercel). Anything
+  inlined is visible via view-source, so gating requires moving the premium content behind a
+  **server-side gate** — an auth provider (Clerk / Supabase / Auth0) + a serverless endpoint that
+  returns the premium JSON only to logged-in users, with the bundle split into public-limited
+  (inlined) and premium (fetched after auth). That likely turns `ui/` from a static file into a
+  small app. **Payment (Stripe) is a further step and must be wired by the user** — handling
+  payment credentials is out of scope for the assistant. Two paths: (a) near-term lightweight — a
+  single shared-password gate on the details panel (~an afternoon, no accounts); (b) real freemium
+  — the per-user architecture above, Stripe later. Decide (a) vs deferring to (b) when picked up.
 
 ---
 
