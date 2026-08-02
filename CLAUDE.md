@@ -173,13 +173,16 @@ Stored in `data/` (gitignored; regenerate with `python scripts/fetch_all.py`).
 | `rim_defense` (tracking) | 6,823 | 13 | 2013-14 → 2025-26 |
 | `hustle` | 5,455 | 10 | 2016-17 → 2025-26 |
 | `player_passing` (tracking) | 6,942 | 13 | 2013-14 → 2025-26 |
+| `matchups` (defensive, `MatchupsRollup`) | 20,022 | 9 | 2017-18 → 2025-26 |
 | `player_awards` (All-NBA/All-Def) | 572 | 29 | 1997 → 2025 (honoree pool) |
 | preseason win totals | 630 | 21 | 2005-06 → 2025-26 |
 
 `rim_defense` + `hustle` now feed the **defensive** metric (`add_tracking_features`);
 `player_passing` (potential/secondary assists, points created) is pulled for the offensive
-creation experiment. Tracking is ~half the 21-season backbone, so these features are
-league-average-filled before 2013-14/2016-17.
+creation experiment. `matchups` (who guarded whom, points/FG% allowed as primary defender) is
+pulled and kept as a clean asset but its perimeter-containment feature was **rejected** — too noisy
+even multi-season-pooled (see the negative-results table). Tracking is ~half the 21-season backbone,
+so these features are league-average-filled before their first season.
 
 **Availability cliffs that constrain the fit work:** tracking data starts 2013-14 and
 hustle data 2016-17. So "fit" features exist for only 10-13 seasons (300-390
@@ -939,6 +942,10 @@ is not repeated.
 | **Luck-adjusted carryover residual** (LEBRON-style; `precheck_carryover_luck.py`) | Replace realized 3P%/FT% with league average before computing the residual to persist. Killed at the pre-check: luck-adjusted N−1 correlates **worse** with N's real rating (defense r² 0.306→0.284, offense 0.310→0.226) — own FT%/3P% are far more persistent than assumed (own FT% r²=0.32) while only the *allowed* side is mostly luck (opp 3P% r²=0.058); a blanket adjustment strips real offensive skill along with defensive noise. Joint regression: the "luck" component's coefficient (+0.45) is nearly as large as the "skill" core's (+0.59) — not noise. Corroborates PIPM (the one luck-adjusted metric in the public retrodiction table) finishing 6th of 10. |
 | **Per-feature/shared shrinkage constant bump** (`gate_shrinkage_constant.py`) | DARKO/EPM-style per-stat stabilization constants. Stage 1 found no per-feature story — off_impact, def_impact, and combined impact all want the SAME higher shrink=600 vs shipped 200 (player-level MAE −1.4 to −1.6%). Stage 2 (real 5000-sim gate): doesn't survive team aggregation — **7.628 → 7.644, −0.017 ± 0.025 SE, 2/6 folds**, no coherent fold pattern. Classic player-metric-improves-team-doesn't, same shape as RAPM. **Kept shrink=200.** |
 | **DRAYMOND-style all-category shot defense** (`gate_shot_defense_categories.py`) | Extended nearest-defender tracking from rim-only to all 6 shot-distance categories to attack perimeter containment. Stage 1 killed exactly the perimeter zones (3P r²=0.002, >15ft r²=0.010 — noise); only 2-pointers/less-than-10ft survived stability. Stage 2 real-sim gate: **decisively worse — 7.628 → 7.682, −0.054 ± 0.016 SE (~3.4 SE), 1/6 folds**. Root cause: the survivors are stable because they measure "is a rim-patrolling big" (Gobert/Embiid/Adams further inflated), and — unlike `dreb_p100` — are not position-relative standardized, so they reintroduce the exact confound that fix removed. **Stability alone is not a sufficient pre-check filter.** Data pull + merge code kept (unused by default); untested follow-up is position-relative standardizing these two features specifically. |
+| **Position-relative shot defense** — the DRAYMOND follow-up (`gate_shot_defense_posrel.py`) | Added `p2_val`/`lt10_val` to `POSITION_RELATIVE_FEATURES` (standardized within position like `dreb_p100`), the fix the DRAYMOND rejection flagged. It **works as designed** — the confound is cleanly removed (corr with "is a center" +0.40 → −0.06; `def_impact`-vs-`dreb` 0.52 → 0.42), so unlike the league-wide version it does NOT hurt (−0.054 → **−0.025 ± 0.027 SE**, within noise). But it yields **no net gain**: the surviving signal is redundant with the shipped rim tracking (p2 +0.60, lt10 +0.72 with `rim_supp`/`rim_val`). Confirms the mechanism, doesn't ship. **Lesson: removing a confound stops the damage; it doesn't create signal that isn't there.** |
+| **Player-level box→pure-RAPM refit with team FE** — root cause (`gate_defense_playerlevel_refit.py`) | Refit the box defensive metric at the PLAYER level against PURE RAPM (2013-25) with team fixed effects, instead of the team-defensive-rating target that makes box defense ~60% rebounds+blocks. Mechanism confirmed (dreb weight collapses, `def_impact`-vs-`dreb` 0.52 → 0.46), but the win is **circular** (the on/off feature `def_rating_rel` ≈ a crude RAPM carries most of it) and the honest box-only version is weak (player-level R²0.13) and **neutral-to-worse at the win level: 7.59 → 7.69 (no FE) / 7.65 (FE), within ~1 SE but negative, 3/6 folds**. blocks/steals do NOT rise (individual box stops are weak RAPM predictors). Same shape as the RAPM-swap / shrinkage-constant negatives — improves the player metric, dies at the team win number. |
+| **Multi-season decayed RAPM** (`precheck_multiseason_rapm.py`) | Pool 2-3yr of stints with decay for a stabler RAPM. Killed at the pre-check: multi-season is ≤ single-season on the next-season team-defense predictive test in **all 6 variant-transitions** (box-informed & pure, two decays), and the box metric now out-predicts every RAPM variant (0.611 box vs 0.591 single vs 0.583 multi). At alpha=2000 single-season regulars already have ample possessions, so pooling injects staleness, not stability. Corroborates pure-RAPM 7.83 > pure-box 7.77 at the win level after this cycle's box fixes. |
+| **nba_api matchup data for perimeter containment** (`precheck_matchup_defense.py`) | `MatchupsRollup` (who guarded whom, points/FG% allowed as primary defender). Feasibility is a clean positive (1 call/season, ToS-safe) so the pull is **wired and the data kept** (`nbaproj.ingest.matchups`, `data/processed/matchups.parquet`, 2017-18+). But the containment feature `m_fgpct` fails YoY stability even multi-season-pooled (r²≈0.05→0.08, well below usable) — DRAYMOND redux, because nearest-defender labels lack arm position/facing. The one stable feature (`m_tovp100`) restates steals; the other (`m_ptsp100`) is assignment-endogenous (hides weak defenders on weak scorers → Trae Young rates "elite"). No feature worth a gate. |
 
 **On the roster-"bloat" hypothesis (investigated, rejected).** The live July roster snapshot
 carries 20–24 players and >290 mpg of prior-team minutes for ~8 teams (ATL 465 raw / 353
@@ -1257,33 +1264,29 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   baselines — (i) preseason projection carried forward unchanged, and (ii) naïve "current pace to
   82." Data supports this: game logs back to 2005, PBP back to 2013. Expect it to beat both, more
   so at 50 than 25.
-- ⬜ **Defensive-metric experiments — remaining untried directions (user-requested 2026-08-02).**
-  Defense is the model's weakest link; the obvious ideas are shipped or in the negative-results
-  table (RAPM blend-weight, DRAYMOND all-category shot defense, All-Defense as input). What is
-  genuinely untried, ranked by value/effort — most will land "flat aggregate MAE, better per-player
-  credibility" (the recurring pattern), except #4 which targets the root cause:
-  1. ✅ **DONE (2026-08-02): Refit the box-informed RAPM prior on the CURRENT box defense.**
-     Shipped +0.036 wins (7.61 → 7.58); `scripts/build_rapm.py` is now the canonical generator.
-     See "RAPM prior re-anchored on the current box defense" above.
-  2. **Multi-season (2-3yr, decayed) RAPM.** Ours is single-season, which is why it is noisy and
-     needs heavy box-shrinkage; real RAPM systems use multi-year windows. All seasons' stints exist
-     via `nbaproj.bulk_pbp`. A more stable defensive signal that could change the blend calculus.
-  3. **nba_api matchup data (`leagueseasonmatchups` / box-score matchups, 2017-18+, free).** The
-     one public data class that counts perimeter-containment possessions (who guarded whom, points
-     allowed as primary defender) — the exact thing shot-zone tracking can't see. LEBRON's
-     defensive-role input. Expect flat aggregate MAE, materially better per-player defense (same
-     trade rim/hustle made). The honest frontier for perimeter defense.
-  4. **Player-level box→PURE-RAPM refit with team fixed effects (root cause; deep-dive item 6).**
-     Box weights are currently fit against TEAM ratings, which is why defense is ~60%
-     rebounds+blocks. Refit at the PLAYER level against pure RAPM with a per-team constant, so
-     defensive coefficients come from teammate-vs-teammate contrasts — generalizes the
-     one-feature-at-a-time confound removal to all features. Highest ceiling, most work; may come
-     out MAE-neutral (carryover substitutes), but principled. Use PURE (not box-informed) RAPM to
-     avoid circularity; pure RAPM already generated 2013-2025 in `data/processed/pure_rapm/`.
-  5. **Position-relative standardize the rejected shot-defense features.** `p2_val`/`lt10_val`
-     (already pulled, `data/processed/shot_defense.parquet`) lost the gate because — unlike
-     `dreb_p100` — they were standardized league-wide and reinflated the "is a big" confound.
-     Adding them to `POSITION_RELATIVE_FEATURES` targets that exact failure mode. Cheap.
+- ✅ **Defensive-metric experiments — ALL FIVE RESOLVED (user-requested 2026-08-02).** Defense is
+  the model's weakest link; a parallel scoping workflow pre-checked all five untried directions, and
+  each was then taken to the point its verdict was decisive. **The meta-finding: after this cycle's
+  box-metric fixes (position-relative rebounding + rim/hustle tracking + BPM position fallback +
+  RAPM-prior refit), the defensive metric sits at a local optimum — every further direction is
+  neutral-to-negative at the team-win level.** Details per item and the "why" are in the
+  measured-negative-results table above (five new rows: position-relative shot defense, player-level
+  pure-RAPM refit, multi-season RAPM, matchup data).
+  1. ✅ **SHIPPED: refit the box-informed RAPM prior on the CURRENT box defense.** +0.036 wins
+     (7.61 → 7.58); `scripts/build_rapm.py` is the canonical generator. Only positive result.
+  2. ⚠️ **SKIPPED at pre-check: multi-season (2-3yr, decayed) RAPM.** Worse than single-season in
+     all 6 variant-transitions; box now out-predicts every RAPM variant (`scripts/precheck_multiseason_rapm.py`).
+  3. ⚠️ **REJECTED (feature); data KEPT: nba_api matchup data.** `MatchupsRollup` wired into ingest
+     (`nbaproj.ingest.matchups`, `data/processed/matchups.parquet`, 2017-18+), but the containment
+     feature `m_fgpct` fails YoY stability even pooled (r²≈0.05-0.08 — DRAYMOND redux); the stable
+     feature restates steals (`scripts/precheck_matchup_defense.py`).
+  4. ⚠️ **GATED, REJECTED: player-level box→pure-RAPM refit with team FE.** Mechanism works (dreb
+     weight collapses) but the win is circular and the honest box-only version is neutral-to-worse
+     at the win level (7.59 → 7.65/7.69, `scripts/gate_defense_playerlevel_refit.py`).
+  5. ⚠️ **GATED, REJECTED: position-relative shot-defense features.** Position-relative *does*
+     neutralize the confound damage (the league-wide version was −0.054; this is −0.025, within
+     noise) but yields no net gain — redundant with the shipped rim tracking
+     (`scripts/gate_shot_defense_posrel.py`).
 - ⬜ **Auth / freemium access + eventual subscription (user-requested 2026-08-02).** Goal: anonymous
   visitors see a limited view; login unlocks the explanations/details; a subscription tier later.
   **Architectural implication (important):** the app is currently a *self-contained static file*
