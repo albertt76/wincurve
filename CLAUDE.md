@@ -14,10 +14,11 @@ the market on this team, and here is the structural reason why."
 
 Current projection target: **2026-27 season**. Shipped backtest MAE (roster mode + carryover +
 RAPM defensive blend + rim/hustle tracking defense + position-relative rebounding + BPM position
-fallback for pre-2013-14 seasons): **7.61 wins** vs market 6.88 (7.95 before the RAPM def-blend;
-7.77 before tracking defense; 7.74 before the position-relative-rebounding fix — that last step
-is a real +0.11, both more accurate AND fairer to guards; 7.62 before the position-fallback fix
-that extends it to the 8 seasons with no listed positions — a further +0.01).
+fallback + RAPM prior re-anchored on the current box defense): **7.58 wins** vs market 6.88 (7.95
+before the RAPM def-blend; 7.77 before tracking defense; 7.74 before the position-relative-rebounding
+fix — a real +0.11, both more accurate AND fairer to guards; 7.62 before the position-fallback fix
+that extends it to the 8 seasons with no listed positions, +0.01; 7.61 before re-anchoring the RAPM
+prior on the current box defense, a further +0.03).
 
 See [DESIGN.md](DESIGN.md) for full architecture, statistical traps, and staged plan.
 
@@ -124,7 +125,8 @@ Walk-forward means: to predict season N, train only on seasons before N. All err
 | Model / baseline | MAE | Notes |
 |---|---|---|
 | Market (preseason win totals) | **6.88** | the yardstick; we do not beat it |
-| **wincurve — + BPM position fallback (pre-2013-14)** | **7.61** | shipped; +0.011 (7.622 → 7.612, ±0.0039 SE, 5/6 folds) — fixes position-relative rebounding's silent no-op on 8 of 21 backbone seasons |
+| **wincurve — + RAPM prior re-anchored on current box defense** | **7.58** | shipped; +0.036 (7.628 → 7.591 paired-seed, ±0.017 SE, 5/6 folds) — the RAPM prior was stale (pre position/tracking fixes) |
+| wincurve — + BPM position fallback (pre-2013-14) | 7.61 | prior; +0.011 (7.622 → 7.612, ±0.0039 SE, 5/6 folds) — fixes position-relative rebounding's silent no-op on 8 of 21 backbone seasons |
 | wincurve — + position-relative defensive rebounding | 7.62 | prior; +0.11 (7.74 → 7.62, ±0.055 SE, 6/9 folds) — first defensive change to help accuracy AND credibility |
 | wincurve — + RAPM def-blend + rim/hustle tracking def | 7.74 | prior; tracking step within noise (7.77 → 7.74) — kept for per-player credibility |
 | wincurve — roster + carryover + RAPM def-blend | 7.77 | before the tracking-defense features |
@@ -700,8 +702,9 @@ positive (Holiday −0.09 → +0.25, Anunoby −0.09 → +0.21, Dort −0.05 →
 over-credit drops (Queta +0.24 → −0.68, KAT +0.44 → −0.49); **Wembanyama stays #1 at +3.34** (he
 loses only the rebounding-inflated part of his old +4.38). Why it beats the earlier "can't fix
 box defense by adding box features" prior: this isn't a new feature, it's *removing a positional
-confound* from an existing one. The RAPM box-informed prior still uses the pre-fix box defense
-(conservative, as with rim/hustle); refitting it could recover a little more.
+confound* from an existing one. (The RAPM box-informed prior used to still anchor on the pre-fix
+box defense; that shortcut has since been closed — see "RAPM prior re-anchored on the current box
+defense" below, +0.03 wins.)
 
 #### ✅ SHIPPED: BPM position fallback for the 8 seasons with no listed position (2026-07-31)
 
@@ -731,6 +734,26 @@ positions. Individual effect is small and mechanistically clean: correlation bet
 post-fix `def_impact` for scored rows (2013-2025) is 0.9995 (mean |Δ| 0.026), and the biggest
 movers are 2013-scored players — whose calibration is 100% dependent on the newly-fixed
 pre-2013 training rows, exactly as expected.
+
+#### ✅ SHIPPED: RAPM prior re-anchored on the current box defense (2026-08-02)
+
+The cheapest of the roadmapped defensive experiments, and it worked. The box-informed RAPM
+parquets were being generated as a side effect of `rapm_predict.py`/`rapm_integration_test.py`,
+with the box prior *as it stood then* — before position-relative rebounding, rim/hustle tracking,
+and the BPM position fallback improved the box defensive metric. So the shipped RAPM arm was
+anchored to a stale box, exactly the shortcut flagged (conservatively) in the sections above.
+**`scripts/build_rapm.py`** is now the one canonical generator: for each season 2013-14+ it fits
+ridge RAPM (alpha=2000) shrunk toward the **current** box `off_impact`/`def_impact` as its prior
+(contemporaneous, point-in-time-safe), writing `data/processed/rapm_<season>_a2000.parquet`.
+
+Gate (`scripts/gate_defense_prior.py`, 5000 sims, paired seeds): win MAE **7.628 → 7.591
+excl-short, +0.036 ±0.017 SE (~2.2 SE), 5/6 folds improved**, coverage held (78.3 → 78.9%);
+official-seed headline **7.61 → 7.58**. Biggest gains 2025-26 (+0.098) and 2018-19 (+0.073).
+Reproducibility caveat: the NEW side reproduces via `build_rapm.py --refresh`; the OLD (stale)
+prior is not reconstructable (its pre-fix box prior no longer exists), so the A/B was a one-time
+measurement (recorded in `gate_defense_prior.py`). **Going forward, a box-metric change means:
+regenerate `player_impact.parquet` → re-run `build_rapm.py` → rebuild bundles**, so the prior
+never silently goes stale again.
 
 #### ⚠️ Per-feature shrinkage/recency constants gated and REJECTED (2026-07-31)
 
@@ -1171,10 +1194,9 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   table (RAPM blend-weight, DRAYMOND all-category shot defense, All-Defense as input). What is
   genuinely untried, ranked by value/effort — most will land "flat aggregate MAE, better per-player
   credibility" (the recurring pattern), except #4 which targets the root cause:
-  1. **Refit the box-informed RAPM prior on the CURRENT box defense (cheapest).** The RAPM prior
-     still anchors on the *pre-fix* box defense (before position-relative rebounding, tracking, and
-     the BPM position fallback). Refit it on the improved box; low effort, gate-able. Flagged
-     low-hanging in the RAPM sections above.
+  1. ✅ **DONE (2026-08-02): Refit the box-informed RAPM prior on the CURRENT box defense.**
+     Shipped +0.036 wins (7.61 → 7.58); `scripts/build_rapm.py` is now the canonical generator.
+     See "RAPM prior re-anchored on the current box defense" above.
   2. **Multi-season (2-3yr, decayed) RAPM.** Ours is single-season, which is why it is noisy and
      needs heavy box-shrinkage; real RAPM systems use multi-year windows. All seasons' stints exist
      via `nbaproj.bulk_pbp`. A more stable defensive signal that could change the blend calculus.
