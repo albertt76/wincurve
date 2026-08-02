@@ -361,11 +361,17 @@ nbaproj/
   baselines.py    walk-forward naive baselines + noise floor
   odds.py         historical preseason win totals scraper + strict franchise join
   market_live.py  LIVE Kalshi win-total ladders -> implied distribution (downstream only)
+  rosters.py      draft priors + rookie projection; known-absence AND injury-return overrides
 scripts/
   fetch_all.py       full historical pull (idempotent, resumable)
   baseline_report.py Stage 1 report: the bar
   fetch_market.py    pull live Kalshi lines -> data/processed/market_2026_27.json
+  injury_return_candidates.py  scan for injury_returns.json candidates (data-only shortlist)
 ```
+
+Override files (hand-authored, tracked in git; `data/overrides/` is NOT gitignored):
+`data/overrides/known_absences.json` (players expected to miss time) and
+`data/overrides/injury_returns.json` (its inverse — returning-from-injury stars).
 
 ---
 
@@ -462,12 +468,68 @@ scripts/
 | First-round picks / rookies | ✅ | Draft-position priors in `nbaproj/rosters.py` |
 | Injury/suspension **risk** | ✅ | Availability model from games-missed history + age |
 | **Specific known absences** | ⚠️ manual | `data/overrides/known_absences.json` — no free feed exists |
+| **Returning-from-injury stars** | ⚠️ manual | `data/overrides/injury_returns.json` — the inverse override (see below) |
 
 **A projection is only as current as its snapshot date.** Trades continue all season; a
 July projection cannot know about a November deal. Always record the snapshot date with
 any output. Historical injury *reasons* are unavailable — Pro Sports Transactions is
 behind a Cloudflare bot challenge we will not bypass — so absences mix injury with
 rest, suspension and coach's decision. Hence the name "availability", not "health".
+
+### ✅ SHIPPED: injury-return override (the inverse of known absences)
+
+A star who missed most or all of *last* season is mis-projected three ways, all fixed by
+`data/overrides/injury_returns.json` + `nbaproj/rosters.py` (`load_return_overrides`,
+`resolve_return_overrides`, `injured_season_mask`, `apply_return_overrides`), wired into
+`scripts/project_current.py`:
+
+1. **Minutes** fall back to the 8.0-mpg bench default, because `prior_mpg` reads only
+   `LAST_HISTORY` and he supplied ~none — Haliburton was projected at **8.0 mpg**, an
+   All-Star point guard as a deep reserve. This was the catastrophic bug.
+2. **Availability** is dragged down by the games-missed model (Tatum **54%**).
+3. **Talent** can be distorted by a partial injured-season sample (Tatum's 16-game 2025-26
+   inflated his defense to +2.09 / deflated offense to +1.40 vs a healthy +1.7 / +1.8).
+
+Each entry re-projects the player **as his last healthy season** (`basis_season`): his
+post-injury partial seasons are dropped from the projection *inputs* (`injured_season_mask`
+over both the box `imp` and the RAPM frame), so the normal aging + shrinkage restore his
+pre-injury off/def — box **and** RAPM — with no hand-entered impact numbers; `prior_mpg`
+becomes the basis season's minutes × an optional eased-in `minute_restriction`; and
+`proj_availability` is **set** to `expected_availability` (a RAISE — unlike the absence
+override, which floors via `min`). The input-filtering only fires for a basis within two
+seasons of TARGET (else the reprojected player fails `project_next_season`'s "seen
+recently" gate); minutes/availability restore for any basis.
+
+**Live bundle only.** Like `known_absences.json`, it is manual, forward-looking, and applied
+in `project_current.py` after the model runs — it **never touches the walk-forward
+backtest** (which uses real historical rosters and cannot see the future), so there is no
+gate to clear; it is a judgment overlay, and the numbers are user-editable. Per-player it
+emits `ret_override` / `ret_reason`; the UI shows a purple **`back`** badge (hover = reason)
+and a glossary entry.
+
+Shipped list (2026-08-02, all Achilles/ACL, ~13–19 months out by opening night) and effect:
+
+| Player | Team | Before → after wins | Driver |
+|---|---|---|---|
+| Jayson Tatum | BOS | 59.3 → **62.3** | avail 54→97%, mpg 32.6→36.4, split cleaned |
+| Tyrese Haliburton | IND | 32.9 → **34.7** | mpg **8.0→31.9** (the fallback fix) |
+| Kyrie Irving | DAL | 34.0 → **35.9** | role + availability restored (eased) |
+| Damian Lillard | POR | 40.4 → **42.1** | restored but eased (36 y/o post-Achilles) |
+| Fred VanVleet | HOU | 48.8 → **48.0** | see below — went *down* |
+
+**The VanVleet lesson.** Our metric rated his last healthy season (2024-25) at **−1.1
+impact** (below replacement), so "restore pre-injury level" restores a slightly *negative*
+rating and Houston drops 0.8 — the real effect is fixing his minutes (bench fallback → ~33
+mpg), not a boost. A legitimate, explainable disagreement (the user sees him as impactful;
+the metric does not), surfaced rather than papered over. This is why the override restores
+what the *metric* thought, not a reputation.
+
+`scripts/injury_return_candidates.py` is the reusable, data-only scan that surfaces the
+candidate pool (rostered, missed >half of last season, positive impact in a recent healthy
+one) — a shortlist to review, **not** a list to import: whether each is a genuine return at
+prior level (vs chronic absence, trade, rest, or age decline) and his prognosis are manual
+calls. Top unreviewed names it flags: Anthony Davis, Giannis, Embiid (chronic), Walker
+Kessler, Kristaps Porziņģis, Jalen Williams, Domantas Sabonis.
 
 ### ✅ INVESTIGATED & RESOLVED: the "bloated summer rosters" hypothesis was WRONG
 
