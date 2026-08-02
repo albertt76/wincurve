@@ -139,9 +139,19 @@ def main() -> int:
         "player_id", as_index=False).agg(m=("minutes", "sum"), g=("games", "sum"))
     prev["prior_mpg"] = prev["m"] / prev["g"].clip(lower=1)
 
+    # Each player's LAST-SEASON team (his primary team by minutes), so the UI can flag offseason
+    # arrivals ("came from X") and offer a one-click "undo" that moves him back and reprices both
+    # teams. This is roster MOVEMENT (trades + free agency + waivers combined) -- transaction type
+    # is not available (no free feed), so it is deliberately not labelled "trades" only.
+    prev_team = (pts[pts["season_start"] == LAST_HISTORY]
+                 .sort_values("minutes", ascending=False)
+                 .drop_duplicates("player_id")[["player_id", "team_id"]]
+                 .rename(columns={"team_id": "prev_team_id"}))
+
     roster = cur_rosters[["team_id", "player_id", "PLAYER", "POSITION", "AGE",
                           "EXP"]].drop_duplicates(["team_id", "player_id"])
     roster = roster.merge(prev[["player_id", "prior_mpg"]], on="player_id", how="left")
+    roster = roster.merge(prev_team, on="player_id", how="left")
     roster = roster.merge(proj[["player_id", "proj_impact"]], on="player_id", how="left")
     roster = roster.merge(proj_off[["player_id", "proj_off_impact"]], on="player_id",
                           how="left")
@@ -368,6 +378,10 @@ def main() -> int:
             }
             if p.get("has_return_override", False):
                 rec["ret_reason"] = str(p.get("return_reason", ""))
+            pti = p.get("prev_team_id")
+            if pd.notna(pti) and int(pti) != tid:  # offseason arrival: came from another team
+                rec["prev"] = abbr_map.get(int(pti), name_map.get(int(pti), {}).get("team", "?"))
+                rec["prevId"] = int(pti)
             dc = def_cmp.get(int(p["player_id"]))
             if dc:
                 rec["box_def"] = round(float(dc["box_def"]), 3)

@@ -1215,20 +1215,22 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   *in-season*-model run's drift additionally reflects **team form**. Seeded with the current
   preseason run (1 point); it fills in as you re-run on a cadence (monthly offseason; ~25 & ~50 games
   in-season, esp. post trade deadline).
-- ⬜ **Trade "undo": project a team as if a trade hadn't happened (user-requested 2026-08-01).**
-  The mechanism already exists — the what-if editor moves players between teams and recomputes each
-  team's rating client-side, exactly. "Undo trade X" is just a pre-populated edit: put the traded
-  players back on their original teams and recompute both sides. **The gap is transaction data** —
-  who moved where, and when — to auto-populate the reversal (today a user can do it by hand in the
-  editor). Options, cheapest first: (a) **derive trades by diffing the periodic roster snapshots
-  from the item above** — a player who leaves team A's roster and appears on team B's between two
-  snapshots *is* a transaction, so this falls out of the time-series logging **for trades that
-  happen after we start logging**, at zero extra data cost; (b) for **past** trades (before
-  logging began) we need an external transactions feed — Pro Sports Transactions is behind
-  Cloudflare (won't bypass), and there is no clean free nba_api transactions endpoint, so this is
-  the real blocker for retro-dating. Doesn't need to be logged itself (user noted this); it is a
-  presentation layer over a transactions source + the existing recompute. UX: a "trades" list per
-  team with an "undo" toggle that shows before/after win projections.
+- ✅ **Trade "undo" — SHIPPED as offseason-move undo (2026-08-02).** Each team's expanded panel has
+  an **Offseason moves** section: **arrivals** (players whose last-season team ≠ current team) and
+  **departures** (were here last season, now elsewhere), each a one-click chip. Clicking undoes the
+  move through the *existing* what-if recompute as a **two-sided edit** — an arrival goes back to his
+  old team, a departure returns here — so **both** teams reprice and show their green/red delta in
+  the list. `project_current.py` emits per-player `prev`/`prevId` (last-season primary team by
+  minutes vs current roster); the client does the rest (`movesSection`, the `data-undo-arr` /
+  `data-undo-dep` handlers reuse `state`/`computeRating`/`winsAt`). Filtered to ≥10 mpg so camp
+  bodies don't clutter it. **Honest scope, stated in the UI:** this is roster MOVEMENT (trades +
+  free agency + waivers combined) — transaction *type* is not in any free feed (Pro Sports
+  Transactions is Cloudflare-blocked, nba_api has no clean transactions endpoint), so it is
+  deliberately **not** labelled "trades" only, and moves are not paired into two-for-one trades.
+  ⬜ **Future refinements** (both need a data source we don't have): true trade *pairing* and
+  *dating* need a transactions feed; alternatively, in-season trades will fall out for free by
+  diffing the periodic roster snapshots once the projection-history logging captures rosters over
+  time (currently it logs per-team projections, not rosters).
 - ✅ **In-season / rest-of-season projection model — SHIPPED (2026-08-02; the big one).** A
   genuinely NEW model (its own calibration + its own walk-forward gate, not a flag on the preseason
   one), for runs at ~25 games and ~50 games (post trade deadline). Core is a **regression-to-the-
