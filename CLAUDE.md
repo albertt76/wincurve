@@ -507,7 +507,9 @@ gate to clear; it is a judgment overlay, and the numbers are user-editable. Per-
 emits `ret_override` / `ret_reason`; the UI shows a purple **`back`** badge (hover = reason)
 and a glossary entry.
 
-Shipped list (2026-08-02, all Achilles/ACL, ~13–19 months out by opening night) and effect:
+Shipped list (2026-08-02) and effect. First five are confirmed Achilles/ACL returns
+(~13–19 months out by opening night); the last four were added from the candidate scan on
+user selection (availability is user judgment, Porziņģis discounted for durability):
 
 | Player | Team | Before → after wins | Driver |
 |---|---|---|---|
@@ -516,6 +518,10 @@ Shipped list (2026-08-02, all Achilles/ACL, ~13–19 months out by opening night
 | Kyrie Irving | DAL | 34.0 → **35.9** | role + availability restored (eased) |
 | Damian Lillard | POR | 40.4 → **42.1** | restored but eased (36 y/o post-Achilles) |
 | Fred VanVleet | HOU | 48.8 → **48.0** | see below — went *down* |
+| Walker Kessler | LAL | 46.2 → **48.8** | played 5 of 82; young, near-full return |
+| Jalen Williams | OKC | 58.4 → **59.6** | missed ~half; young starter restored |
+| Kristaps Porziņģis | GSW | 41.8 → **43.3** | restored but eased (72%, chronic durability) |
+| Domantas Sabonis | SAC | 26.1 → **27.6** | missed most of last year, restored |
 
 **The VanVleet lesson.** Our metric rated his last healthy season (2024-25) at **−1.1
 impact** (below replacement), so "restore pre-injury level" restores a slightly *negative*
@@ -528,8 +534,8 @@ what the *metric* thought, not a reputation.
 candidate pool (rostered, missed >half of last season, positive impact in a recent healthy
 one) — a shortlist to review, **not** a list to import: whether each is a genuine return at
 prior level (vs chronic absence, trade, rest, or age decline) and his prognosis are manual
-calls. Top unreviewed names it flags: Anthony Davis, Giannis, Embiid (chronic), Walker
-Kessler, Kristaps Porziņģis, Jalen Williams, Domantas Sabonis.
+calls. Top names it still flags as unreviewed: Anthony Davis, Giannis, Joel Embiid (all
+chronic-absence rather than clean single-injury returns), Stephen Curry (age).
 
 ### ✅ INVESTIGATED & RESOLVED: the "bloated summer rosters" hypothesis was WRONG
 
