@@ -292,6 +292,26 @@
   }
   /* injury-return override: this player is projected AS his last healthy season (manual). */
   .tag.ret { color: var(--edit); border-color: var(--edit); cursor: help; }
+  /* offseason-arrival marker on a player row: came from another team this offseason */
+  .tag.mv { color: var(--mkt); border-color: var(--mkt); }
+
+  /* ---- offseason moves / trade-undo panel ---- */
+  .moves { margin: 10px 0 4px; padding: 10px 12px; border: 1px solid var(--line-soft);
+    border-radius: 8px; background: var(--surface-2); }
+  .moves-h { font-size: 12px; color: var(--muted); margin-bottom: 7px; }
+  .moves-h b { color: var(--ink); font-weight: 650; }
+  .moves-grp { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    margin-bottom: 6px; }
+  .moves-grp:last-child { margin-bottom: 0; }
+  .moves-lbl { font-family: var(--mono); font-size: 10.5px; color: var(--faint);
+    text-transform: uppercase; letter-spacing: .05em; width: 74px; flex: none; }
+  .mvchip { font: inherit; font-size: 11.5px; font-family: var(--mono); cursor: pointer;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 5px;
+    padding: 2px 7px; color: var(--ink); display: inline-flex; gap: 5px; align-items: center; }
+  .mvchip:hover { border-color: var(--edit); color: var(--edit); }
+  .mvchip .mvt { color: var(--muted); }
+  .mvchip .mvw { color: var(--faint); font-size: 10px; }
+  .moves-none { font-size: 11.5px; color: var(--faint); font-family: var(--mono); }
   .imp.p { color: var(--pos); } .imp.n { color: var(--neg); }
   .winval { color: var(--muted); white-space: nowrap; }
   .winval.p { color: var(--pos); } .winval.n { color: var(--neg); }
@@ -675,6 +695,15 @@
           they never touch the backtest (which uses real historical rosters). Note the metric
           restores what <em>it</em> thought of the player when healthy &mdash; which for some names
           (e.g. Fred VanVleet) is below average, so the fix is mostly to his minutes, not a boost.</dd>
+
+        <dt><span class="tag mv" style="cursor:default">&larr; LAL</span> / Offseason moves</dt>
+        <dd>An <b>offseason arrival</b> (this player was on another team &mdash; here LAL &mdash; last
+          season). The <b>Offseason moves</b> panel inside each team lists its arrivals and
+          departures; clicking one <b>undoes</b> the move (an arrival goes back, a departure returns)
+          and reprices <b>both</b> teams through the same what-if recompute, so you can read how much
+          a move changed each side&rsquo;s projection. This is roster <b>movement</b> &mdash; trades,
+          free agency and waivers combined; the transaction <em>type</em> isn&rsquo;t in any free
+          data feed, so it is not labelled &ldquo;trades&rdquo; only.</dd>
 
         <dt>&asymp; Wins</dt>
         <dd>The <b>WAR-like</b> (wins-above-replacement) translation of a player's value: how
@@ -1304,6 +1333,40 @@ function render() {
   });
 }
 
+/* Offseason moves / trade-undo: arrivals (came from another team) and departures (left this team),
+   each undoable with one click. "Undo" is a two-sided edit through the existing recompute -- an
+   arrival goes back to his old team, a departure returns here -- so BOTH teams reprice and show
+   their green/red delta in the list. Movement is trades + free agency + waivers combined:
+   transaction type is not in any free feed, so it is deliberately not labelled "trades" only. */
+function movesSection(t) {
+  const st = state.get(t.id);
+  const MIN_MPG = 10;   // skip camp bodies / two-ways; only movements that matter to the projection
+  const arrivals = t.players
+    .filter(p => p.prev && p.mpg >= MIN_MPG && !st.off.has(p.id))
+    .sort((a, b) => b.mpg - a.mpg);
+  const departures = allPlayers
+    .filter(p => p.prevId === t.id && p.fromId !== t.id && p.mpg >= MIN_MPG)
+    .sort((a, b) => b.mpg - a.mpg);
+  if (!arrivals.length && !departures.length) return '';
+  const chip = (data, arrow, other, name, mpg) =>
+    `<button class="mvchip" ${data}><span class="mvt">${arrow}${other}</span> ${name}`
+    + ` <span class="mvw">${mpg.toFixed(0)}m</span></button>`;
+  const arr = arrivals.map(p =>
+    chip(`data-undo-arr="${p.id}" data-prev="${p.prevId}" title="Send ${p.name} back to ${p.prev} `
+      + `and reprice both teams"`, '&larr;', p.prev, p.name, p.mpg)).join('');
+  const dep = departures.map(p =>
+    chip(`data-undo-dep="${p.id}" data-cur="${p.fromId}" title="Bring ${p.name} back from ${p.from} `
+      + `and reprice both teams"`, '&rarr;', p.from, p.name, p.mpg)).join('');
+  return `
+    <div class="moves">
+      <div class="moves-h"><b>Offseason moves</b> &mdash; roster movement (trades + signings +
+        waivers; transaction type isn&rsquo;t in any free feed). Click one to undo it and reprice
+        <b>both</b> teams &mdash; the change shows as each team&rsquo;s green/red delta in the list.</div>
+      ${arrivals.length ? `<div class="moves-grp"><span class="moves-lbl">In &nbsp;&larr;</span>${arr}</div>` : ''}
+      ${departures.length ? `<div class="moves-grp"><span class="moves-lbl">Out &rarr;</span>${dep}</div>` : ''}
+    </div>`;
+}
+
 function renderPanel(t, w) {
   const st = state.get(t.id);
   const roster = t.players.map(p => ({ p, off: st.off.has(p.id), added: false }))
@@ -1321,7 +1384,7 @@ function renderPanel(t, w) {
     const defv = p.def != null ? p.def : 0;
     return `
     <tr class="${off ? 'off' : ''}${added ? ' added' : ''}">
-      <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}${p.ret_override ? `<span class="tag ret" title="${(p.ret_reason || 'Injury return: projected as his last healthy season (manual override).').replace(/"/g, '&quot;')}">back</span>` : ''}${rapmFlag(p)}${honorFlags(p)}</td>
+      <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}${p.ret_override ? `<span class="tag ret" title="${(p.ret_reason || 'Injury return: projected as his last healthy season (manual override).').replace(/"/g, '&quot;')}">back</span>` : ''}${p.prev && !off && !added ? `<span class="tag mv" title="Offseason arrival from ${p.prev} — undo in the Offseason moves panel above">&larr; ${p.prev}</span>` : ''}${rapmFlag(p)}${honorFlags(p)}</td>
       <td>${p.pos || '&mdash;'}</td>
       <td>${p.age ?? '&mdash;'}</td>
       <td class="imp ${offv >= 0 ? 'p' : 'n'}">${offv >= 0 ? '+' : ''}${offv.toFixed(2)}</td>
@@ -1360,6 +1423,7 @@ function renderPanel(t, w) {
         ${st.off.size || st.added.length ? '' : 'disabled'}>Reset roster</button>
     </div>
     ${disagreementBlock(t, w, cr, wRapm)}
+    ${movesSection(t)}
     <div class="tbl-scroll">
       <table>
         <thead><tr>
@@ -1402,6 +1466,24 @@ function wirePanel(panel, t) {
   if (reset) reset.addEventListener('click', () => {
     st.off.clear(); st.added = []; render();
   });
+
+  // Offseason-move undo: two-sided edits through the existing recompute, so both teams reprice.
+  panel.querySelectorAll('[data-undo-arr]').forEach(b => b.addEventListener('click', () => {
+    const pid = Number(b.dataset.undoArr), prevId = Number(b.dataset.prev);
+    const player = byId.get(pid), prevSt = state.get(prevId);
+    if (!player || !prevSt) return;
+    st.off.add(pid);                                                   // remove from this team
+    if (!prevSt.added.some(p => p.id === pid)) prevSt.added.push(player);  // send back to old team
+    render();
+  }));
+  panel.querySelectorAll('[data-undo-dep]').forEach(b => b.addEventListener('click', () => {
+    const pid = Number(b.dataset.undoDep), curId = Number(b.dataset.cur);
+    const player = byId.get(pid), curSt = state.get(curId);
+    if (!player || !curSt) return;
+    curSt.off.add(pid);                                                // remove from his new team
+    if (!st.added.some(p => p.id === pid)) st.added.push(player);      // bring back to this team
+    render();
+  }));
 
   const input = panel.querySelector('[data-search]');
   const results = panel.querySelector('[data-results]');
