@@ -40,7 +40,15 @@ from nbaproj.simulate import (  # noqa: E402
 from nbaproj.teams import FULL_SEASON_GAMES, load_team_seasons  # noqa: E402
 
 PROC = Path("data/processed")
-HISTORICAL = [2021, 2022, 2023, 2024, 2025]   # 2021-22 .. 2025-26
+# Every FULL season in the walk-forward backtest window (2017-18 .. 2025-26). The two shortened
+# seasons in that window are deliberately skipped: 2019-20 (bubble, 64-75 games by team, and its
+# win totals were set for a full 82 so the market comparison is apples-to-oranges) and 2020-21
+# (72 games). This matches how the headline MAE excludes them, and gives the Track record view a
+# consistent, comparable 7-season model-vs-Vegas history. Going further back than 2016-17 is
+# blocked on data: team_rosters (opening-day roster reconstruction) only exists 2016-17+; the
+# full 21 seasons of Vegas lines we hold would need a historical commonteamroster pull (see the
+# Open-items roadmap).
+HISTORICAL = [2017, 2018, 2021, 2022, 2023, 2024, 2025]
 RATING_GRID = np.arange(-12.0, 12.01, 1.5)
 WINS_PER_PT = 2.38
 N_SIMS = 12000
@@ -412,9 +420,11 @@ def main() -> int:
     # Both backtest arms (box + RAPM defense) computed once, walk-forward; each historical
     # season calibrates its slopes from the folds strictly before it.
     data["rapm_imp"] = build_rapm_impact(data["imp"], PROC)
+    # Range starts at 2016 (the earliest team_rosters season) so the 2017-18 fold has a prior
+    # season to calibrate on -- matches the gates' range(2016, LAST+1) / FIRST=2017 convention.
     data["A_full"] = backtest_aggregates(
         data["imp"], data["rapm_imp"], data["pts"], data["pgl"], data["ts"], data["ages"],
-        data["rosters"], range(2017, max(HISTORICAL) + 1))
+        data["rosters"], range(2016, max(HISTORICAL) + 1))
 
     mkt_hist = pd.read_parquet(PROC / "market_baseline.parquet")
     snapshots = {}
