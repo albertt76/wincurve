@@ -1232,17 +1232,38 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   **departures** (were here last season, now elsewhere), each a one-click chip. Clicking undoes the
   move through the *existing* what-if recompute as a **two-sided edit** — an arrival goes back to his
   old team, a departure returns here — so **both** teams reprice and show their green/red delta in
-  the list. `project_current.py` emits per-player `prev`/`prevId` (last-season primary team by
-  minutes vs current roster); the client does the rest (`movesSection`, the `data-undo-arr` /
-  `data-undo-dep` handlers reuse `state`/`computeRating`/`winsAt`). Filtered to ≥10 mpg so camp
-  bodies don't clutter it. **Honest scope, stated in the UI:** this is roster MOVEMENT (trades +
-  free agency + waivers combined) — transaction *type* is not in any free feed (Pro Sports
-  Transactions is Cloudflare-blocked, nba_api has no clean transactions endpoint), so it is
-  deliberately **not** labelled "trades" only, and moves are not paired into two-for-one trades.
-  ⬜ **Future refinements** (both need a data source we don't have): true trade *pairing* and
-  *dating* need a transactions feed; alternatively, in-season trades will fall out for free by
-  diffing the periodic roster snapshots once the projection-history logging captures rosters over
-  time (currently it logs per-team projections, not rosters).
+  the list. `project_current.py` emits per-player `prev`/`prevId`; the client does the rest
+  (`movesSection`, the `data-undo-arr` / `data-undo-dep` handlers reuse
+  `state`/`computeRating`/`winsAt`). Filtered to ≥10 mpg so camp bodies don't clutter it. **Honest
+  scope, stated in the UI:** this is roster MOVEMENT (trades + free agency + waivers combined) —
+  transaction *type* is not paired into two-for-one trades — but it is now correctly scoped to
+  **this offseason only** (see next).
+  - ✅ **Offseason-vs-mid-season correctness (2026-08-02).** The first cut computed `prev` as the
+    *last-season primary team by minutes*, which mislabeled last season's **trade-deadline / buyout**
+    movement as fresh offseason moves — e.g. Jared McCain showed as an OKC "offseason arrival from
+    PHI" and PHI as losing him, when he was actually **"Traded from PHI on 02/04/26"** (deadline) and
+    played half of last season for OKC; likewise Jeremy Sochan ("Signed on 02/13/26"). Two fixes,
+    both keyed off the roster snapshot's **`HOW_ACQUIRED`** field (which carries the transaction type
+    **and date**, e.g. "Traded from WAS on 07/08/26"):
+    1. **Restrict to true offseason moves.** A move counts only if the `HOW_ACQUIRED` date is on/after
+       `OFFSEASON_START` (May 1 of the target year, i.e. after last season ends); undated rows fall
+       back to *minute overlap* (a player who logged minutes with his **current** team last season
+       was already here mid-season). This removed **35 of 121** mislabeled arrivals (all dated
+       Dec 2025–Apr 2026: McCain, Sochan, Harden, Garland, JJJ, Trae Young, Anthony Davis — AD via
+       the date, since a 0-minute deadline stint has no overlap signal).
+    2. **Correct the "came from" team.** `prev`/`prevId` now uses the team the player was on at the
+       **end of last season (latest game by date)**, not primary-by-minutes, and a trade's explicit
+       `HOW_ACQUIRED` "from XXX" **overrides** it (authoritative even after a 0-minute deadline stint).
+       This fixed all **10** free-agent multi-team cases (e.g. Vučević ← CHI→**BOS**, D'Angelo Russell
+       ← DAL→**WAS**) and *recovered* 1 genuine offseason move the old logic missed entirely (Khris
+       Middleton went WAS→DAL at the deadline then **back to WAS** this offseason; primary-by-minutes
+       was WAS = current, so he showed as neither arrival nor departure). Result: 87 arrivals, with
+       departures conserved exactly (87 == 87). Display-only metadata; the projection is unchanged
+       (sum still 1230.5 wins).
+  ⬜ **Future refinements** (need a transactions feed we don't have): true two-for-one trade
+  *pairing*; and in-season trades will also fall out for free by diffing periodic roster snapshots
+  once the projection-history logging captures rosters over time (it currently logs per-team
+  projections, not rosters).
 - ✅ **In-season / rest-of-season projection model — SHIPPED (2026-08-02; the big one).** A
   genuinely NEW model (its own calibration + its own walk-forward gate, not a flag on the preseason
   one), for runs at ~25 games and ~50 games (post trade deadline). Core is a **regression-to-the-

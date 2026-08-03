@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -139,19 +140,48 @@ def main() -> int:
         "player_id", as_index=False).agg(m=("minutes", "sum"), g=("games", "sum"))
     prev["prior_mpg"] = prev["m"] / prev["g"].clip(lower=1)
 
-    # Each player's LAST-SEASON team (his primary team by minutes), so the UI can flag offseason
-    # arrivals ("came from X") and offer a one-click "undo" that moves him back and reprices both
-    # teams. This is roster MOVEMENT (trades + free agency + waivers combined) -- transaction type
-    # is not available (no free feed), so it is deliberately not labelled "trades" only.
-    prev_team = (pts[pts["season_start"] == LAST_HISTORY]
-                 .sort_values("minutes", ascending=False)
-                 .drop_duplicates("player_id")[["player_id", "team_id"]]
-                 .rename(columns={"team_id": "prev_team_id"}))
+    # Each player's PRIOR team, for the "came from X" arrival label + one-click undo. Use the team
+    # he was on at the END of last season (his latest game), NOT his primary team by minutes: a
+    # player traded mid-last-season (e.g. Vučević CHI->BOS, D'Angelo Russell DAL->WAS) logged more
+    # minutes with his OLD team but was LAST on -- and this offseason left -- the newer one, so
+    # latest-by-date is who actually lost him. For trades, HOW_ACQUIRED's explicit "from" team
+    # overrides this at emission (authoritative even after a 0-minute deadline stint). This is
+    # roster MOVEMENT (trades + free agency + waivers) -- transaction type is not in any free feed,
+    # so it is deliberately not labelled "trades" only.
+    _pl = pgl[pgl["SEASON_START"] == LAST_HISTORY][["PLAYER_ID", "TEAM_ID", "GAME_DATE"]].copy()
+    _pl["GAME_DATE"] = pd.to_datetime(_pl["GAME_DATE"], errors="coerce")
+    _pl = _pl.dropna(subset=["GAME_DATE"])
+    prev_team = (_pl.loc[_pl.groupby("PLAYER_ID")["GAME_DATE"].idxmax(), ["PLAYER_ID", "TEAM_ID"]]
+                 .rename(columns={"PLAYER_ID": "player_id", "TEAM_ID": "prev_team_id"}))
+    prev_team["player_id"] = prev_team["player_id"].astype("int64")
+    prev_team["prev_team_id"] = prev_team["prev_team_id"].astype("int64")
 
     roster = cur_rosters[["team_id", "player_id", "PLAYER", "POSITION", "AGE",
-                          "EXP"]].drop_duplicates(["team_id", "player_id"])
+                          "EXP", "HOW_ACQUIRED"]].drop_duplicates(["team_id", "player_id"])
     roster = roster.merge(prev[["player_id", "prior_mpg"]], on="player_id", how="left")
     roster = roster.merge(prev_team, on="player_id", how="left")
+
+    # Restrict the moves panel to TRUE offseason moves and exclude last season's mid-season
+    # (trade-deadline / buyout) movement. Latest-by-date already drops most such cases (a player
+    # acquired mid-last-season usually ends the season on -- so points prev at -- his current team),
+    # but NOT one acquired at the deadline who then logged 0 minutes: his last game is still for his
+    # OLD team, so prev != current and he looks like a fresh arrival -- e.g. Anthony Davis ("Traded
+    # from DAL on 02/05/26", injured after the deal). Ground truth is the acquisition DATE in
+    # HOW_ACQUIRED: on/after OFFSEASON_START (May 1 of the target year, after last season ends) it
+    # is a real offseason move; earlier it happened during/before last season. When HOW_ACQUIRED
+    # carries no parseable date, fall back to minute overlap -- a player who logged minutes with his
+    # CURRENT team last season was already here mid-season, so it is not an offseason arrival.
+    OFFSEASON_START = pd.Timestamp(f"{TARGET}-05-01")
+    last_team_min = set(zip(pts.loc[pts["season_start"] == LAST_HISTORY, "player_id"],
+                            pts.loc[pts["season_start"] == LAST_HISTORY, "team_id"]))
+    acq_date = pd.to_datetime(
+        roster["HOW_ACQUIRED"].fillna("").astype(str).str.extract(r"(\d{2}/\d{2}/\d{2})")[0],
+        format="%m/%d/%y", errors="coerce")
+    overlap = np.array([(pid, tid) in last_team_min
+                        for pid, tid in zip(roster["player_id"], roster["team_id"])])
+    roster["offseason_move"] = np.where(acq_date.notna().to_numpy(),
+                                        (acq_date >= OFFSEASON_START).to_numpy(),
+                                        ~overlap)
     roster = roster.merge(proj[["player_id", "proj_impact"]], on="player_id", how="left")
     roster = roster.merge(proj_off[["player_id", "proj_off_impact"]], on="player_id",
                           how="left")
@@ -320,6 +350,7 @@ def main() -> int:
     # the full name. Pull real abbreviations from the static team list instead.
     from nba_api.stats.static import teams as static_teams
     abbr_map = {t["id"]: t["abbreviation"] for t in static_teams.get_teams()}
+    abbr_to_id = {v: k for k, v in abbr_map.items()}  # for resolving HOW_ACQUIRED "from XXX"
     name_map = ts[ts["season_start"] == LAST_HISTORY].set_index(
         "team_id")[["team", "team_name"]].to_dict("index")
     hc = cur_coaches[cur_coaches["COACH_TYPE"] == "Head Coach"].copy()
@@ -379,9 +410,18 @@ def main() -> int:
             if p.get("has_return_override", False):
                 rec["ret_reason"] = str(p.get("return_reason", ""))
             pti = p.get("prev_team_id")
-            if pd.notna(pti) and int(pti) != tid:  # offseason arrival: came from another team
-                rec["prev"] = abbr_map.get(int(pti), name_map.get(int(pti), {}).get("team", "?"))
-                rec["prevId"] = int(pti)
+            # true offseason arrival from another team -- NOT last season's deadline/buyout move
+            if pd.notna(pti) and int(pti) != tid and bool(p.get("offseason_move", False)):
+                # Prefer the actual prior team named in HOW_ACQUIRED for a trade: primary-team-by-
+                # minutes can point at a DIFFERENT team when the player was ALSO traded mid-last-
+                # season -- e.g. D'Angelo Russell was "Traded from WAS" this offseason but logged
+                # more minutes at DAL last season, so "came from WAS" (not DAL) is correct, and it
+                # is WAS (not DAL) that should list him as an offseason departure.
+                mm = re.search(r"from ([A-Z]{3})", str(p.get("HOW_ACQUIRED") or ""))
+                from_id = abbr_to_id.get(mm.group(1)) if mm else None
+                src = from_id if (from_id is not None and from_id != tid) else int(pti)
+                rec["prev"] = abbr_map.get(src, name_map.get(src, {}).get("team", "?"))
+                rec["prevId"] = src
             dc = def_cmp.get(int(p["player_id"]))
             if dc:
                 rec["box_def"] = round(float(dc["box_def"]), 3)
