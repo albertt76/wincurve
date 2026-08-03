@@ -101,6 +101,20 @@
   .season-pick {
     display: flex; align-items: center; gap: 8px; padding-bottom: 4px;
   }
+  /* premium unlock button (header) + locked-panel prompt */
+  .unlock-btn {
+    font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    color: var(--edit); background: var(--surface); border: 1px solid var(--edit);
+    border-radius: var(--r); padding: 6px 13px; white-space: nowrap;
+  }
+  .unlock-btn:hover { background: var(--edit); color: #fff; }
+  .unlock-btn.on { color: var(--pos); border-color: var(--pos); cursor: default; }
+  .unlock-btn.on:hover { background: var(--surface); color: var(--pos); }
+  #unlock-top { margin-left: auto; }
+  .locked { padding: 22px; text-align: center; }
+  .locked p { max-width: 60ch; margin: 0 auto 14px; color: var(--muted); font-size: 14px; }
+  .locked p b { color: var(--ink); }
+  .locked .unlock-btn { font-size: 13.5px; padding: 8px 18px; }
   .season-pick span {
     font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em;
     text-transform: uppercase; color: var(--faint);
@@ -539,6 +553,7 @@
         <span>Season</span>
         <select id="season-select" aria-label="Select season"></select>
       </label>
+      <button id="unlock-top" class="unlock-btn" type="button">Unlock details</button>
     </div>
     <p class="sub">
       Built from each team's roster <em>as it stood before the season began</em>: every
@@ -789,6 +804,53 @@ const CURRENT_MAE = 7.58;               // shipped MAE (RAPM blend + rim/hustle 
 // Season-dependent globals, (re)built by loadSeason().
 let DATA, state, byId, allPlayers;
 
+// --- premium gate: rosters + what-if grids live behind a shared password (serverless function).
+// The public payload carries no players/grid, so the expanded panels are locked until unlocked. ---
+let PREMIUM = null, unlocked = false;
+try { const c = sessionStorage.getItem('wc_premium'); if (c) { PREMIUM = JSON.parse(c); unlocked = true; } } catch (e) {}
+
+async function doUnlock() {
+  const pw = prompt('Enter the access password to unlock the team detail panels:');
+  if (!pw) return;
+  try {
+    const r = await fetch('/api/premium', { method: 'POST', headers: { 'x-unlock-password': pw } });
+    if (!r.ok) { alert(r.status === 401 ? 'Wrong password.' : 'Unlock unavailable (status ' + r.status + ').'); return; }
+    PREMIUM = await r.json(); unlocked = true;
+    try { sessionStorage.setItem('wc_premium', JSON.stringify(PREMIUM)); } catch (e) {}
+    loadSeason(sel.value); syncUnlockBtn();
+  } catch (e) { alert('Unlock failed (network error).'); }
+}
+document.addEventListener('click', e => { if (e.target.closest('.unlock-btn')) doUnlock(); });
+function syncUnlockBtn() {
+  const b = document.getElementById('unlock-top'); if (!b) return;
+  b.textContent = unlocked ? '✓ Details unlocked' : 'Unlock details';
+  b.classList.toggle('on', unlocked);
+}
+
+// Team display: recompute live from the roster when unlocked; else use the stored precomputed
+// values (the public payload carries no players/grid, so the base projection is read directly).
+function teamView(t) {
+  if (unlocked && t.players) {
+    const cr = computeRating(t), st = state.get(t.id);
+    return { w: winsAt(t, cr.rating),
+             wRapm: cr.ratingRapm != null ? winsAt(t, cr.ratingRapm) : null,
+             rating: cr.rating, offR: cr.offR, defR: cr.defR,
+             edited: st.off.size > 0 || st.added.length > 0 };
+  }
+  return { w: { mean: t.wins, p10: t.p10, p25: t.p25, p75: t.p75, p90: t.p90 },
+           wRapm: t.wins_rapm != null ? { mean: t.wins_rapm } : null,
+           rating: t.rating, offR: t.off_rating, defR: t.def_rating, edited: false };
+}
+
+function lockedPanel() {
+  return `<div class="locked">
+    <p><b>Team details are premium.</b> Unlock to see each roster with per-player Off/Def and
+      &asymp;&nbsp;Wins, the play-by-play RAPM defensive read, the <b>disagreement + conviction</b>
+      reasons behind the projection, the offseason-move (trade) undo, and the live what-if editor.</p>
+    <button class="act unlock-btn">Unlock details</button>
+  </div>`;
+}
+
 document.getElementById('rep').textContent = GMETA.replacement_impact.toFixed(2);
 document.getElementById('mmae').textContent = GMETA.market_mae.toFixed(2);
 
@@ -816,6 +878,15 @@ sel.addEventListener('change', () => loadSeason(sel.value));
 
 function loadSeason(key) {
   DATA = SNAP.snapshots[key];
+  // Merge the premium payload (rosters + what-if grid) for this season, if unlocked.
+  if (PREMIUM && PREMIUM[key]) {
+    const pk = PREMIUM[key];
+    DATA = Object.assign({}, DATA, {
+      grid: pk.grid,
+      teams: DATA.teams.map(t => Object.assign({}, t, { players: pk.teams[String(t.id)] || [] })),
+    });
+    unlocked = true;
+  }
   state = new Map(); byId = new Map(); allPlayers = [];
   DATA.teams.forEach(t => {
     state.set(t.id, { off: new Set(), added: [] });
@@ -1277,14 +1348,8 @@ function rapmReadout(t, w, wRapm) {
 function render() {
   const host = document.getElementById('rows');
   host.innerHTML = '';
-  const rowsData = DATA.teams.map(t => {
-    const cr = computeRating(t);
-    const w = winsAt(t, cr.rating);
-    const wRapm = cr.ratingRapm != null ? winsAt(t, cr.ratingRapm) : null;
-    const st = state.get(t.id);
-    return { t, w, wRapm, rating: cr.rating, offR: cr.offR, defR: cr.defR,
-             edited: st.off.size > 0 || st.added.length > 0 };
-  }).sort((a, b) => b.w.mean - a.w.mean);
+  const rowsData = DATA.teams.map(t => ({ t, ...teamView(t) }))
+    .sort((a, b) => b.w.mean - a.w.mean);
 
   rowsData.forEach(({ t, w, wRapm, offR, defR, edited }) => {
     const wide = t.turnover >= WIDE_TURNOVER;
@@ -1368,6 +1433,7 @@ function movesSection(t) {
 }
 
 function renderPanel(t, w) {
+  if (!unlocked || !t.players) return lockedPanel();
   const st = state.get(t.id);
   const roster = t.players.map(p => ({ p, off: st.off.has(p.id), added: false }))
     .concat(st.added.map(p => ({ p, off: false, added: true })));
@@ -1709,4 +1775,5 @@ tabs.drift.addEventListener('click', () => setView('drift'));
 
 // default to the upcoming season (last in the sorted list)
 loadSeason(GMETA.seasons[GMETA.seasons.length - 1]);
+syncUnlockBtn();
 </script>
