@@ -27,9 +27,17 @@ def main() -> int:
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
+    failed = []
     for yr in args.season:
-        df = ingest.pull_season_shifts(yr)
+        try:
+            df = ingest.pull_season_shifts(yr)
+        except Exception as err:  # noqa: BLE001 -- keep pulling later seasons if one has no data
+            logging.warning("skip %s: %s", ingest.season_str(yr), err)
+            failed.append(yr)
+            continue
         print(f"shifts_{yr}: {len(df):,} shift rows across {df['gameId'].nunique()} games")
+    if failed:
+        print(f"(skipped, no shift data: {', '.join(ingest.season_str(y) for y in failed)})")
     return 0
 
 
