@@ -198,7 +198,16 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
   full multi-season shift pull is **2010-11..2025-26** (the `/shiftcharts` floor — 2007-2009 have
   no shift data); aging/shrinkage and turning measurement into projection still to come. See
   "Stage 2 — impact metric".
-- ⬜ **Stage 3** — TOI/role & availability; replacement level; rookie/first-year priors.
+- 🟡 **Stage 3 — impact refinement (started).** Turn the single-season *measurement* into a stabler
+  forward-looking talent estimate. **Multi-season pooled RAPM — VALIDATED** (`rapm.pool_rapm`,
+  `scripts/nhl_stage3_pool_report.py`): pooling a trailing 3-season window with recency decay
+  predicts each player's next-season net **better than single-season in 3/3 transitions (mean corr
+  0.317 → 0.381, +0.064)**, and lifts corr(net, TOI) ~0.05 → ~0.13 (stars rank higher, fewer
+  linemate/depth spikes). Robust to window: window=2 also wins 3/3 (+0.047), window=3 better —
+  pooling more seasons helps more. Opposite of the NBA result (where multi-season RAPM was
+  rejected) — hockey's single-season RAPM is noisier, so pooling helps. **Next:** box-informed
+  prior (shrink RAPM toward a box/tracking estimate on thin samples), aging curves, shrinkage.
+- ⬜ **Stage 3b** — TOI/role & availability; replacement level; rookie/first-year priors.
 - ⬜ **Stage 4** — team aggregation (skaters + goalie + special teams → GF/GA rates),
   calibrated per fold on projected aggregates.
 - ⬜ **Stage 5** — season simulation with regulation/OT/shootout → points distribution;

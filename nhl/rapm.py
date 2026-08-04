@@ -111,7 +111,7 @@ def fit(stints: pd.DataFrame, alpha: float = DEFAULT_ALPHA,
     rows, cols, vals, ys, ws = [], [], [], [], []
     r = 0
 
-    def add_obs(off_set, def_set, xgf, dur, is_home):
+    def add_obs(off_set, def_set, xgf, dur, is_home, sw):
         nonlocal r
         for p in off_set:
             rows.append(r); cols.append(pidx[p]); vals.append(1.0)       # offense block
@@ -119,13 +119,14 @@ def fit(stints: pd.DataFrame, alpha: float = DEFAULT_ALPHA,
             rows.append(r); cols.append(n + pidx[p]); vals.append(1.0)   # defense block
         rows.append(r); cols.append(2 * n); vals.append(1.0 if is_home else 0.0)  # home
         ys.append(xgf / dur * 3600.0)   # xG per 60 min
-        ws.append(dur)                  # weight by time on ice
+        ws.append(dur * sw)             # weight by time on ice x season recency (sw=1 single-season)
         r += 1
 
     for st in stints.itertuples(index=False):
+        sw = getattr(st, "sw", 1.0)     # multi-season pool tags stints with a recency weight
         home0 = st.team0 == st.home_id
-        add_obs(st.skaters0, st.skaters1, st.xgf0, st.dur, home0)   # team0 attacking
-        add_obs(st.skaters1, st.skaters0, st.xgf1, st.dur, not home0)  # team1 attacking
+        add_obs(st.skaters0, st.skaters1, st.xgf0, st.dur, home0, sw)   # team0 attacking
+        add_obs(st.skaters1, st.skaters0, st.xgf1, st.dur, not home0, sw)  # team1 attacking
 
     X = sparse.csr_matrix((vals, (rows, cols)), shape=(r, 2 * n + 1))
     y = np.array(ys)
@@ -155,3 +156,35 @@ def season_rapm(start_year: int, alpha: float = DEFAULT_ALPHA) -> pd.DataFrame:
     """End-to-end: reconstruct stints, attach xG, fit RAPM for one season."""
     stints = attach_xg(build_stints(start_year), start_year)
     return fit(stints, alpha=alpha)
+
+
+DEFAULT_WINDOW = 3       # seasons pooled (this season + 2 prior)
+DEFAULT_DECAY = 0.75     # recency weight decay per season back (weight = decay ** seasons_ago)
+
+
+def pooled_stints(end_year: int, window: int = DEFAULT_WINDOW,
+                  decay: float = DEFAULT_DECAY) -> pd.DataFrame:
+    """Concatenate xG-attached 5v5 stints over a trailing window ending at ``end_year``.
+
+    Seasons [end_year-window+1 .. end_year] that have a pulled shift chart are stacked, each
+    tagged with a recency weight ``decay ** (end_year - season)`` in the ``sw`` column so recent
+    seasons count more in the ridge. Multi-season pooling is the Stage-3 fix for single-season
+    xG-RAPM over-crediting a player for strong linemates: a player who really drives play keeps
+    doing so across different linemates, so pooling separates skill from one season's context.
+    """
+    frames = []
+    for y in range(max(ingest.FIRST_SHIFT_SEASON, end_year - window + 1), end_year + 1):
+        if not (ingest.PROC / f"shifts_{y}.parquet").exists():
+            continue  # season not pulled (or pre-2010-11 shift floor) -- skip, don't fail
+        s = attach_xg(build_stints(y), y)
+        s["sw"] = float(decay ** (end_year - y))
+        frames.append(s)
+    if not frames:
+        raise RuntimeError(f"no pulled shift seasons in window ending {ingest.season_str(end_year)}")
+    return pd.concat(frames, ignore_index=True)
+
+
+def pool_rapm(end_year: int, window: int = DEFAULT_WINDOW, decay: float = DEFAULT_DECAY,
+              alpha: float = DEFAULT_ALPHA, min_toi_sec: int = DEFAULT_MIN_TOI) -> pd.DataFrame:
+    """End-to-end multi-season pooled xG-RAPM ending at ``end_year`` (recency-weighted)."""
+    return fit(pooled_stints(end_year, window, decay), alpha=alpha, min_toi_sec=min_toi_sec)
