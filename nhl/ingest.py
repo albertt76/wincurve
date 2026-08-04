@@ -162,6 +162,11 @@ def game_pbp(game_id: int, *, refresh: bool = False) -> dict:
     return HTTP.get_json(f"{WEB_API}/gamecenter/{game_id}/play-by-play", refresh=refresh)
 
 
+def player_landing(player_id: int, *, refresh: bool = False) -> dict:
+    """NHL player 'landing' bio record -- carries ``birthDate`` (for aging), position, etc."""
+    return HTTP.get_json(f"{WEB_API}/player/{player_id}/landing", refresh=refresh)
+
+
 def shifts(game_id: int, *, refresh: bool = False) -> pd.DataFrame:
     """Shift chart for one game: who was on the ice when (on-ice units for RAPM)."""
     data = HTTP.get_json(f"{STATS_API}/shiftcharts",
