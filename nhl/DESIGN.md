@@ -198,7 +198,33 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
   full multi-season shift pull is **2010-11..2025-26** (the `/shiftcharts` floor — 2007-2009 have
   no shift data); aging/shrinkage and turning measurement into projection still to come. See
   "Stage 2 — impact metric".
-- ⬜ **Stage 3** — TOI/role & availability; replacement level; rookie/first-year priors.
+- 🟡 **Stage 3 — impact refinement (in progress).** Turn the single-season *measurement* into a
+  stabler forward-looking talent estimate. Two steps validated (walk-forward: predictor through Y-1
+  vs each player's actual single-season net in Y), packaged as **`rapm.talent(end_year)`**:
+  - **Step 1 — multi-season pooled RAPM (VALIDATED + adversarially verified).** `rapm.pool_rapm`
+    pools a trailing 3-season window with recency decay (0.75) into one ridge. Predicts next-season
+    net **better than single-season in 6/6 folds: mean corr 0.289 → 0.362, +0.074** (fair
+    common-player-set comparison); lifts
+    corr(net, TOI) ~0.00 → ~0.10 (stars rank higher, fewer linemate/depth spikes); robust to window
+    (window=2 also wins). **Opposite of the NBA result** (multi-season RAPM rejected there) —
+    hockey's single-season RAPM is noisier, so pooling adds real information. A 3-lens adversarial
+    audit (`scripts/nhl_stage3_pool_report.py`) returned *sound* on all three, incl. the key
+    refutation: it is **not "just more shrinkage"** — single-season predictiveness *falls*
+    monotonically as ridge alpha rises (best ~0.339 at any alpha, still 0.04 below pooled 0.381), so
+    the edge is genuine multi-season signal (2.3× possessions, averaged over changing linemates), not
+    smoothing.
+  - **Step 2 — box-informed OFFENSIVE prior (VALIDATED).** A skater's individual xG (own shots,
+    MoneyPuck `I_F_xGoals`, 5v5) is largely linemate-independent, so blending it into the pooled
+    offense (weight 0.4; `rapm.blend_box_offense`, `scripts/nhl_stage3_boxprior_report.py`) adds
+    **+0.016 net corr in 6/6 folds** (0.359 → 0.375), most for thin-sample players. **Offense-only** —
+    hockey has no comparable individual defensive box stat. NEGATIVE variant recorded: a box *net*
+    prior from on-ice xG-differential does NOT help (it's a cruder, linemate-biased restatement of
+    what RAPM already controls for, and hurts thin samples) — only the *individual-offense* signal is
+    complementary.
+  - **Cumulative:** single 0.289 → pooled 0.362 (+0.074) → +box offensive prior (+0.016), every step
+    6/6 folds (~+0.09, ~30% relative). **Next:** aging curves (per-skill, off/def), shrinkage, then
+    forward projection.
+- ⬜ **Stage 3b** — TOI/role & availability; replacement level; rookie/first-year priors.
 - ⬜ **Stage 4** — team aggregation (skaters + goalie + special teams → GF/GA rates),
   calibrated per fold on projected aggregates.
 - ⬜ **Stage 5** — season simulation with regulation/OT/shootout → points distribution;

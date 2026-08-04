@@ -111,7 +111,7 @@ def fit(stints: pd.DataFrame, alpha: float = DEFAULT_ALPHA,
     rows, cols, vals, ys, ws = [], [], [], [], []
     r = 0
 
-    def add_obs(off_set, def_set, xgf, dur, is_home):
+    def add_obs(off_set, def_set, xgf, dur, is_home, sw):
         nonlocal r
         for p in off_set:
             rows.append(r); cols.append(pidx[p]); vals.append(1.0)       # offense block
@@ -119,13 +119,14 @@ def fit(stints: pd.DataFrame, alpha: float = DEFAULT_ALPHA,
             rows.append(r); cols.append(n + pidx[p]); vals.append(1.0)   # defense block
         rows.append(r); cols.append(2 * n); vals.append(1.0 if is_home else 0.0)  # home
         ys.append(xgf / dur * 3600.0)   # xG per 60 min
-        ws.append(dur)                  # weight by time on ice
+        ws.append(dur * sw)             # weight by time on ice x season recency (sw=1 single-season)
         r += 1
 
     for st in stints.itertuples(index=False):
+        sw = getattr(st, "sw", 1.0)     # multi-season pool tags stints with a recency weight
         home0 = st.team0 == st.home_id
-        add_obs(st.skaters0, st.skaters1, st.xgf0, st.dur, home0)   # team0 attacking
-        add_obs(st.skaters1, st.skaters0, st.xgf1, st.dur, not home0)  # team1 attacking
+        add_obs(st.skaters0, st.skaters1, st.xgf0, st.dur, home0, sw)   # team0 attacking
+        add_obs(st.skaters1, st.skaters0, st.xgf1, st.dur, not home0, sw)  # team1 attacking
 
     X = sparse.csr_matrix((vals, (rows, cols)), shape=(r, 2 * n + 1))
     y = np.array(ys)
@@ -155,3 +156,79 @@ def season_rapm(start_year: int, alpha: float = DEFAULT_ALPHA) -> pd.DataFrame:
     """End-to-end: reconstruct stints, attach xG, fit RAPM for one season."""
     stints = attach_xg(build_stints(start_year), start_year)
     return fit(stints, alpha=alpha)
+
+
+DEFAULT_WINDOW = 3       # seasons pooled (this season + 2 prior)
+DEFAULT_DECAY = 0.75     # recency weight decay per season back (weight = decay ** seasons_ago)
+
+
+def pooled_stints(end_year: int, window: int = DEFAULT_WINDOW,
+                  decay: float = DEFAULT_DECAY) -> pd.DataFrame:
+    """Concatenate xG-attached 5v5 stints over a trailing window ending at ``end_year``.
+
+    Seasons [end_year-window+1 .. end_year] that have a pulled shift chart are stacked, each
+    tagged with a recency weight ``decay ** (end_year - season)`` in the ``sw`` column so recent
+    seasons count more in the ridge. Multi-season pooling is the Stage-3 fix for single-season
+    xG-RAPM over-crediting a player for strong linemates: a player who really drives play keeps
+    doing so across different linemates, so pooling separates skill from one season's context.
+    """
+    frames = []
+    for y in range(max(ingest.FIRST_SHIFT_SEASON, end_year - window + 1), end_year + 1):
+        if not (ingest.PROC / f"shifts_{y}.parquet").exists():
+            continue  # season not pulled (or pre-2010-11 shift floor) -- skip, don't fail
+        s = attach_xg(build_stints(y), y)
+        s["sw"] = float(decay ** (end_year - y))
+        frames.append(s)
+    if not frames:
+        raise RuntimeError(f"no pulled shift seasons in window ending {ingest.season_str(end_year)}")
+    return pd.concat(frames, ignore_index=True)
+
+
+def pool_rapm(end_year: int, window: int = DEFAULT_WINDOW, decay: float = DEFAULT_DECAY,
+              alpha: float = DEFAULT_ALPHA, min_toi_sec: int = DEFAULT_MIN_TOI) -> pd.DataFrame:
+    """End-to-end multi-season pooled xG-RAPM ending at ``end_year`` (recency-weighted)."""
+    return fit(pooled_stints(end_year, window, decay), alpha=alpha, min_toi_sec=min_toi_sec)
+
+
+# Box-informed OFFENSIVE prior. A skater's individual expected goals (own shots, MoneyPuck
+# `I_F_xGoals`, 5v5) is largely linemate-independent, so it stabilizes the pooled RAPM offense --
+# most for thin-sample players. Validated: blended at 0.4 it improves next-season net prediction by
+# +0.016 in 6/6 walk-forward folds (scripts/nhl_stage3_boxprior_report.py). DEFENSE has no
+# comparable individual box stat in hockey, so the prior is offense-only.
+BOX_OFFENSE_WEIGHT = 0.4
+
+
+def box_offense_prior(end_year: int, window: int = DEFAULT_WINDOW) -> pd.DataFrame:
+    """Per-skater pooled individual xG-for per 60 (5v5) over the trailing window -> ``box_ioff``."""
+    f5 = pd.read_parquet(ingest.PROC / "moneypuck_skaters.parquet").query("situation == '5on5'")
+    w = f5[(f5["season_start"] >= end_year - window + 1) & (f5["season_start"] <= end_year)]
+    g = w.groupby("playerId").agg(iF=("I_F_xGoals", "sum"), ice=("icetime", "sum")).reset_index()
+    g = g[g["ice"] > 0]
+    g["box_ioff"] = g["iF"] / g["ice"] * 3600.0
+    return g.rename(columns={"playerId": "player_id"})[["player_id", "box_ioff"]]
+
+
+def blend_box_offense(rapm_df: pd.DataFrame, end_year: int, window: int = DEFAULT_WINDOW,
+                      weight: float = BOX_OFFENSE_WEIGHT) -> pd.DataFrame:
+    """Blend the box individual-xG offensive prior into a pooled-RAPM frame's offense (offense only;
+    defense unchanged), rescaled onto the RAPM-off distribution, then recompute ``net``.
+    """
+    box = box_offense_prior(end_year, window)
+    out = rapm_df.merge(box, on="player_id", how="left")
+    off = out["off"]
+    zb = (out["box_ioff"] - box["box_ioff"].mean()) / box["box_ioff"].std()
+    box_scaled = zb * off.std() + off.mean()          # box offense on the RAPM-off scale
+    box_scaled = box_scaled.fillna(off)               # no box row -> keep pure RAPM offense
+    out["off"] = (1 - weight) * off + weight * box_scaled
+    out["net"] = out["off"] + out["def"]
+    return out.drop(columns=["box_ioff"]).sort_values("net", ascending=False).reset_index(drop=True)
+
+
+def talent(end_year: int, window: int = DEFAULT_WINDOW, decay: float = DEFAULT_DECAY,
+           alpha: float = DEFAULT_ALPHA, box_weight: float = BOX_OFFENSE_WEIGHT) -> pd.DataFrame:
+    """The validated Stage-3 talent estimate: multi-season pooled xG-RAPM (step 1) with a
+    box-informed offensive prior (step 2). This is the current-talent measure downstream aging
+    and team aggregation should consume -- both steps beat single-season next-season prediction
+    in 6/6 walk-forward folds (single 0.289 -> pooled 0.359 -> +box 0.375).
+    """
+    return blend_box_offense(pool_rapm(end_year, window, decay, alpha), end_year, window, box_weight)

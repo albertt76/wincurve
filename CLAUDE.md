@@ -15,14 +15,15 @@
 > is genuinely shared. NFL and the top-5 European soccer leagues are planned next. The
 > communication and walk-forward conventions below apply to every sport.
 >
-> **▶ NHL pickup point (next session):** the **full multi-season shift pull is running/landing**
-> — range is **2010-11..2025-26** (16 seasons), NOT 2007-08: the NHL `/shiftcharts` endpoint is
-> empty before 2010-11 (probed 2026-08; `FIRST_SHIFT_SEASON`, fail-loud guard in `nhl.ingest`),
-> so the RAPM backbone starts 3 seasons later than xG. As seasons land, **rebuild the viewer**
-> (`python scripts/nhl_build_impact_ui.py` — auto-detects available seasons, caches per-season
-> RAPM to `impact_<yr>.parquet`). Then **Stage 3**: multi-season RAPM pool + box-informed prior
-> (to fix single-season linemate over-credit), aging curves, shrinkage, and turning the impact
-> *measurements* into forward *projections*. See the Roadmap in [nhl/DESIGN.md](nhl/DESIGN.md).
+> **▶ NHL pickup point (next session):** shift pull DONE (all 16 seasons 2010-11..2025-26; the
+> `/shiftcharts` floor is 2010-11, not 2007-08 — empty before then); the impact **viewer ships all
+> 16 seasons and deploys at `/nhl`** on Vercel. **Stage 3 impact-refinement steps 1+2 are done and
+> validated** (branch `nhl-stage3`): multi-season pooled RAPM (`rapm.pool_rapm`, +0.074 next-season
+> corr, 6/6 folds, adversarially verified as real signal not shrinkage) + a box-informed *offensive*
+> prior (`rapm.blend_box_offense`, individual xG, +0.016, 6/6), packaged as **`rapm.talent()`**. The
+> **next Stage 3 step is aging curves** (per-skill off/def), then shrinkage and turning `talent()`
+> into a forward *projection*, then team aggregation → season points. See the Roadmap in
+> [nhl/DESIGN.md](nhl/DESIGN.md).
 
 ## What this project is
 
