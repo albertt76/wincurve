@@ -20,9 +20,16 @@ PERIOD_SECONDS = 1200  # a regulation (and playoff-OT) period is 20 minutes
 
 
 def _abs_seconds(period: pd.Series, mmss: pd.Series) -> pd.Series:
-    """(period, 'MM:SS') -> absolute game seconds. P1 00:00 = 0; P2 00:00 = 1200."""
-    parts = mmss.astype(str).str.split(":", expand=True).astype(int)
-    return (period.astype(int) - 1) * PERIOD_SECONDS + parts[0] * 60 + parts[1]
+    """(period, 'MM:SS') -> absolute game seconds. P1 00:00 = 0; P2 00:00 = 1200.
+
+    Malformed/empty times parse to NaN rather than raising -- some seasons carry a few shifts
+    with an empty ``endTime`` (2019-20: ~0.1% of rows, 174 games). The caller's ``end > start``
+    filter then drops just those unusable shifts, instead of one bad time killing a whole season.
+    """
+    parts = mmss.astype(str).str.extract(r"^(\d+):(\d{1,2})$")  # non-matches -> NaN
+    mins = pd.to_numeric(parts[0], errors="coerce")
+    secs = pd.to_numeric(parts[1], errors="coerce")
+    return (period.astype(int) - 1) * PERIOD_SECONDS + mins * 60 + secs
 
 
 def game_stints(shifts_1g: pd.DataFrame, goalie_ids: set[int]) -> pd.DataFrame:
