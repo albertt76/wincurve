@@ -1,0 +1,441 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wincurve — NHL Player Impact</title>
+
+<style>
+  /* ---- tokens: shared with the NBA UI (ui/template.html) so it reads as one product ---- */
+  :root {
+    --ground: #f5f6f9; --surface: #ffffff; --surface-2: #eef0f5;
+    --line: #dfe3ec; --line-soft: #e9ecf3;
+    --ink: #111725; --muted: #5d6779; --faint: #8b94a6;
+    --tight: #0f766e; --tight-fill: #0f766e26;
+    --wide: #b45309; --wide-fill: #b4530926;
+    --pos: #15803d; --pos-fill: #15803d22;
+    --neg: #b91c1c; --neg-fill: #b91c1c22;
+    --accent: #1d4ed8; --accent-soft: #1d4ed822;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --r: 5px;
+    --shadow: 0 1px 2px #0b112008, 0 4px 16px #0b112008;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0e1218; --surface: #151a22; --surface-2: #1b212b;
+      --line: #262d3a; --line-soft: #1f2530;
+      --ink: #e7ecf5; --muted: #98a2b6; --faint: #6b7688;
+      --tight: #2dd4bf; --tight-fill: #2dd4bf24;
+      --wide: #f59e0b; --wide-fill: #f59e0b24;
+      --pos: #4ade80; --pos-fill: #4ade8022;
+      --neg: #f87171; --neg-fill: #f8717122;
+      --accent: #60a5fa; --accent-soft: #60a5fa2e;
+      --shadow: 0 1px 2px #0006, 0 6px 20px #0004;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0e1218; --surface: #151a22; --surface-2: #1b212b;
+    --line: #262d3a; --line-soft: #1f2530;
+    --ink: #e7ecf5; --muted: #98a2b6; --faint: #6b7688;
+    --tight: #2dd4bf; --tight-fill: #2dd4bf24;
+    --wide: #f59e0b; --wide-fill: #f59e0b24;
+    --pos: #4ade80; --pos-fill: #4ade8022;
+    --neg: #f87171; --neg-fill: #f8717122;
+    --accent: #60a5fa; --accent-soft: #60a5fa2e;
+    --shadow: 0 1px 2px #0006, 0 6px 20px #0004;
+  }
+  :root[data-theme="light"] {
+    --ground: #f5f6f9; --surface: #ffffff; --surface-2: #eef0f5;
+    --line: #dfe3ec; --line-soft: #e9ecf3;
+    --ink: #111725; --muted: #5d6779; --faint: #8b94a6;
+    --tight: #0f766e; --tight-fill: #0f766e26;
+    --wide: #b45309; --wide-fill: #b4530926;
+    --pos: #15803d; --pos-fill: #15803d22;
+    --neg: #b91c1c; --neg-fill: #b91c1c22;
+    --accent: #1d4ed8; --accent-soft: #1d4ed822;
+    --shadow: 0 1px 2px #0b112008, 0 4px 16px #0b112008;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  /* ---- header ---- */
+  .title-row {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: 8px;
+  }
+  h1 {
+    font-size: clamp(24px, 4vw, 34px); line-height: 1.1; margin: 0 0 10px;
+    letter-spacing: -.02em; font-weight: 650; text-wrap: balance;
+  }
+  .sub { color: var(--muted); max-width: 74ch; margin: 0; font-size: 14.5px; }
+  .sub code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2);
+    padding: 1px 5px; border-radius: 4px; }
+  .theme-btn {
+    font: inherit; font-size: 12px; cursor: pointer; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r); padding: 6px 11px; white-space: nowrap;
+  }
+  .theme-btn:hover { border-color: var(--faint); color: var(--ink); }
+
+  /* ---- controls ---- */
+  .controls {
+    display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap;
+    margin: 24px 0 14px;
+  }
+  .grp { display: flex; align-items: center; gap: 7px; }
+  .grp > .lbl {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--faint);
+  }
+  .pills { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  .pill {
+    font: inherit; font-size: 13px; cursor: pointer;
+    color: var(--muted); background: var(--surface); border: 1px solid var(--line);
+    border-radius: 999px; padding: 4px 12px; white-space: nowrap;
+    font-family: var(--mono);
+  }
+  .pill:hover { border-color: var(--faint); color: var(--ink); }
+  .pill.on { color: #fff; background: var(--accent); border-color: var(--accent); }
+  :root[data-theme="dark"] .pill.on, .pill.on { color: var(--ground); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r);
+    overflow: hidden; }
+  .seg button {
+    font: inherit; font-size: 13px; cursor: pointer; padding: 5px 14px;
+    background: var(--surface); color: var(--muted); border: 0;
+    border-right: 1px solid var(--line);
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .search {
+    font: inherit; font-size: 13.5px; padding: 5px 11px; min-width: 140px;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: var(--r);
+  }
+  .search:focus { outline: 0; border-color: var(--accent); }
+  .count { font-family: var(--mono); font-size: 11.5px; color: var(--faint); margin-left: auto; }
+
+  /* ---- table ---- */
+  .tablecard {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; box-shadow: var(--shadow);
+    /* bounded height so the card itself is the scroll container -> the sticky column header
+       actually pins (an unbounded overflow-x:auto box has no vertical scroll room, so top:0
+       would resolve against the page and scroll away). Also keeps horizontal scroll on mobile. */
+    max-height: 78vh; overflow: auto;
+  }
+  table { width: 100%; border-collapse: collapse; min-width: 620px; }
+  thead th {
+    position: sticky; top: 0; z-index: 1; background: var(--surface);
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--faint); font-weight: 600;
+    text-align: right; padding: 11px 12px; border-bottom: 1px solid var(--line);
+    white-space: nowrap; cursor: pointer; user-select: none;
+  }
+  thead th.left { text-align: left; }
+  thead th.static { cursor: default; }
+  thead th:hover:not(.static) { color: var(--ink); }
+  thead th .arrow { color: var(--accent); font-size: 9px; margin-left: 3px; }
+  tbody td {
+    padding: 8px 12px; border-bottom: 1px solid var(--line-soft);
+    font-family: var(--mono); font-size: 13px; text-align: right;
+    white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: var(--surface-2); }
+  td.rank { color: var(--faint); font-size: 12px; text-align: right; width: 34px; }
+  td.name { text-align: left; font-family: var(--sans); }
+  td.name .nm { font-weight: 550; }
+  td.name .tag {
+    font-family: var(--mono); font-size: 10.5px; color: var(--faint);
+    margin-left: 7px; letter-spacing: .02em;
+  }
+  .pos { color: var(--pos); }
+  .neg { color: var(--neg); }
+  .zero { color: var(--faint); }
+
+  /* centered impact bar */
+  td.bar { width: 118px; padding-right: 14px; }
+  .barwrap { position: relative; height: 15px; width: 100%; }
+  .barwrap::before {  /* center line */
+    content: ""; position: absolute; left: 50%; top: -1px; bottom: -1px;
+    width: 1px; background: var(--line); }
+  .barwrap i {
+    position: absolute; top: 2px; height: 11px; border-radius: 2px; display: block;
+  }
+  .barwrap i.p { left: 50%; background: var(--pos); }
+  .barwrap i.n { right: 50%; background: var(--neg); }
+
+  /* ---- footnote / glossary ---- */
+  .note {
+    margin: 16px 2px 0; font-size: 13px; color: var(--muted); max-width: 82ch;
+  }
+  .note b { color: var(--ink); font-weight: 600; }
+  details.glossary {
+    margin-top: 26px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 4px 18px;
+  }
+  details.glossary summary {
+    cursor: pointer; font-weight: 600; padding: 12px 0; font-size: 14px;
+    color: var(--ink); list-style: none;
+  }
+  details.glossary summary::-webkit-details-marker { display: none; }
+  details.glossary summary::before { content: "▸ "; color: var(--faint); }
+  details.glossary[open] summary::before { content: "▾ "; }
+  .glossary dl { margin: 4px 0 16px; display: grid; grid-template-columns: max-content 1fr;
+    gap: 8px 18px; font-size: 13.5px; }
+  .glossary dt { font-family: var(--mono); font-size: 12px; color: var(--accent);
+    font-weight: 600; white-space: nowrap; }
+  .glossary dd { margin: 0; color: var(--muted); }
+  .glossary dd b { color: var(--ink); font-weight: 600; }
+  .caveat {
+    margin: 20px 0 4px; padding: 12px 14px; border-radius: var(--r);
+    background: var(--surface); border: 1px solid var(--line);
+    border-left: 3px solid var(--wide);
+    font-size: 13px; color: var(--muted); max-width: 84ch;
+  }
+  .caveat b { color: var(--ink); font-weight: 600; }
+  footer { margin-top: 34px; font-family: var(--mono); font-size: 11px; color: var(--faint); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="title-row">
+      <div>
+        <div class="eyebrow">wincurve · nhl · stage 2 impact</div>
+        <h1>NHL Player Impact</h1>
+        <p class="sub">
+          On-ice value measured two ways: skaters by <b>xG-RAPM</b> (expected-goals regularized
+          adjusted plus-minus, per 60 minutes of 5-on-5) and goalies by <b>GSAx</b> (goals saved
+          above expected). These are <b>measurements</b> of what happened, not forward projections.
+          Ridge strength <code>α</code> and minute floors shown per view; full definitions below.
+        </p>
+      </div>
+      <button class="theme-btn" id="theme" title="Toggle light / dark">◐ theme</button>
+    </div>
+  </header>
+
+  <div class="controls">
+    <div class="grp"><span class="lbl">Season</span><div class="pills" id="seasons"></div></div>
+    <div class="grp">
+      <div class="seg" id="view">
+        <button data-view="skaters" class="on">Skaters · xG-RAPM</button>
+        <button data-view="goalies">Goalies · GSAx</button>
+      </div>
+    </div>
+    <div class="grp" id="posgrp">
+      <span class="lbl">Pos</span>
+      <div class="pills" id="pos">
+        <button class="pill on" data-pos="all">All</button>
+        <button class="pill" data-pos="F">F</button>
+        <button class="pill" data-pos="D">D</button>
+      </div>
+    </div>
+    <input class="search" id="search" type="search" placeholder="filter by name…" autocomplete="off">
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="tablecard"><table id="tbl"><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+
+  <p class="note" id="note"></p>
+
+  <div class="caveat">
+    <b>Read these as measurements, with a Stage-2 caveat.</b> Single-season xG-RAPM still over-credits
+    a player for strong linemates (Stage 3 pools multiple seasons with a box-score prior to fix this),
+    and goaltending is volatile in small samples — a high GSAx over 20 games is mostly noise. All
+    skater numbers are <b>5-on-5 even strength only</b> (special teams excluded), floored at the minutes
+    shown. Nothing here is aged, shrunk, or turned into a team projection yet — that is Stage 3+.
+  </div>
+
+  <details class="glossary" open>
+    <summary>What each column means</summary>
+    <dl id="gloss"></dl>
+  </details>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const DATA = __DATA__;
+const M = DATA.meta;
+const KEYS = M.season_keys;
+
+const state = {
+  season: KEYS[KEYS.length - 1],      // default: latest available season
+  view: "skaters",
+  pos: "all",
+  q: "",
+  sort: { skaters: { key: "net", dir: -1 }, goalies: { key: "gsax", dir: -1 } },
+};
+
+/* ---- formatting helpers ---- */
+const sign = (x, d = 2) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d);
+const cls = x => x > 0.0001 ? "pos" : x < -0.0001 ? "neg" : "zero";
+const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+/* ---- column definitions per view ---- */
+const COLS = {
+  skaters: [
+    { key: "_rank", label: "#", cls: "rank", static: true },
+    { key: "name", label: "Player", left: true },
+    { key: "toi", label: "TOI", tip: "5v5 minutes" },
+    { key: "off", label: "Off", signed: true },
+    { key: "def", label: "Def", signed: true },
+    { key: "net", label: "Net", signed: true },
+    { key: "_bar", label: "", cls: "bar", static: true },
+  ],
+  goalies: [
+    { key: "_rank", label: "#", cls: "rank", static: true },
+    { key: "name", label: "Goalie", left: true },
+    { key: "games", label: "GP" },
+    { key: "toi", label: "TOI" },
+    { key: "xga", label: "xGA" },
+    { key: "ga", label: "GA" },
+    { key: "gsax", label: "GSAx", signed: true },
+    { key: "_bar", label: "", cls: "bar", static: true },
+    { key: "gsax60", label: "GSAx/60", signed: true },
+  ],
+};
+
+function rows() {
+  const s = DATA.seasons[state.season];
+  let r = state.view === "skaters" ? s.skaters.slice() : s.goalies.slice();
+  if (state.view === "skaters" && state.pos !== "all") {
+    // "D" = defensemen; "F" = everyone else INCLUDING unknown position, so F + D always == All
+    // (a blank-pos skater must not vanish from both filters — e.g. a season not yet in MoneyPuck).
+    r = r.filter(p => state.pos === "D" ? p.pos === "D" : p.pos !== "D");
+  }
+  if (state.q) {
+    const q = state.q.toLowerCase();
+    r = r.filter(p => p.name.toLowerCase().includes(q));
+  }
+  const { key, dir } = state.sort[state.view];
+  if (key === "name") r.sort((a, b) => a.name.localeCompare(b.name) * dir);
+  else r.sort((a, b) => (a[key] - b[key]) * dir);
+  return r;
+}
+
+function render() {
+  const cols = COLS[state.view];
+  const sort = state.sort[state.view];
+
+  // header
+  document.getElementById("thead").innerHTML = "<tr>" + cols.map(c => {
+    if (c.static) return `<th class="static ${c.cls || ""} ${c.left ? "left" : ""}">${c.label}</th>`;
+    const active = sort.key === c.key;
+    const arrow = active ? `<span class="arrow">${sort.dir < 0 ? "▼" : "▲"}</span>` : "";
+    return `<th data-key="${c.key}" class="${c.left ? "left" : ""}" ${c.tip ? `title="${c.tip}"` : ""}>${c.label}${arrow}</th>`;
+  }).join("") + "</tr>";
+
+  // scale for the centered bar: symmetric, per-season, per-view
+  const r = rows();
+  const barKey = state.view === "skaters" ? "net" : "gsax";
+  const maxAbs = Math.max(0.01, ...DATA.seasons[state.season][state.view === "skaters" ? "skaters" : "goalies"].map(p => Math.abs(p[barKey])));
+
+  document.getElementById("tbody").innerHTML = r.map((p, i) => "<tr>" + cols.map(c => {
+    if (c.key === "_rank") return `<td class="rank">${i + 1}</td>`;
+    if (c.key === "name") {
+      const tag = state.view === "skaters"
+        ? `${p.pos || "?"} · ${p.team || "—"}`
+        : `${p.team || "—"}`;
+      return `<td class="name"><span class="nm">${esc(p.name)}</span><span class="tag">${esc(tag)}</span></td>`;
+    }
+    if (c.key === "_bar") {
+      const v = p[barKey];
+      const w = Math.min(50, Math.abs(v) / maxAbs * 50);
+      const bar = v >= 0 ? `<i class="p" style="width:${w}%"></i>` : `<i class="n" style="width:${w}%"></i>`;
+      return `<td class="bar"><div class="barwrap">${bar}</div></td>`;
+    }
+    const v = p[c.key];
+    if (c.signed) return `<td class="${cls(v)}">${sign(v, c.key === "toi" ? 0 : 2)}</td>`;
+    return `<td>${typeof v === "number" && !Number.isInteger(v) ? v.toFixed(1) : v}</td>`;
+  }).join("") + "</tr>").join("");
+
+  // count + note
+  const label = DATA.seasons[state.season].label;
+  document.getElementById("count").textContent = `${r.length} shown`;
+  const note = document.getElementById("note");
+  if (state.view === "skaters") {
+    note.innerHTML = `<b>${label}</b> · xG-RAPM ridge α=${M.alpha} · 5-on-5 even strength · skaters with ≥ ${M.skater_floor_min} 5v5 minutes. Off/Def/Net are expected goals per 60 min (Def = opponent xG suppressed, so higher is better). The bar shows <b>Net</b>.`;
+  } else {
+    note.innerHTML = `<b>${label}</b> · GSAx from MoneyPuck xG on shots faced · goalies with ≥ ${M.goalie_floor_min} total minutes. The bar shows <b>GSAx</b> (goals saved above expected).`;
+  }
+  document.getElementById("posgrp").style.display = state.view === "skaters" ? "" : "none";
+}
+
+/* ---- glossary (rendered once) ---- */
+function glossary() {
+  const items = [
+    ["xG-RAPM", "<b>Expected-goals regularized adjusted plus-minus.</b> A ridge regression that credits a skater's on-ice impact while controlling for the four teammates and five opponents sharing the ice with him. Run on expected goals (not actual goals, which are too sparse) over 5-on-5 stints."],
+    ["Off", "Expected goals per 60 minutes a skater <b>adds on offense</b> while on the ice. Higher is better."],
+    ["Def", "Expected goals per 60 a skater <b>suppresses on defense</b> (the negative of opponent xG allowed). Higher is better."],
+    ["Net", "Off + Def — total two-way even-strength impact per 60."],
+    ["GSAx", "<b>Goals saved above expected</b> = expected goals against (xG on shots faced) − actual goals against. Positive means the goalie stopped more than an average goalie would have."],
+    ["GSAx/60", "GSAx expressed as a per-60-minute rate, so goalies with different workloads are comparable."],
+    ["TOI", "Time on ice, in minutes. For skaters this is 5-on-5 minutes; for goalies, total minutes."],
+    ["xGA / GA", "Expected goals against vs actual goals against, on the shots a goalie faced."],
+    ["α (alpha)", "Ridge shrinkage strength. Higher pulls noisy estimates toward zero; RAPM needs heavy shrinkage across ~900 skaters."],
+  ];
+  document.getElementById("gloss").innerHTML = items.map(([t, d]) => `<dt>${t}</dt><dd>${d}</dd>`).join("");
+}
+
+/* ---- controls wiring ---- */
+function seasonPills() {
+  document.getElementById("seasons").innerHTML = KEYS.map(k =>
+    `<button class="pill ${k === state.season ? "on" : ""}" data-season="${k}">${DATA.meta.labels[k]}</button>`
+  ).join("");
+}
+
+document.getElementById("seasons").addEventListener("click", e => {
+  const b = e.target.closest("[data-season]"); if (!b) return;
+  state.season = b.dataset.season; seasonPills(); render();
+});
+document.getElementById("view").addEventListener("click", e => {
+  const b = e.target.closest("[data-view]"); if (!b) return;
+  state.view = b.dataset.view;
+  document.querySelectorAll("#view button").forEach(x => x.classList.toggle("on", x === b));
+  render();
+});
+document.getElementById("pos").addEventListener("click", e => {
+  const b = e.target.closest("[data-pos]"); if (!b) return;
+  state.pos = b.dataset.pos;
+  document.querySelectorAll("#pos button").forEach(x => x.classList.toggle("on", x === b));
+  render();
+});
+document.getElementById("search").addEventListener("input", e => { state.q = e.target.value.trim(); render(); });
+document.getElementById("thead").addEventListener("click", e => {
+  const th = e.target.closest("th[data-key]"); if (!th) return;
+  const s = state.sort[state.view], k = th.dataset.key;
+  if (s.key === k) s.dir *= -1;
+  else { s.key = k; s.dir = k === "name" ? 1 : -1; }
+  render();
+});
+
+/* ---- theme toggle (persisted) ---- */
+const themeBtn = document.getElementById("theme");
+const applyTheme = t => { if (t) document.documentElement.setAttribute("data-theme", t); };
+// localStorage can throw (blocked cookies / sandboxed embed); never let it abort render().
+const storeGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const storeSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* no-op */ } };
+applyTheme(storeGet("nhl-theme"));
+themeBtn.addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = dark ? "light" : "dark";
+  applyTheme(next); storeSet("nhl-theme", next);
+});
+
+/* ---- boot ---- */
+document.getElementById("foot").textContent =
+  `built ${M.built} · seasons: ${Object.values(M.labels).join(", ")} · sources: NHL shift charts + MoneyPuck xG · 5v5 skaters, all-situations goalies`;
+seasonPills();
+glossary();
+render();
+</script>

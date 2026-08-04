@@ -14,9 +14,14 @@ to ``data/nhl/raw``), so a full historical pull is idempotent and re-runs are fr
 Availability windows (empirically probed 2026-08; verify on pull, never assume):
 - team summaries / standings: all seasons (the API serves back to 1917-18).
 - MoneyPuck xG: **2007-08 onward** (its first season).
-- shift charts + play-by-play with coordinates: **2007-08 onward** (the RTSS era).
-So the model backbone is **2007-08 -> 2025-26**, aligned to the xG floor. Team-summary
-history is pulled a bit wider (2005-06) only to give the walk-forward earlier training.
+- shift charts (the ``/shiftcharts`` REST endpoint, on-ice units for RAPM): **2010-11
+  onward**. Empirically probed 2026-08: 2007-08/2008-09/2009-10 return an EMPTY ``data``
+  array for every game (openers AND mid-season), 2010-11 is fully populated. So the shift
+  endpoint's floor is 3 seasons *later* than xG's, and RAPM cannot use 2007-2009.
+So there are TWO backbones: the **xG / team-summary backbone is 2007-08 -> 2025-26**, but the
+**shift / RAPM backbone is 2010-11 -> 2025-26** (``FIRST_SHIFT_SEASON``). Team-summary history
+is pulled a bit wider (2005-06) only to give the walk-forward earlier training. (2007-2009 shift
+data would need the NHL HTML shift reports, a messier source; deferred.)
 """
 
 from __future__ import annotations
@@ -47,8 +52,9 @@ SHOT_COLS = ["game_id", "season", "isPlayoffGame", "period", "time", "event",
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "nhl"
 PROC = DATA_DIR / "processed"
 
-# Model backbone (xG-aligned). Team-summary pull starts a bit earlier for training.
-FIRST_SEASON = 2007          # 2007-08, the RTSS/xG floor
+# Model backbones. Team-summary pull starts a bit earlier for training.
+FIRST_SEASON = 2007          # 2007-08, the MoneyPuck xG floor
+FIRST_SHIFT_SEASON = 2010    # 2010-11, the /shiftcharts floor (2007-2009 return empty) -> RAPM floor
 LAST_SEASON = 2025           # 2025-26, last completed season
 FIRST_SUMMARY_SEASON = 2005  # extra team-record history for the walk-forward
 REGULAR = 2                  # gameTypeId: 2 = regular season, 3 = playoffs
@@ -205,16 +211,44 @@ def pull_season_shifts(start_year: int, *, refresh: bool = False) -> pd.DataFram
     gids = regular_game_ids(start_year, refresh=refresh)
     keep = ["gameId", "playerId", "teamId", "period", "startTime", "endTime", "duration"]
     frames = []
+    ok = empty = errored = 0
     for i, gid in enumerate(gids):
         try:
             s = shifts(gid, refresh=refresh)
-            frames.append(s[[c for c in keep if c in s.columns]])
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:  # noqa: BLE001 -- a fetch failure, distinct from an empty game
             log.warning("shifts %d unavailable: %s", gid, err)
+            errored += 1
+            continue
+        # An empty response (whole seasons < FIRST_SHIFT_SEASON, or the rare single game) is a
+        # legitimate skip; a raised exception above is a fetch failure. Track them separately.
+        if not s.empty and "gameId" in s.columns:
+            frames.append(s[[c for c in keep if c in s.columns]])
+            ok += 1
+        else:
+            empty += 1
         if (i + 1) % 200 == 0:
             log.info("  shifts %d/%d games", i + 1, len(gids))
+
+    if not frames:
+        # No usable data at all. State the cause: mostly-errored = a fetch failure to retry;
+        # mostly-empty = a genuinely pre-floor season (the /shiftcharts endpoint is empty before
+        # FIRST_SHIFT_SEASON = 2010-11). Do not write a parquet either way.
+        raise RuntimeError(
+            f"no shift-chart data for {season_str(start_year)}: {empty} empty, {errored} errored "
+            f"of {len(gids)} games. Mostly errored -> fetch failure, retry. Mostly empty -> the "
+            f"/shiftcharts endpoint serves {season_str(FIRST_SHIFT_SEASON)} onward (earlier: none).")
+    if errored:
+        # Some games failed to fetch -- refuse to cache a silently-incomplete season (cf.
+        # team_summary's paging assert). Successful games are HTTP-cached, so a re-run retries
+        # only the failures and is cheap/resumable; the season writes only once it is complete.
+        raise RuntimeError(
+            f"{season_str(start_year)}: {errored} of {len(gids)} games failed to fetch "
+            f"({ok} ok, {empty} empty) -- not caching a partial season; re-run to retry "
+            f"(cached games return instantly).")
     df = pd.concat(frames, ignore_index=True)
     df.to_parquet(out, index=False)
+    log.info("shifts %s: %d games (%d empty), %d shift rows -> %s",
+             season_str(start_year), ok, empty, len(df), out.name)
     return df
 
 

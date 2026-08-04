@@ -29,6 +29,13 @@ from .shifts import game_stints
 DEFAULT_ALPHA = 3000.0  # ridge strength; RAPM needs heavy shrinkage on ~900 skaters
 DEFAULT_MIN_TOI = 24000  # 400 min of 5v5; below this a season's estimate is mostly noise
 
+# MoneyPuck used dotted team codes for four teams through 2020 (empirically 2007-08..2019-20);
+# team_reference uses the NHL tricodes. Without this normalization ~13% of pre-2021 5v5 shots
+# fail the id join and get misattributed to the OTHER on-ice team -- and because New Jersey has
+# the lowest team_id it is always "team0", so 100% of NJD's offense would be credited to its
+# opponents. Fail loud (below) if a future code slips through.
+MP_CODE_ALIASES = {"L.A": "LAK", "N.J": "NJD", "S.J": "SJS", "T.B": "TBL"}
+
 
 def build_stints(start_year: int) -> pd.DataFrame:
     """All 5v5 stints for a season (reconstructed from the cached shift charts)."""
@@ -48,7 +55,15 @@ def attach_xg(stints: pd.DataFrame, start_year: int) -> pd.DataFrame:
     sh = ingest.moneypuck_shots(start_year)
     sh = sh[(sh["isPlayoffGame"] == 0) & (sh["homeSkatersOnIce"] == 5)
             & (sh["awaySkatersOnIce"] == 5)].copy()
+    # Normalize MoneyPuck's legacy dotted codes to NHL tricodes on every code column, THEN join
+    # to team ids and fail loud on any leftover unmapped code (per the project's join discipline).
+    for col in ("teamCode", "homeTeamCode", "awayTeamCode"):
+        sh[col] = sh[col].replace(MP_CODE_ALIASES)
     sh["shoot_id"] = sh["teamCode"].map(code2id)
+    unmapped = sorted(set(sh.loc[sh["shoot_id"].isna(), "teamCode"].dropna().unique()))
+    if unmapped:
+        raise RuntimeError(f"attach_xg {start_year}: MoneyPuck team codes not in team_reference "
+                           f"{unmapped} -- extend nhl.rapm.MP_CODE_ALIASES")
 
     stints = stints.sort_values(["gid", "start"]).reset_index(drop=True)
     # Attribute each 5v5 shot to the stint containing its time, per game. Stints within a
