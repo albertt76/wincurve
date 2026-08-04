@@ -3,13 +3,22 @@
 > **Multi-sport expansion (started 2026-08).** This repo is becoming a shared-core
 > monorepo. The NBA system below is the mature reference implementation (package
 > `nbaproj/`). **NHL** is the first expansion, under `nhl/` with its own
-> [nhl/DESIGN.md](nhl/DESIGN.md) — Stage 0 (data layer) and Stage 1 (baselines: the bar is
-> **10.54 MAE points**, mean-reverted previous points) are done. Sport-agnostic pieces are
-> extracted into `core/` **incrementally**, only once a second sport proves the seam
-> (currently just `core/httpcache.py`, the throttled disk-cached HTTP client). The NBA code
-> is **not** refactored onto `core/` until the NHL build shows what is genuinely shared.
-> NFL and the top-5 European soccer leagues are planned next. The communication and
-> walk-forward conventions below apply to every sport.
+> [nhl/DESIGN.md](nhl/DESIGN.md) — **the authoritative NHL doc; read it first for NHL work.**
+> Done so far: **Stage 0** (data layer), **Stage 1** (baselines — the bar is **10.54 MAE
+> points**, mean-reverted previous points), and **Stage 2** (impact metric — skater xG-RAPM
+> and goalie GSAx, both face-validated on 2023-24: MacKinnon #1 on offense, Hellebuyck #1 in
+> goal). Sport-agnostic pieces are extracted into `core/` **incrementally**, only once a
+> second sport proves the seam (currently just `core/httpcache.py`, the throttled disk-cached
+> HTTP client). The NBA code is **not** refactored onto `core/` until the NHL build shows what
+> is genuinely shared. NFL and the top-5 European soccer leagues are planned next. The
+> communication and walk-forward conventions below apply to every sport.
+>
+> **▶ NHL pickup point (next session):** only 2023-24 shift data is pulled. Next mechanical
+> step is the **full 2007-08..2025-26 shift pull** (`python scripts/nhl_fetch_shifts.py
+> --season 2007 --season 2008 …`, cached/resumable, ~7 min/season), then **Stage 3**: multi-
+> season RAPM pool + box-informed prior (to fix single-season linemate over-credit), aging
+> curves, shrinkage, and turning the impact *measurements* into forward *projections*. See the
+> Roadmap in [nhl/DESIGN.md](nhl/DESIGN.md).
 
 ## What this project is
 

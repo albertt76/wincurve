@@ -107,6 +107,35 @@ so the achievable frontier is roughly there and the market will likely sit close
 
 ---
 
+## Stage 2 — impact metric (built + face-validated 2023-24)
+
+Two estimators, both validated on 2023-24 before any team wiring (`scripts/nhl_impact_report.py`):
+
+- **Skater xG-RAPM** (`nhl/rapm.py`) — reconstruct 5v5 stints from shift charts
+  (`nhl/shifts.py`: 41 min of even-strength time/game, exactly 5 skaters a side), attribute
+  each MoneyPuck 5v5 shot's xG to its stint, and ridge-regress xG-for-per-60 on on-ice
+  offensive + defensive skater dummies plus a home term (`alpha=3000`, 400-min TOI floor).
+  Output per skater: `off` / `def` / `net` (xG/60). **Face validity: Nathan MacKinnon #1 on
+  offense** (the season's MVP), Panarin top net, Matthews/Tkachuk/Hyman high; Couturier /
+  Luostarinen / Eichel lead defense. Stable across `alpha` 1500-5000.
+- **Goalie GSAx** (`nhl/goalies.py`) — expected goals against − actual, from MoneyPuck.
+  **Face validity: Connor Hellebuyck #1** (+33 GSAx) — the actual 2023-24 Vezina winner —
+  then Demko, Swayman, Bobrovsky. Correct on the first run.
+
+**Data pull** (`scripts/nhl_fetch_shifts.py`): the per-game shift charts are the heavy
+input (~1300 games/season, one cached call each). MoneyPuck's zipped season shot file (xG,
+no on-ice IDs) is the response, joined to shifts by `full_gid = season*1e6 + game_id`. So far
+only **2023-24** is pulled (the validation season); the full 2007-08..2025-26 pull is the
+next mechanical step.
+
+**Known single-season caveats (the documented upgrade path, mirroring the NBA project):**
+xG-RAPM over one season over-credits depth players who skate with elite linemates (e.g.
+Foegele/Carrier with the Edmonton stars) and can't fully separate a forward line that always
+plays together. Fixes, in order: pool **2-3 seasons** for stability, then a **box-informed
+prior** (shrink RAPM toward a box/tracking estimate on thin samples) — exactly the arc the
+NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projection**
+(not just measurement) are the rest of Stage 2-3.
+
 ## Statistical traps (handled; do not regress)
 
 - **pt% mean ≠ 0.5** — the loser point inflates it to ~0.558. Reversion centers on the
@@ -135,8 +164,8 @@ so the achievable frontier is roughly there and the market will likely sit close
 - ✅ **Stage 0** — data layer: cached, throttled, point-in-time pulls; verified inventory.
 - ✅ **Stage 1** — baselines: **the bar = 10.54 MAE points** (mean-reverted previous points),
   persistence 12.09, flat 12.45; k ≈ 0.52.
-- ⬜ **Stage 2** — skater xG-RAPM from the play-by-play + shift-chart bulk pull; aging,
-  shrinkage; off/def decouple. Goalie GSAx module.
+- 🟡 **Stage 2** — impact estimators **built and face-validated** (2023-24); aging/shrinkage
+  and the full multi-season pull still to come. See "Stage 2 — impact metric" below.
 - ⬜ **Stage 3** — TOI/role & availability; replacement level; rookie/first-year priors.
 - ⬜ **Stage 4** — team aggregation (skaters + goalie + special teams → GF/GA rates),
   calibrated per fold on projected aggregates.

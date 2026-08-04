@@ -111,6 +111,21 @@ class HttpCache:
         log.info("fetched json %s %s", url, params or "")
         return data
 
+    def get_bytes(self, url: str, params: dict | None = None, *, refresh: bool = False) -> bytes:
+        """Return the raw response body for ``url`` (+params), from disk if present.
+
+        Used for binary downloads (MoneyPuck's zipped shot files); unzip at the call
+        site with ``zipfile.ZipFile(io.BytesIO(...))``.
+        """
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        path = self._path(url, params, "bin")
+        if path.exists() and not refresh:
+            return path.read_bytes()
+        content = self._fetch(url, params).content
+        path.write_bytes(content)
+        log.info("fetched bytes %s %s", url, params or "")
+        return content
+
     def get_text(self, url: str, params: dict | None = None, *, refresh: bool = False) -> str:
         """Return the raw text body for ``url`` (+params), from disk if present.
 
