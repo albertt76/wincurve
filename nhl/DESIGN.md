@@ -52,10 +52,12 @@ G. Market comparison   season points over/under, Cup/division odds (downstream o
 **RAPM (regularized adjusted plus-minus — a ridge regression crediting a player's on-ice
 impact while controlling for teammates, opponents, and zone starts)** on **xG (expected
 goals)** rather than raw goals, because goals are too sparse in a low-scoring sport. This is
-the direct analog of the NBA play-by-play → RAPM pipeline. Inputs are already verified
-available: **shift charts** give the on-ice 5-man units (`playerId`/`startTime`/`endTime`
-per shift) and **play-by-play** carries a `situationCode` (strength state), both from
-2007-08 on; MoneyPuck supplies the shot xG.
+the direct analog of the NBA play-by-play → RAPM pipeline. Inputs: **shift charts** give the
+on-ice 5-man units (`playerId`/`startTime`/`endTime` per shift) and **play-by-play** carries a
+`situationCode` (strength state); MoneyPuck supplies the shot xG. **Availability floor differs
+from xG:** the `/shiftcharts` endpoint returns data only from **2010-11 on** (2007-08/08-09/09-10
+come back empty — empirically probed 2026-08), while MoneyPuck xG starts 2007-08. So the **RAPM
+backbone is 2010-11 → 2025-26** even though xG/points go back further (see Stage 0).
 
 **Why bottom-up:** ~21 seasons × ~30 teams ≈ 640 team-seasons is far too few to fit a
 team-level model with many features; ~85k skater-season rows (MoneyPuck) is not. Same bet
@@ -78,12 +80,15 @@ sport-agnostic client) into `data/nhl/processed/` (gitignored; regenerate with
 | `moneypuck_skaters` | 85,615 | 19 | 2007-08 → 2025-26 (skater xG by situation) |
 | `moneypuck_goalies` | 8,950 | 19 | 2007-08 → 2025-26 (goalie xG / GSAx inputs) |
 
-Availability windows (empirically verified, do not assume): MoneyPuck xG, shift charts, and
-play-by-play with coordinates all start **2007-08** (the real-time scoring era), so the model
-**backbone is 2007-08 → 2025-26**. Team-summary records are pulled back to 2005-06 only to
-give the walk-forward earlier training years. Per-game play-by-play + shift charts (the RAPM
-bulk pull, thousands of games) are deliberately deferred to the impact stage; their structure
-is verified (`nhl.ingest.game_pbp` / `nhl.ingest.shifts` / `nhl.ingest.roster`).
+Availability windows (empirically verified, do not assume) — there are **two floors**:
+MoneyPuck xG + team records start **2007-08** (so the **xG/points backbone is 2007-08 → 2025-26**),
+but the NHL `/shiftcharts` endpoint (the on-ice units RAPM needs) is **empty before 2010-11** —
+probed 2026-08, every 2007/2008/2009 game returns an empty `data` array — so the **RAPM/shift
+backbone is 2010-11 → 2025-26** (`FIRST_SHIFT_SEASON`; constants and the fail-loud guard in
+`nhl.ingest`). Team-summary records are pulled back to 2005-06 only to give the walk-forward
+earlier training years. (Pre-2010 shift data would need the messier NHL HTML shift reports; deferred.)
+Per-game play-by-play + shift charts (the RAPM bulk pull, thousands of games) are deferred to the
+impact stage; structure verified (`nhl.ingest.game_pbp` / `nhl.ingest.shifts` / `nhl.ingest.roster`).
 
 ---
 
@@ -123,10 +128,25 @@ Two estimators, both validated on 2023-24 before any team wiring (`scripts/nhl_i
   then Demko, Swayman, Bobrovsky. Correct on the first run.
 
 **Data pull** (`scripts/nhl_fetch_shifts.py`): the per-game shift charts are the heavy
-input (~1300 games/season, one cached call each). MoneyPuck's zipped season shot file (xG,
-no on-ice IDs) is the response, joined to shifts by `full_gid = season*1e6 + game_id`. So far
-only **2023-24** is pulled (the validation season); the full 2007-08..2025-26 pull is the
-next mechanical step.
+input (~1300 games/season, one cached call each, idempotent/resumable). MoneyPuck's zipped season
+shot file (xG, no on-ice IDs) is the response, joined to shifts by `full_gid = season*1e6 + game_id`.
+The full pull is **2010-11..2025-26** (16 seasons — the `/shiftcharts` floor, not 2007-08; see Stage
+0). An empty season now fails loud instead of writing a 0-row parquet. **Known per-season shift
+gaps (do not mistake for bugs):** 2024-25 is missing shift charts for a contiguous 57-game block
+(gids 2024021235..291 — genuinely absent from the endpoint, not a fetch failure), so its RAPM uses
+1255/1312 games; 2019-20 carries ~1129 shifts (0.13%, 174 games) with an empty `endTime`, which
+`nhl.shifts._abs_seconds` parses to NaN so the `end > start` filter drops just those shifts rather
+than crashing the season.
+
+**Impact viewer UI** (`ui/nhl/`, `scripts/nhl_build_impact_ui.py`) — a self-contained web
+leaderboard of the Stage-2 metrics, following the NBA `ui/build.py` convention (a `__DATA__`
+placeholder inlined into a single `impact.html`, no external deps). Per season: a sortable,
+searchable skater xG-RAPM table (off/def/net, enriched with position + team, sign-colored with a
+centered net bar) and a goalie GSAx table, with a season selector, Skaters↔Goalies toggle, position
+filter, and light/dark themes. Each season's RAPM fit is cached to `impact_<yr>.parquet`; the build
+auto-detects available seasons, so re-running it as the pull lands adds seasons for free. This is a
+**measurement** viewer (Stage 2), not the team-projection UI (that is Stage 4-6). Rebuild:
+`python scripts/nhl_build_impact_ui.py` (view by opening `ui/nhl/impact.html`).
 
 **Known single-season caveats (the documented upgrade path, mirroring the NBA project):**
 xG-RAPM over one season over-credits depth players who skate with elite linemates (e.g.
@@ -156,6 +176,15 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
   hockey analog of the NBA shooting-luck issue. To be handled as a known regression target in
   the carryover, not baked in blindly (the NBA project's luck-adjustment experiment is the
   cautionary precedent).
+- **MoneyPuck legacy team codes** — through 2019-20, MoneyPuck coded four teams with dotted
+  abbreviations (`L.A`/`N.J`/`S.J`/`T.B`) instead of the NHL tricodes (`LAK`/`NJD`/`SJS`/`TBL`);
+  it switched to tricodes by 2020-21. These appear in BOTH the shot file (`teamCode`/`homeTeamCode`)
+  and the season-summary `team` column. Un-normalized, ~13% of pre-2021 5v5 shots failed the
+  team-id join in `rapm.attach_xg` and were misattributed to the OTHER on-ice team — and because
+  New Jersey has the lowest `team_id` (always "team0"), 100% of NJD's offense was silently credited
+  to its opponents. Fixed by `rapm.MP_CODE_ALIASES` (normalize on every code column, then a
+  fail-loud assert on any leftover unmapped code), applied in both `attach_xg` and the viewer's
+  team-tag enrichment. **Do not regress:** any new MoneyPuck join must normalize through that map.
 
 ---
 
@@ -164,8 +193,11 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
 - ✅ **Stage 0** — data layer: cached, throttled, point-in-time pulls; verified inventory.
 - ✅ **Stage 1** — baselines: **the bar = 10.54 MAE points** (mean-reverted previous points),
   persistence 12.09, flat 12.45; k ≈ 0.52.
-- 🟡 **Stage 2** — impact estimators **built and face-validated** (2023-24); aging/shrinkage
-  and the full multi-season pull still to come. See "Stage 2 — impact metric" below.
+- 🟡 **Stage 2** — impact estimators **built and face-validated** (2023-24); **impact viewer UI
+  shipped** (`ui/nhl/`, sortable skater xG-RAPM + goalie GSAx leaderboards, season-selectable);
+  full multi-season shift pull is **2010-11..2025-26** (the `/shiftcharts` floor — 2007-2009 have
+  no shift data); aging/shrinkage and turning measurement into projection still to come. See
+  "Stage 2 — impact metric".
 - ⬜ **Stage 3** — TOI/role & availability; replacement level; rookie/first-year priors.
 - ⬜ **Stage 4** — team aggregation (skaters + goalie + special teams → GF/GA rates),
   calibrated per fold on projected aggregates.
