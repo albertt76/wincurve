@@ -185,9 +185,20 @@ def pooled_stints(end_year: int, window: int = DEFAULT_WINDOW,
 
 
 def pool_rapm(end_year: int, window: int = DEFAULT_WINDOW, decay: float = DEFAULT_DECAY,
-              alpha: float = DEFAULT_ALPHA, min_toi_sec: int = DEFAULT_MIN_TOI) -> pd.DataFrame:
-    """End-to-end multi-season pooled xG-RAPM ending at ``end_year`` (recency-weighted)."""
-    return fit(pooled_stints(end_year, window, decay), alpha=alpha, min_toi_sec=min_toi_sec)
+              alpha: float = DEFAULT_ALPHA, min_toi_sec: int = DEFAULT_MIN_TOI,
+              *, cache: bool = True) -> pd.DataFrame:
+    """End-to-end multi-season pooled xG-RAPM ending at ``end_year`` (recency-weighted).
+
+    Cached to ``pool_<end>_w<window>_d<decay>_a<alpha>.parquet`` (only for the default TOI floor),
+    since the ridge fit is expensive and ``talent``/``projection`` call it repeatedly.
+    """
+    out = ingest.PROC / f"pool_{end_year}_w{window}_d{decay}_a{int(alpha)}.parquet"
+    if cache and min_toi_sec == DEFAULT_MIN_TOI and out.exists():
+        return pd.read_parquet(out)
+    df = fit(pooled_stints(end_year, window, decay), alpha=alpha, min_toi_sec=min_toi_sec)
+    if cache and min_toi_sec == DEFAULT_MIN_TOI:
+        df.to_parquet(out, index=False)
+    return df
 
 
 # Box-informed OFFENSIVE prior. A skater's individual expected goals (own shots, MoneyPuck
