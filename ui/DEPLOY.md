@@ -22,7 +22,14 @@ code stays private while the site is open. That is the whole reason for the swit
 
 `ui/vercel.json` does the rest: it serves `projections.html` at the root URL (`/`) and
 strips `.html` from paths. `ui/.vercelignore` keeps `build.py` and `template.html` out of
-the deployment.
+the deployment (the pattern matches at any depth, so `nhl/template.html` is excluded too).
+
+**NHL impact viewer.** The self-contained `ui/nhl/impact.html` (skater xG-RAPM + goalie GSAx
+leaderboards) is served on the **same project** — no separate deploy. With Root Directory = `ui`
+and `cleanUrls`, it is reachable at **`/nhl/impact`**, and `vercel.json` adds a clean **`/nhl`**
+rewrite. Rebuild it with `python scripts/nhl_build_impact_ui.py` (data inlined, like
+`projections.html`); it needs no env vars or serverless function (no premium gate). Because the
+project is GitHub-connected, a push to `main` auto-deploys it.
 
 ## Premium gate — set the password (required for the "Unlock details" feature)
 
