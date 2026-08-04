@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import io
 import logging
+import zipfile
 from pathlib import Path
 
 import pandas as pd
@@ -34,6 +35,14 @@ log = logging.getLogger(__name__)
 STATS_API = "https://api.nhle.com/stats/rest/en"
 WEB_API = "https://api-web.nhle.com/v1"
 MONEYPUCK = "https://moneypuck.com/moneypuck/playerData"
+MP_DOWNLOADS = "https://peter-tanner.com/moneypuck/downloads"  # bulk shot files (zipped)
+
+# Slim set of shot columns kept for xG-RAPM (the full file has 124). teamCode is the
+# SHOOTING team; time is absolute game seconds; xGoal is the expected-goals value.
+SHOT_COLS = ["game_id", "season", "isPlayoffGame", "period", "time", "event",
+             "teamCode", "homeTeamCode", "awayTeamCode", "xGoal", "goal",
+             "homeSkatersOnIce", "awaySkatersOnIce", "shotWasOnGoal",
+             "goalieIdForShot", "shooterPlayerId"]
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "nhl"
 PROC = DATA_DIR / "processed"
@@ -152,6 +161,61 @@ def shifts(game_id: int, *, refresh: bool = False) -> pd.DataFrame:
     data = HTTP.get_json(f"{STATS_API}/shiftcharts",
                          params={"cayenneExp": f"gameId={game_id}"}, refresh=refresh)["data"]
     return pd.DataFrame(data)
+
+
+# --- bulk xG-RAPM inputs: MoneyPuck shots (the response) + shift charts (on-ice units) ---
+def full_game_id(start_year: int, mp_game_id: int) -> int:
+    """MoneyPuck game_id (last 5 digits) -> full NHL gameId. 2023,20001 -> 2023020001."""
+    return start_year * 1_000_000 + int(mp_game_id)
+
+
+def moneypuck_shots(start_year: int, *, refresh: bool = False) -> pd.DataFrame:
+    """All unblocked shot attempts for a season, with xG -- the RAPM response.
+
+    Downloads MoneyPuck's zipped season shot file (cached as bytes), returns a slim
+    frame with the full NHL ``gid`` attached. ``time`` is absolute game seconds;
+    ``teamCode`` is the shooting team; ``xGoal`` is the expected-goals value.
+    """
+    raw = HTTP.get_bytes(f"{MP_DOWNLOADS}/shots_{start_year}.zip", refresh=refresh)
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        with z.open(z.namelist()[0]) as f:
+            df = pd.read_csv(f, usecols=lambda c: c in SHOT_COLS)
+    df["gid"] = full_game_id(start_year, 0) + df["game_id"].astype(int)
+    return df
+
+
+def regular_game_ids(start_year: int, *, refresh: bool = False) -> list[int]:
+    """Full NHL gameIds for a season's regular-season games (from the shot file)."""
+    sh = moneypuck_shots(start_year, refresh=refresh)
+    reg = sh.loc[sh["isPlayoffGame"] == 0, "gid"].unique()
+    return sorted(int(g) for g in reg)
+
+
+def pull_season_shifts(start_year: int, *, refresh: bool = False) -> pd.DataFrame:
+    """Pull + cache every regular-season game's shift chart for a season.
+
+    The heavy RAPM input: ~1300 games/season, one cached call each. Idempotent and
+    resumable. Writes ``data/nhl/processed/shifts_<start_year>.parquet``.
+    """
+    PROC.mkdir(parents=True, exist_ok=True)
+    out = PROC / f"shifts_{start_year}.parquet"
+    if out.exists() and not refresh:
+        return pd.read_parquet(out)
+
+    gids = regular_game_ids(start_year, refresh=refresh)
+    keep = ["gameId", "playerId", "teamId", "period", "startTime", "endTime", "duration"]
+    frames = []
+    for i, gid in enumerate(gids):
+        try:
+            s = shifts(gid, refresh=refresh)
+            frames.append(s[[c for c in keep if c in s.columns]])
+        except Exception as err:  # noqa: BLE001
+            log.warning("shifts %d unavailable: %s", gid, err)
+        if (i + 1) % 200 == 0:
+            log.info("  shifts %d/%d games", i + 1, len(gids))
+    df = pd.concat(frames, ignore_index=True)
+    df.to_parquet(out, index=False)
+    return df
 
 
 # --- Stage 0 orchestration --------------------------------------------------
