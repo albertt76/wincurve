@@ -1,5 +1,16 @@
 # wincurve — NBA Season Record Projection System
 
+> **Multi-sport expansion (started 2026-08).** This repo is becoming a shared-core
+> monorepo. The NBA system below is the mature reference implementation (package
+> `nbaproj/`). **NHL** is the first expansion, under `nhl/` with its own
+> [nhl/DESIGN.md](nhl/DESIGN.md) — Stage 0 (data layer) and Stage 1 (baselines: the bar is
+> **10.54 MAE points**, mean-reverted previous points) are done. Sport-agnostic pieces are
+> extracted into `core/` **incrementally**, only once a second sport proves the seam
+> (currently just `core/httpcache.py`, the throttled disk-cached HTTP client). The NBA code
+> is **not** refactored onto `core/` until the NHL build shows what is genuinely shared.
+> NFL and the top-5 European soccer leagues are planned next. The communication and
+> walk-forward conventions below apply to every sport.
+
 ## What this project is
 
 Projects each NBA team's regular-season record for an upcoming season as a

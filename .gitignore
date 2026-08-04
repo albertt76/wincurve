@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 data/raw/
 data/processed/
+data/nhl/raw/
+data/nhl/processed/
 .DS_Store
 
 # stray analysis outputs accidentally written to repo root (scratchpad path with separators stripped)
