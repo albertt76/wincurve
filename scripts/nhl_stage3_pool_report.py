@@ -83,8 +83,13 @@ def main() -> int:
     rows = []
     for Y in args.targets:
         tgt = single_rapm(Y, args.alpha)
-        cs, _ = _corr(single_rapm(Y - 1, args.alpha), tgt)
-        cp, npl = _corr(pooled_rapm(Y - 1, args.window, args.decay, args.alpha), tgt)
+        s1 = single_rapm(Y - 1, args.alpha)
+        p1 = pooled_rapm(Y - 1, args.window, args.decay, args.alpha)
+        # Score BOTH predictors on the identical common player set (single ⊂ pooled otherwise),
+        # so the reported gap is a fair, same-sample comparison.
+        common = set(s1["player_id"]) & set(p1["player_id"]) & set(tgt["player_id"])
+        cs, _ = _corr(s1[s1["player_id"].isin(common)], tgt)
+        cp, npl = _corr(p1[p1["player_id"].isin(common)], tgt)
         rows.append((cs, cp))
         print(f"{season_str(Y):>10} {cs:>12.3f} {cp:>12.3f} {cp - cs:>+16.3f} {npl:>8}")
     cs_m = np.nanmean([r[0] for r in rows]); cp_m = np.nanmean([r[1] for r in rows])
