@@ -391,6 +391,30 @@ caches it in `sessionStorage`, and re-renders with full panels. Real server-enfo
 one **shared** password (no accounts). Next step for real subscriptions: per-user auth
 (Clerk/Supabase) + Stripe — the serverless function is the seam to add it (see the auth roadmap item).
 
+**✅ League-wide player-impact leaderboard (shipped 2026-08-04, `ui/nba_players/`).** A standalone,
+self-contained companion view — one sortable / searchable / team- and position-filterable table of
+**every rostered player's projected impact league-wide**, per season, mirroring the NHL impact viewer
+(`ui/nhl/`). Columns: rank, Player (`pos · TEAM` subtitle), Impact, Off, Def, MPG, Age; default sort
+Impact desc, centered mini-bar on Impact, sign-colored Off/Def/Impact, light/dark toggle, glossary +
+the honest caveats (Impact is a per-100 rate not a win count; defense is the weakest metric; these are
+projected talent inputs). `scripts/build_nba_players_ui.py` flattens `snapshots.json`'s per-team
+`players` into one league-wide list per season (auto-detects seasons; dedupes players who appear on two
+rosters in a walk-forward snapshot, preferring the row with a listed position — verified value-lossless)
+and inlines it into `ui/nba_players/template.html` → `ui/nba_players/players.html` (`__DATA__`
+placeholder, `allow_nan=False`). Rebuild after a snapshot rebuild:
+
+```
+python scripts/build_nba_players_ui.py
+```
+
+**Public/premium decision (owner, 2026-08-04): this leaderboard is PUBLIC.** It exposes the same
+per-player Off/Def/Impact numbers that stay **premium-gated inside the team detail panels**
+(`ui/api/premium.js` / the `ui/build.py` public-vs-premium split) — that team-panel gating is
+**unchanged**. Only this standalone page is public: it ships with data inlined and its own Vercel route
+`/players → /nba_players/players` (`ui/vercel.json`), no serverless gating. `ui/.vercelignore`'s
+directory-agnostic `template.html`/`build.py` patterns already keep the build inputs out of the deploy;
+`scripts/` is outside the `ui` root dir so the build script is never uploaded.
+
 ## Layout
 
 ```
