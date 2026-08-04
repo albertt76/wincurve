@@ -1,0 +1,127 @@
+"""Build the NBA player-impact leaderboard: a self-contained, league-wide web view.
+
+The team-projection UI (``ui/projections.html``) only exposes per-player impact *inside* each
+team's expanded panel. This script aggregates every team's ``players`` across each season in
+``data/processed/snapshots.json`` -- the same bundle that powers the team UI -- into ONE
+sortable / searchable / filterable **league-wide** table per season, and inlines it into
+``ui/nba_players/template.html`` (a ``__DATA__`` placeholder) -> a single self-contained
+``ui/nba_players/players.html`` with no external dependencies.
+
+It mirrors ``scripts/nhl_build_impact_ui.py`` (auto-detect seasons, native-type casts so
+``json.dumps`` is happy, ``allow_nan=False`` as a NaN backstop) and the ``ui/build.py`` inlining
+convention. Auto-detects the seasons present in the snapshot -- re-run it whenever the snapshot is
+rebuilt (``scripts/build_snapshots.py``).
+
+    python scripts/build_nba_players_ui.py
+
+Note on gating: these per-player Off/Def/Impact numbers are premium-gated inside the *team panels*
+of the main app (see ``ui/build.py`` / ``ui/api/premium.js``). Per the owner's decision, THIS
+standalone leaderboard is published PUBLIC with its data inlined (no serverless gating); the team
+panels stay premium. See the PR / root CLAUDE.md.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SNAPSHOTS = ROOT / "data" / "processed" / "snapshots.json"
+TEMPLATE = ROOT / "ui" / "nba_players" / "template.html"
+OUTPUT = ROOT / "ui" / "nba_players" / "players.html"
+
+
+def _num(x, ndigits):
+    """Native-float round (numpy/None-safe) -- returns None untouched so json.dumps stays valid."""
+    if x is None:
+        return None
+    return round(float(x), ndigits)
+
+
+def _int(x):
+    """Native int, or None (age can be missing for some player-seasons)."""
+    return None if x is None else int(x)
+
+
+def season_players(season_blob: dict) -> list[dict]:
+    """Flatten every team's roster into one league-wide player list for a season.
+
+    A player can appear on TWO teams' rosters in the same walk-forward snapshot (a mid-season
+    trade / roster-reconstruction artifact); the duplicate rows carry identical impact/off/def/mpg
+    (verified), so deduping by player id is lossless. We keep the row with a non-empty ``pos`` when
+    one exists (cleaner subtitle), else the first seen -- one clean league-wide row per player.
+    """
+    seen: dict[int, dict] = {}
+    for team in season_blob.get("teams", []):
+        abbr = team.get("abbr") or ""
+        for p in team.get("players", []):
+            pid = int(p["id"])
+            row = {
+                "id": pid,
+                "name": str(p.get("name", "")),
+                "pos": str(p.get("pos") or ""),
+                "team": abbr,
+                "impact": _num(p.get("impact"), 2),
+                "off": _num(p.get("off"), 2),
+                "def": _num(p.get("def"), 2),
+                "mpg": _num(p.get("mpg"), 1),
+                "age": _int(p.get("age")),
+            }
+            prev = seen.get(pid)
+            # prefer the row that actually carries a position (the other is the same player)
+            if prev is None or (not prev["pos"] and row["pos"]):
+                seen[pid] = row
+    return sorted(seen.values(), key=lambda r: (r["impact"] is None, -(r["impact"] or 0)))
+
+
+def build() -> dict:
+    if not SNAPSHOTS.exists():
+        raise SystemExit(f"missing {SNAPSHOTS} -- copy it in / run scripts/build_snapshots.py first")
+    snap = json.loads(SNAPSHOTS.read_text())
+    snapshots = snap["snapshots"]
+
+    keys = sorted(snapshots.keys())  # season labels sort correctly ("2017-18" < ... < "2026-27")
+    if not keys:
+        raise SystemExit("no seasons in snapshots.json -- nothing to write")
+
+    seasons: dict[str, dict] = {}
+    teams_union: set[str] = set()
+    for k in keys:
+        players = season_players(snapshots[k])
+        seasons[k] = {"label": k, "players": players}
+        teams_union.update(p["team"] for p in players if p["team"])
+        print(f"  {k}: {len(players)} players "
+              f"(top: {players[0]['name']} {players[0]['impact']:+.2f})", flush=True)
+
+    return {
+        "meta": {
+            "built": dt.date.today().isoformat(),
+            "season_keys": keys,
+            "labels": {k: k for k in keys},          # identity; kept for template symmetry with NHL
+            "current": keys[-1],                      # latest = the live upcoming-season projection
+            "teams": sorted(teams_union),             # stable team-filter options across all seasons
+        },
+        "seasons": seasons,
+    }
+
+
+def main() -> int:
+    print(f"building NBA player-impact leaderboard from {SNAPSHOTS.name}")
+    data = build()
+
+    tpl = TEMPLATE.read_text()
+    assert "__DATA__" in tpl, "template placeholder __DATA__ missing"
+    # allow_nan=False: a stray NaN/Inf would serialize as an invalid JSON token and break the page;
+    # fail the build loudly instead (the source snapshot is already NaN-free, but keep the backstop).
+    OUTPUT.write_text(tpl.replace("__DATA__", json.dumps(data, separators=(",", ":"), allow_nan=False)))
+    n_players = sum(len(s["players"]) for s in data["seasons"].values())
+    print(f"wrote {OUTPUT}  ({OUTPUT.stat().st_size:,} bytes, "
+          f"{len(data['seasons'])} seasons, {n_players} player-rows, "
+          f"{len(data['meta']['teams'])} teams)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
