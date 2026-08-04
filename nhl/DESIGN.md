@@ -221,9 +221,19 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     prior from on-ice xG-differential does NOT help (it's a cruder, linemate-biased restatement of
     what RAPM already controls for, and hurts thin samples) — only the *individual-offense* signal is
     complementary.
-  - **Cumulative:** single 0.289 → pooled 0.362 (+0.074) → +box offensive prior (+0.016), every step
-    6/6 folds (~+0.09, ~30% relative). **Next:** aging curves (per-skill, off/def), shrinkage, then
-    forward projection.
+  - **Cumulative (steps 1-2):** single 0.289 → pooled 0.362 (+0.074) → +box offensive prior (+0.016),
+    every step 6/6 folds (~+0.09, ~30% relative).
+  - **Step 3 — aging curves (measured).** `nhl/aging.py` + `scripts/nhl_stage3_aging_report.py`, on
+    player birthdates (`scripts/nhl_fetch_birthdates.py` → NHL landing bio; MoneyPuck has none).
+    Delta method: for every skater with single-season RAPM in consecutive years, the TOI-weighted
+    change in off/def by age, smoothed (degree-2 polynomial on the deltas) and integrated to a level
+    curve. Face-valid: **net peaks ~24, offense ~24** (gentle decline after), **defense declines from
+    the youngest age** (mobility/skating-based xG suppression fades early — the hockey analog of the
+    NBA's "blocks decline from the start"); net decline accelerates after ~30. Peaks younger than the
+    NBA (~26-27), as hockey aging studies find. **Survivorship caveat:** only players in both seasons
+    contribute, so the old-age fall-off is *understated*. The smoothed per-year `sdelta(age)` is the
+    aging adjustment the projection will apply. **Next:** shrinkage/regression-to-mean, then combine
+    `talent()` + aging into a forward projection, then team aggregation → season points.
 - ⬜ **Stage 3b** — TOI/role & availability; replacement level; rookie/first-year priors.
 - ⬜ **Stage 4** — team aggregation (skaters + goalie + special teams → GF/GA rates),
   calibrated per fold on projected aggregates.
