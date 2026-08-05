@@ -150,6 +150,11 @@
     font-family: var(--mono); font-size: 10.5px; color: var(--faint);
     margin-left: 7px; letter-spacing: .02em;
   }
+  td.name .extlink {
+    color: var(--faint); text-decoration: none; margin-left: 6px; font-size: 11px;
+    opacity: .7;
+  }
+  td.name .extlink:hover { color: var(--accent); opacity: 1; }
   .pos { color: var(--pos); }
   .neg { color: var(--neg); }
   .zero { color: var(--faint); }
@@ -369,7 +374,10 @@ function render() {
       if (c.key === "_rank") return `<td class="rank">${i + 1}</td>`;
       if (c.key === "name") {
         const tag = p.pos ? `${p.pos} · ${p.team || "—"}` : (p.team || "—");
-        return `<td class="name"><span class="nm">${esc(p.name)}</span><span class="tag">${esc(tag)}</span></td>`;
+        const link = p.bbref
+          ? ` <a class="extlink" href="${esc(p.bbref)}" target="_blank" rel="noopener noreferrer" ` +
+            `title="View ${esc(p.name)} on Basketball-Reference" onclick="event.stopPropagation()">↗</a>` : "";
+        return `<td class="name"><span class="nm">${esc(p.name)}</span><span class="tag">${esc(tag)}</span>${link}</td>`;
       }
       if (c.key === "_bar") {
         const v = p.impact;
