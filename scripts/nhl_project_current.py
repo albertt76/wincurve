@@ -57,7 +57,7 @@ def main() -> int:
     gf, ga = season.goal_rates(g["off"].values, g["def"].values, cal)
     g["gf"], g["ga"] = gf, ga
     g["mu"] = gamesim.expected_points(gf, ga, league_gf=cal["level"])
-    g["wins"] = gamesim.expected_wins(gf, ga, league_gf=cal["level"])   # standings W (market-ready)
+    wins0 = gamesim.expected_wins(gf, ga, league_gf=cal["level"])   # pre-carryover, from the sim
 
     # 3) one-year carryover: rho on residual pairs before T, times each team's season T-1 residual
     pr = P[P["Y"] < T].merge(
@@ -67,6 +67,12 @@ def main() -> int:
     prev_resid = P[P["Y"] == T - 1].set_index("team")["mu_resid"]
     g["carry"] = rho * g["team"].map(prev_resid).fillna(0.0)
     g["proj"] = g["mu"] + g["carry"]
+    # The carryover is fit on POINTS residuals; split it onto wins at "2 points per marginal win" (the
+    # standings conversion for a win vs a loss) so proj/wins stay consistent -- proj - 2*wins recovers
+    # exactly the sim's own OT-loss games (>= 0 by construction), instead of the pre-carryover wins
+    # figure implying a structurally-impossible negative OT-loss count against the carryover-adjusted
+    # points. Standings-ready: "wins" is now the carryover-adjusted number a market comparison wants.
+    g["wins"] = wins0 + g["carry"] / 2.0
 
     # 4) interval: sim season-luck + walk-forward projection error (from the sim+carry residual)
     sigma = season.projection_sigma(P, T)

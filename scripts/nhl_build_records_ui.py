@@ -33,8 +33,18 @@ BUNDLE = PROC / "projection_current.json"
 
 
 def attach_market(bundle: dict) -> int:
-    """Best-effort: attach the live Kalshi implied WIN table to each team as ``mkt_wins`` (downstream
-    display only). Returns the number of teams matched; 0 (and unchanged) when nothing is posted."""
+    """Best-effort: attach the live Kalshi implied WIN table to each team (downstream display only).
+    Returns the number of teams matched; 0 (and unchanged) when nothing is posted.
+
+    Kalshi settles on WINS, but the Records page's shared axis is standings POINTS -- plotting a win
+    total straight onto a points axis would silently mix units. Standings points = 2*wins + OT-loss
+    games, and we don't have the market's own implied OT-loss split, so we reuse OUR model's implied
+    OT-loss count for that team (``proj_points - 2*wins``, both already in the bundle) as the
+    conversion factor: ``mkt`` (points-equivalent, for the axis) = ``2*mkt_wins + our_otl``. This is a
+    documented approximation -- it assumes the market agrees with us on how a team's decided-in-OT
+    share splits, which is the only information we have. ``mkt_wins`` (the raw market number) is kept
+    alongside it for an honest readout.
+    """
     try:
         from nhl import market_live
         yy = (bundle["meta"]["target_start"] + 1) % 100
@@ -46,7 +56,10 @@ def attach_market(bundle: dict) -> int:
     for t in bundle["teams"]:
         m = table.get(t["team"])
         if m and m.get("mean") is not None:
-            t["mkt_wins"] = round(float(m["mean"]), 1)
+            mkt_wins = float(m["mean"])
+            our_otl = t["proj"] - 2 * t["wins"]         # our model's implied OT-loss games this team
+            t["mkt_wins"] = round(mkt_wins, 1)
+            t["mkt"] = round(2 * mkt_wins + our_otl, 1)  # points-equivalent, for the shared axis
             n += 1
     return n
 
