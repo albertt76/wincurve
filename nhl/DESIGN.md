@@ -264,9 +264,18 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
   is nearly unpredictable in advance, so `goalies.project_gsax` regresses ~85% toward 0 (best
   projected starter ~+0.09) — projected goaltending barely differentiates teams; the skater
   aggregation carries the projection even though realized goalie variance swings standings (a big
-  reason the NHL market is hard to beat). **Remaining Stage 4/5:** special-teams (PP/PK) layer, the
-  impact→goals→points calibration fit on *projected* aggregates (the NBA distribution-mismatch
-  lesson), one-year carryover, then the season simulation.
+  reason the NHL market is hard to beat).
+  - **FIRST END-TO-END points projection (`scripts/nhl_stage45_points_report.py`).** project(Y-1)
+    skaters → team 5v5 net → a walk-forward linear calibration to 82-game points. **At parity with
+    the bar, not beating it yet:** MAE **10.76** vs naive **10.50** on 3 folds (Stage 1 bar 10.54) —
+    the expected shape (the NBA's first cuts didn't beat the bar either). Projections are face-valid
+    (CAR/TBL/FLA/EDM top, SEA/SJS/CHI bottom). It ties *despite* a leaky roster advantage, so the
+    missing pieces carry real weight. **Remaining to beat the bar (Stage 4/5):** the **one-year
+    carryover** (the NBA's single biggest lever, +0.35), special-teams (PP/PK), goalie level,
+    impact→goals→points via goal-diff/Pythagorean, then the **season simulation** (regulation/OT/
+    shootout) for the calibrated points *distribution*. NOTE: the current end-to-end is a LEAKY upper
+    bound — actual roster + TOI; the honest version needs opening-day roster reconstruction + a
+    minutes model (Stage 3b).
 - ⬜ **Stage 5** — season simulation with regulation/OT/shootout → points distribution;
   interval calibration. One-year carryover.
 - ⬜ **Stage 6** — market comparison (season points over/under; Cup/division/playoff odds,
