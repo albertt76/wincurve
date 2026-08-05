@@ -450,12 +450,12 @@ const applyTheme = t => { if (t) document.documentElement.setAttribute("data-the
 // localStorage can throw (blocked cookies / sandboxed embed); never let it abort render().
 const storeGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
 const storeSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* no-op */ } };
-applyTheme(storeGet("nhl-theme"));
+applyTheme(storeGet("wincurve-theme"));
 themeBtn.addEventListener("click", () => {
   const cur = document.documentElement.getAttribute("data-theme");
   const dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
   const next = dark ? "light" : "dark";
-  applyTheme(next); storeSet("nhl-theme", next);
+  applyTheme(next); storeSet("wincurve-theme", next);
 });
 
 /* ---- boot ---- */
