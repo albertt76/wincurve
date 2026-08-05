@@ -258,10 +258,15 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
   minutes covered by a projection. **Replacement level DONE:** the uncovered ~12% (rookies/thin) have
   mean actual 5v5 RAPM net ~−0.03 (below average); filling them at replacement (weighting the
   aggregate over TOTAL team minutes, not just covered) lifts the projected net→xG-diff correlation
-  **~0.65 → ~0.72 in 5/5 seasons** (`REPLACEMENT_OFF`/`_DEF`, the `fill=True` default). **Remaining
-  Stage 4/5:** goalie GSAx + special-teams (PP/PK) layers, the impact→goals→points calibration fit
-  on *projected* aggregates (the NBA distribution-mismatch lesson), one-year carryover, then the
-  season simulation.
+  **~0.65 → ~0.72 in 5/5 seasons** (`REPLACEMENT_OFF`/`_DEF`, the `fill=True` default). **Goalie
+  GSAx projection DONE (and a defining NHL finding):** GSAx/60 barely persists year-over-year —
+  **corr ~0.13, slope ~0.15** (2011-2024, 1500-min starters), vs skater offense ~0.62. Goaltending
+  is nearly unpredictable in advance, so `goalies.project_gsax` regresses ~85% toward 0 (best
+  projected starter ~+0.09) — projected goaltending barely differentiates teams; the skater
+  aggregation carries the projection even though realized goalie variance swings standings (a big
+  reason the NHL market is hard to beat). **Remaining Stage 4/5:** special-teams (PP/PK) layer, the
+  impact→goals→points calibration fit on *projected* aggregates (the NBA distribution-mismatch
+  lesson), one-year carryover, then the season simulation.
 - ⬜ **Stage 5** — season simulation with regulation/OT/shootout → points distribution;
   interval calibration. One-year carryover.
 - ⬜ **Stage 6** — market comparison (season points over/under; Cup/division/playoff odds,

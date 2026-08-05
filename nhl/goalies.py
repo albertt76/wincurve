@@ -40,3 +40,22 @@ def goalie_gsax(situation: str = "all") -> pd.DataFrame:
     out["gsax"] = out["xga"] - out["ga"]                     # saved above expected
     out["gsax_per_60"] = out["gsax"] / out["toi_min"] * 60.0
     return out.sort_values(["season_start", "gsax"], ascending=[True, False]).reset_index(drop=True)
+
+
+# Year-over-year persistence of GSAx/60 (2011-2024, 1500-min starters): corr ~0.13, slope ~0.15.
+# Goaltending is nearly unpredictable season to season -- far below skater offense (~0.62) -- so a
+# forward projection regresses GSAx ~85% toward league average (0). Consequence: projected
+# goaltending barely differentiates teams; the skater aggregation carries the projection, even
+# though realized goalie variance swings standings. (Stage 4/5: a multi-season base is a refinement.)
+GSAX_PERSISTENCE = 0.15
+
+
+def project_gsax(end_year: int, *, min_toi: float = 1500.0,
+                 beta: float = GSAX_PERSISTENCE) -> pd.DataFrame:
+    """Projected next-season GSAx per 60 per goalie = ``beta * this-season GSAx/60`` (heavy
+    regression toward 0, since goalie performance barely persists). Floored at ``min_toi`` minutes.
+    """
+    g = goalie_gsax("all")
+    g = g[(g["season_start"] == end_year) & (g["toi_min"] >= min_toi)].copy()
+    g["proj_gsax_per_60"] = beta * g["gsax_per_60"]
+    return g[["player_id", "name", "toi_min", "gsax_per_60", "proj_gsax_per_60"]].reset_index(drop=True)
