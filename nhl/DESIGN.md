@@ -142,11 +142,15 @@ than crashing the season.
 leaderboard of the Stage-2 metrics, following the NBA `ui/build.py` convention (a `__DATA__`
 placeholder inlined into a single `impact.html`, no external deps). Per season: a sortable,
 searchable skater xG-RAPM table (off/def/net, enriched with position + team, sign-colored with a
-centered net bar) and a goalie GSAx table, with a season selector, Skaters↔Goalies toggle, position
-filter, and light/dark themes. Each season's RAPM fit is cached to `impact_<yr>.parquet`; the build
-auto-detects available seasons, so re-running it as the pull lands adds seasons for free. This is a
-**measurement** viewer (Stage 2), not the team-projection UI (that is Stage 4-6). Rebuild:
-`python scripts/nhl_build_impact_ui.py` (view by opening `ui/nhl/impact.html`).
+centered net bar) and a goalie GSAx table, with a season selector, Skaters↔Goalies toggle, a
+**team filter** (per-season dropdown, matching the NBA players page), a **position filter that
+separates C / F / D** (F = wingers L+R; the exact R/L/C/D stays as the tag next to each name), and
+light/dark themes. In the shared cross-league nav this page is **"NHL → Players"** (the NHL analog
+of the NBA players leaderboard; renamed from "Impact" 2026-08-05). Each season's RAPM fit is cached
+to `impact_<yr>.parquet`; the build auto-detects available seasons, so re-running it as the pull
+lands adds seasons for free. This is a **measurement** viewer (Stage 2), not the team-projection UI
+(the NHL "Records" page, Stage 4-6). Rebuild: `python scripts/nhl_build_impact_ui.py` (view by
+opening `ui/nhl/impact.html`).
 
 **Known single-season caveats (the documented upgrade path, mirroring the NBA project):**
 xG-RAPM over one season over-credits depth players who skate with elite linemates (e.g.

@@ -285,7 +285,7 @@ keys were unified to `wincurve-theme` at the same time).
 the first element of `<body>` (immediately before `<div class="wrap">`). Links are **grouped by
 league** — a faint `nl-league` label (NBA / NHL, followed by a `▸` via `::after`) heads each
 `nl-group`, and **the current page's link is given `class="nl active"`** (NBA projections →
-"Records"; players → "Players"; NHL → "Impact"; a new league adds its own `nl-group` with a label and
+"Records"; players → "Players"; NHL → "Players"; a new league adds its own `nl-group` with a label and
 routes, marking its link active on its own page). The markup and CSS are identical across templates
 and use only shared tokens (`--ink`/`--muted`/`--faint`/`--line`/`--surface`/`--mono`):
 
@@ -300,7 +300,7 @@ and use only shared tokens (`--ink`/`--muted`/`--faint`/`--line`/`--surface`/`--
   </span>
   <span class="nl-group">
     <span class="nl-league">NHL</span>
-    <a class="nl" href="/nhl">Impact</a>
+    <a class="nl" href="/nhl">Players</a>
   </span>
 </div></nav>
 ```
