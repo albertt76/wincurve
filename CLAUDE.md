@@ -53,10 +53,21 @@
 > page shows no ring. **The NHL "Records" page ships** (`ui/nhl_records/`,
 > `scripts/nhl_build_records_ui.py`, route `/nhl/records`): 32 teams on a shared points axis with the
 > mean + 80% band, sortable, per-team off/def/carryover drivers + disagreement story; the **NHL →
-> Records** nav link was added to every page. **NEXT:** activate the market ring when `KXNHLWINS`
-> posts (reconcile wins-vs-points); per-team player-level roster detail + what-if on the Records page;
-> a historical track-record view (needs a free NHL market-line source — none found yet). See the
-> Roadmap in [nhl/DESIGN.md](nhl/DESIGN.md).
+> Records** nav link was added to every page. **Per-team player-level roster detail + a what-if
+> editor now ship too** (`nhl_project_current.roster_frame`/`roster_bundle`): every team's panel
+> lists its top-6 contributors by exact share of the team's net rating (sums to the team net by
+> construction), and an "Edit roster" table lets any skater be **benched** (swapped to replacement
+> level at his own ice time — an injury/departure scenario), recomputed by an **exact client-side JS
+> port of `nhl.gamesim`** (verified to reproduce the server's numbers with no edits applied). Face-
+> valid: benching Colorado's Nathan MacKinnon (its #1 contributor) drops the projection 108.1 → 102.3.
+> A market-ring correctness bug found proactively (field-name mismatch + a carryover/wins
+> inconsistency producing a structurally-impossible negative implied OT-loss count) was fixed before
+> the market ever went live. **A historical track-record view stays blocked** — re-checked: Kalshi
+> `KXNHLWINS` has zero settled/closed events, and hockey-reference.com has no bbref-style preseason-
+> odds page (no free source found). **NEXT:** activate the market ring when `KXNHLWINS` posts
+> (reconcile wins-vs-points, already built); injury/known-absence overlays (the NBA project's
+> hand-authored override files — the bench toggle covers some of this, not the injury-*return* case).
+> See the Roadmap in [nhl/DESIGN.md](nhl/DESIGN.md).
 
 ## What this project is
 

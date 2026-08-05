@@ -432,10 +432,27 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     bar (reusing the NHL Players page's bar convention). Rookies/uncovered players correctly fall to
     replacement level rather than showing blank. Face-valid: Colorado's #1 contributor is Nathan
     MacKinnon (+0.449 off), its defense dragged by Juulsen/Kulak -- exactly the eye test.
-  - **⬜ Remaining.** A historical track-record view awaits a free source of historical NHL market
-    lines (none identified -- bbref has no NHL); a what-if roster editor (the NBA Records page's
-    live-recompute feature) on the Records page; and the injury / known-absence overlays the NBA
-    project carries.
+  - **✅ What-if roster editor DONE.** The NHL analog of the NBA Records page's live-recompute
+    feature: every team's expanded panel now has an "Edit roster" table (all rostered skaters, not
+    just the top 6) with a per-player **bench** toggle -- benching swaps his off/def to replacement
+    level at his own ice time (an "injury / departure" scenario; the carryover stays fixed, since it
+    reflects last season, not this edit). The recompute is an **exact client-side JS port** of
+    `nhl.gamesim` + `nhl.season.goal_rates` (Poisson win probability, the OT/SO branch, the trinomial
+    points, `expected_points`/`expected_wins`) -- verified to reproduce the server's own numbers for
+    all 32 teams with no edits applied (±0.02-0.11 pts of JSON-rounding noise, which the UI sidesteps
+    by showing the exact server value whenever nothing is benched). Only `off_mean`/`def_mean` are
+    frozen at build time (a single edited team barely moves the true 32-team average) -- everything
+    else is live. The team's row on the shared axis (band + mean tick + readout) updates in place;
+    the interval is re-centered on the new mean at its original width (season luck barely depends on
+    *which* players make up a given team strength). Face-valid: benching Colorado's Nathan MacKinnon
+    (its #1 contributor, ~half the team's net rating) drops the projection 108.1 → 102.3 (−5.8 pts).
+    Not a trade editor (no swap-in-any-player pool) -- that is the natural v2 if wanted.
+  - **⬜ Remaining.** A historical track-record view stays blocked: re-checked for this session --
+    Kalshi's `KXNHLWINS` has **zero** settled/closed events (nothing historical exists on that
+    series) and hockey-reference.com's robots.txt gives no sign of a bbref-style preseason-odds page
+    (no free source identified). Also: injury / known-absence overlays the NBA project carries as
+    hand-authored, forward-looking overrides (the what-if editor's per-player bench toggle covers a
+    lot of this need already, but not the "player X returns from injury" inverse case).
 
 ---
 
