@@ -30,11 +30,21 @@
 > excluded from CAR) weighted by **prior-season 5v5 TOI**, wired in via a `toi=` hook on
 > `aggregate.team_ratings`. Honest result over **9 full-season folds: 10.61 points** (beats the
 > per-fold naive 10.83 within noise; +0.07 vs the fixed 10.54 bar) — and the leak was worth ~nothing
-> (leaky is 10.72 over the same 9 folds; the old "10.10" was a favorable 3-fold subset). **NEXT:
-> Stage 5** — the season sim (regulation/OT/shootout → points *distribution*) plus the remaining
-> Stage 4 levers (special teams PP/PK, goalie level via goal-diff/Pythagorean), the pieces still
-> needed to *clear* the bar decisively rather than sit at it. See the Roadmap in
-> [nhl/DESIGN.md](nhl/DESIGN.md).
+> (leaky is 10.72 over the same 9 folds; the old "10.10" was a favorable 3-fold subset). **Stage 5
+> (the season simulation) is now COMPLETE too.** `nhl/gamesim.py` + `scripts/nhl_stage5_sim_report.py`:
+> a goal-based Poisson game model (projected off→GF, def→GA, calibrated separately + drift-tracked;
+> empirical ~0.23 OT/SO rate; 2/1/0 trinomial points) → **82-game points *distribution***, replacing
+> the linear net→points. **sim+carry = 10.50** over the same 9 folds — **MAE-neutral vs the linear
+> 10.61 (−0.10, ±0.11 SE, within noise)** but it delivers the thing the line can't: a **calibrated
+> 80% interval (coverage 0.82)**; face-valid standings (`--detail 2025`). **Both remaining levers
+> BUILT + REJECTED — real but redundant with the carryover** (the NBA RAPM-vs-carryover pattern):
+> goalie GSAx into GA **+0.06** (corr 0.21 w/ points, but persistent → carryover eats it), special
+> teams PP/PK **+0.05** (persistence 0.36 ≈ rho 0.37). So the model sits **at** the bar (10.50 vs
+> 10.54; −0.33 vs the per-fold naive) — the expected shape for a high-parity league; the deliverable
+> is per-team disagreement + the interval, not aggregate-MAE dominance. **NEXT: Stage 6** — market
+> comparison (season points over/under; Cup/division odds, downstream only) + the NHL **"Records"**
+> page (consumes the Stage 5 distribution; needs a live 2026-27 opening-roster feed). See the Roadmap
+> in [nhl/DESIGN.md](nhl/DESIGN.md).
 
 ## What this project is
 
