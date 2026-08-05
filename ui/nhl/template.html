@@ -120,6 +120,12 @@
     border: 1px solid var(--line); border-radius: var(--r);
   }
   .search:focus { outline: 0; border-color: var(--accent); }
+  .teamsel {
+    font: inherit; font-size: 12.5px; font-family: var(--mono); cursor: pointer;
+    padding: 5px 10px; background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: var(--r);
+  }
+  .teamsel:focus { outline: 0; border-color: var(--accent); }
   .count { font-family: var(--mono); font-size: 11.5px; color: var(--faint); margin-left: auto; }
 
   /* ---- table ---- */
@@ -227,7 +233,7 @@
   </span>
   <span class="nl-group">
     <span class="nl-league">NHL</span>
-    <a class="nl active" href="/nhl">Impact</a>
+    <a class="nl active" href="/nhl">Players</a>
   </span>
 </div></nav>
 
@@ -256,10 +262,15 @@
         <button data-view="goalies">Goalies · GSAx</button>
       </div>
     </div>
+    <div class="grp">
+      <span class="lbl">Team</span>
+      <select class="teamsel" id="team" title="Filter by team"></select>
+    </div>
     <div class="grp" id="posgrp">
       <span class="lbl">Pos</span>
       <div class="pills" id="pos">
         <button class="pill on" data-pos="all">All</button>
+        <button class="pill" data-pos="C">C</button>
         <button class="pill" data-pos="F">F</button>
         <button class="pill" data-pos="D">D</button>
       </div>
@@ -297,6 +308,7 @@ const state = {
   season: KEYS[KEYS.length - 1],      // default: latest available season
   view: "skaters",
   pos: "all",
+  team: "all",
   q: "",
   sort: { skaters: { key: "net", dir: -1 }, goalies: { key: "gsax", dir: -1 } },
 };
@@ -333,10 +345,14 @@ const COLS = {
 function rows() {
   const s = DATA.seasons[state.season];
   let r = state.view === "skaters" ? s.skaters.slice() : s.goalies.slice();
+  if (state.team !== "all") r = r.filter(p => p.team === state.team);
   if (state.view === "skaters" && state.pos !== "all") {
-    // "D" = defensemen; "F" = everyone else INCLUDING unknown position, so F + D always == All
-    // (a blank-pos skater must not vanish from both filters — e.g. a season not yet in MoneyPuck).
-    r = r.filter(p => state.pos === "D" ? p.pos === "D" : p.pos !== "D");
+    // "D" = defensemen; "C" = centers; "F" = other forwards (wingers) PLUS unknown position, so
+    // C + F + D always == All (a blank-pos skater must not vanish — e.g. a season not yet in MoneyPuck).
+    r = r.filter(p =>
+      state.pos === "D" ? p.pos === "D" :
+      state.pos === "C" ? p.pos === "C" :
+      (p.pos !== "D" && p.pos !== "C"));   // F = wingers (L/R) + unknown
   }
   if (state.q) {
     const q = state.q.toLowerCase();
@@ -419,9 +435,20 @@ function seasonPills() {
   ).join("");
 }
 
+// Team dropdown, rebuilt per season (the team set changes over time -- e.g. ATL->WPG, ARI->UTA).
+function teamOptions() {
+  const s = DATA.seasons[state.season];
+  const teams = [...new Set([...s.skaters, ...s.goalies].map(p => p.team).filter(Boolean))].sort();
+  if (state.team !== "all" && !teams.includes(state.team)) state.team = "all";  // selected team not in this season
+  const sel = document.getElementById("team");
+  sel.innerHTML = ['<option value="all">All teams</option>']
+    .concat(teams.map(t => `<option value="${t}">${t}</option>`)).join("");
+  sel.value = state.team;
+}
+
 document.getElementById("seasons").addEventListener("click", e => {
   const b = e.target.closest("[data-season]"); if (!b) return;
-  state.season = b.dataset.season; seasonPills(); render();
+  state.season = b.dataset.season; seasonPills(); teamOptions(); render();
 });
 document.getElementById("view").addEventListener("click", e => {
   const b = e.target.closest("[data-view]"); if (!b) return;
@@ -435,6 +462,7 @@ document.getElementById("pos").addEventListener("click", e => {
   document.querySelectorAll("#pos button").forEach(x => x.classList.toggle("on", x === b));
   render();
 });
+document.getElementById("team").addEventListener("change", e => { state.team = e.target.value; render(); });
 document.getElementById("search").addEventListener("input", e => { state.q = e.target.value.trim(); render(); });
 document.getElementById("thead").addEventListener("click", e => {
   const th = e.target.closest("th[data-key]"); if (!th) return;
@@ -462,6 +490,7 @@ themeBtn.addEventListener("click", () => {
 document.getElementById("foot").textContent =
   `built ${M.built} · seasons: ${Object.values(M.labels).join(", ")} · sources: NHL shift charts + MoneyPuck xG · 5v5 skaters, all-situations goalies`;
 seasonPills();
+teamOptions();
 glossary();
 render();
 </script>
