@@ -126,6 +126,22 @@
   .story { font-size: 13px; color: var(--muted); max-width: 72ch; }
   .story b { color: var(--ink); font-weight: 600; }
 
+  /* ---- per-team roster contributors ---- */
+  .roster-hd { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--faint); margin: 14px 0 6px; }
+  .roster { width: 100%; border-collapse: collapse; font-size: 12.5px; max-width: 640px; }
+  .roster td { padding: 3px 8px 3px 0; white-space: nowrap; }
+  .roster td.nm { font-weight: 600; color: var(--ink); }
+  .roster td.ps { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 20px; }
+  .roster td.num { font-family: var(--mono); text-align: right; width: 52px; }
+  .roster td.mpg { font-family: var(--mono); text-align: right; color: var(--muted); width: 42px; }
+  .roster td.bar { width: 90px; }
+  .rbar { position: relative; height: 12px; width: 100%; }
+  .rbar::before { content: ""; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--line); }
+  .rbar i { position: absolute; top: 1px; height: 10px; border-radius: 2px; }
+  .rbar i.p { left: 50%; background: var(--pos); }
+  .rbar i.n { right: 50%; background: var(--neg); }
+
   /* ---- glossary / notes ---- */
   details.gloss { margin-top: 26px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 4px 18px; }
   details.gloss summary { cursor: pointer; font-family: var(--mono); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 10px 0; }
@@ -280,6 +296,25 @@ function driverStory(t) {
   return parts.join(" ");
 }
 
+function rosterTable(t) {
+  const top = t.top || [];
+  if (!top.length) return "";
+  const maxAbs = Math.max(0.01, ...top.map(p => Math.abs(p.contrib)));
+  const rows = top.map(p => {
+    const w = Math.min(50, Math.abs(p.contrib) / maxAbs * 50);
+    const bar = p.contrib >= 0 ? `<i class="p" style="width:${w}%"></i>` : `<i class="n" style="width:${w}%"></i>`;
+    return `<tr>` +
+      `<td class="nm">${p.name}</td><td class="ps">${p.pos}</td>` +
+      `<td class="num ${p.off >= 0 ? "pos" : "neg"}">${sgn(p.off)}</td>` +
+      `<td class="num ${p.def >= 0 ? "pos" : "neg"}">${sgn(p.def)}</td>` +
+      `<td class="mpg">${fmt(p.mpg)}</td>` +
+      `<td class="bar"><div class="rbar">${bar}</div></td>` +
+    `</tr>`;
+  }).join("");
+  return `<div class="roster-hd">Top roster contributors (by share of team net rating)</div>` +
+    `<table class="roster"><tbody>${rows}</tbody></table>`;
+}
+
 function render() {
   const rows = $("rows"); rows.innerHTML = "";
   let list = teams.slice().sort((a, b) => (b[sortKey] ?? -1e9) - (a[sortKey] ?? -1e9));
@@ -316,7 +351,8 @@ function render() {
         `<span><span class="k">carryover</span> <span class="v ${t.carry >= 0 ? "pos" : "neg"}">${sgn(t.carry, 1)}</span></span>` +
         `<span><span class="k">roster covered</span> <span class="v">${Math.round(t.cover * 100)}%</span></span>` +
       `</div>` +
-      `<div class="story">${driverStory(t)}</div>`;
+      `<div class="story">${driverStory(t)}</div>` +
+      rosterTable(t);
     row.addEventListener("click", () => row.classList.toggle("open"));
     rows.appendChild(row); rows.appendChild(det);
   });

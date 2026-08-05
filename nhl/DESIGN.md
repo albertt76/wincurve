@@ -422,9 +422,19 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     team's own implied OT-loss share (`mkt = 2·mkt_wins + our_otl`) so it plots correctly on the
     points axis once `KXNHLWINS` actually posts; the raw win number stays visible in the tooltip +
     a `mkt Xw · ±Y` readout (the NBA `mkt N · ±diff` pattern).
+  - **✅ Per-team player-level roster detail DONE (`nhl_project_current.roster_detail`).** The actual
+    "here is the structural reason why" deliverable: every team's expanded panel on the Records page
+    now lists its **top 6 roster contributors**, ranked by **share of the team's net rating**
+    (`net_impact × his TOI share of the team total`) -- a decomposition that sums exactly to the
+    team's aggregate net by construction (mirrors the NBA project's per-player win-value
+    reconciliation; verified 0.0000 error against `aggregate.team_ratings`' own net for every team).
+    Name + position from the live roster / MoneyPuck, sign-colored off/def, a centered contribution
+    bar (reusing the NHL Players page's bar convention). Rookies/uncovered players correctly fall to
+    replacement level rather than showing blank. Face-valid: Colorado's #1 contributor is Nathan
+    MacKinnon (+0.449 off), its defense dragged by Juulsen/Kulak -- exactly the eye test.
   - **⬜ Remaining.** A historical track-record view awaits a free source of historical NHL market
-    lines (none identified -- bbref has no NHL); per-team player-level roster detail + a what-if
-    editor on the Records page; and the injury / known-absence overlays the NBA
+    lines (none identified -- bbref has no NHL); a what-if roster editor (the NBA Records page's
+    live-recompute feature) on the Records page; and the injury / known-absence overlays the NBA
     project carries.
 
 ---
