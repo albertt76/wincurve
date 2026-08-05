@@ -208,6 +208,8 @@
     font-size: 13px; color: var(--muted); max-width: 84ch;
   }
   .caveat b { color: var(--ink); font-weight: 600; }
+  .caveat a { color: var(--accent); text-decoration: none; }
+  .caveat a:hover { text-decoration: underline; }
   footer { margin-top: 34px; font-family: var(--mono); font-size: 11px; color: var(--faint); }
   /* shared cross-league top nav (see root CLAUDE.md "UI conventions") */
   .topnav { position: sticky; top: 0; z-index: 50; background: var(--surface); border-bottom: 1px solid var(--line); }
@@ -243,7 +245,7 @@
   <header>
     <div class="title-row">
       <div>
-        <div class="eyebrow">wincurve · nhl · stage 2 impact</div>
+        <div class="eyebrow">wincurve · nhl · player impact</div>
         <h1>NHL Player Impact</h1>
         <p class="sub">
           On-ice value measured two ways: skaters by <b>xG-RAPM</b> (expected-goals regularized
@@ -286,11 +288,12 @@
   <p class="note" id="note"></p>
 
   <div class="caveat">
-    <b>Read these as measurements, with a Stage-2 caveat.</b> Single-season xG-RAPM still over-credits
-    a player for strong linemates (Stage 3 pools multiple seasons with a box-score prior to fix this),
-    and goaltending is volatile in small samples — a high GSAx over 20 games is mostly noise. All
-    skater numbers are <b>5-on-5 even strength only</b> (special teams excluded), floored at the minutes
-    shown. Nothing here is aged, shrunk, or turned into a team projection yet — that is Stage 3+.
+    <b>Read these as measurements, not projections.</b> Single-season xG-RAPM still over-credits a
+    player for strong linemates (a multi-season, box-score-anchored version corrects this — see the
+    <a href="/nhl/records">Records</a> page, which is built on the refined talent estimate), and
+    goaltending is volatile in small samples — a high GSAx over 20 games is mostly noise. All skater
+    numbers are <b>5-on-5 even strength only</b> (special teams excluded), floored at the minutes
+    shown. Nothing here is aged, shrunk, or turned into a team projection — that is what Records does.
   </div>
 
   <details class="glossary" open>

@@ -1,6 +1,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>wincurve — NHL Projected Standings</title>
+<title>wincurve — NHL Standings Projections</title>
 
 <style>
   /* ---- tokens: shared with the NBA + NHL-impact UI so it reads as one product ---- */
@@ -167,8 +167,8 @@
   <header>
     <div class="title-row">
       <div>
-        <div class="eyebrow" id="eyebrow">wincurve · nhl · stage 6</div>
-        <h1 id="h1">NHL Projected Standings</h1>
+        <div class="eyebrow" id="eyebrow">Bottom-up roster model</div>
+        <h1 id="h1">NHL projected standings</h1>
         <p class="sub">
           Each team's projected regular-season <b>standings points</b> for the upcoming season, as a
           <b>distribution</b> — the mean plus a calibrated 80% interval — built bottom-up from the
@@ -238,8 +238,8 @@ const hi = Math.ceil((Math.max(...teams.map(t => t.p90)) + 2) / 5) * 5;
 const xpct = v => ((v - lo) / (hi - lo)) * 100;
 
 function renderMeta() {
-  $("h1").textContent = `NHL ${meta.target_season} — Projected Standings`;
-  $("eyebrow").textContent = `wincurve · nhl · stage 6 · ${meta.model}`;
+  $("h1").textContent = `NHL ${meta.target_season} projected standings`;
+  $("eyebrow").textContent = `Bottom-up roster model · ${meta.snapshot_date}`;
   $("meta").innerHTML =
     `<span>roster snapshot <b>${meta.snapshot_date}</b></span>` +
     `<span>carryover ρ <b>${fmt(meta.rho, 2)}</b></span>` +
