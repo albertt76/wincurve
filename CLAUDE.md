@@ -382,6 +382,25 @@ implementation, and every league follows the pattern:
 A future league page that wants a per-team drill-down uses the same contract: its target page reads
 `?team=`, its source page links with it.
 
+**4. External player links (verified, not guessed).** Both league-wide leaderboards (NBA Players,
+NHL Players) show a small **↗** after each player's name, opening his Basketball-Reference /
+Hockey-Reference page in a new tab (`target="_blank" rel="noopener noreferrer"`). The URL is
+looked up, never algorithmically guessed: `nbaproj/player_links.py` and `nhl/player_links.py` each
+pull their site's own **A-Z player index** (`/players/<letter>/`, ~26 pages, cached, `Crawl-delay:
+3`, the same politeness already established for `nbaproj/odds.py` / `nhl/odds.py`) — a full list of
+every player ever with his exact slug, so the lookup is a verified exact match instead of the
+well-known-but-occasionally-wrong "last5+first2+01" slug formula (a wrong guess would silently
+link to the wrong player). Name normalization handles accents (`unicodedata` NFKD fold — "Dončić"
+→ "doncic"), initials ("J.T." → "jt", not "j t"), and generational suffixes our data may carry
+that the index doesn't ("Bobby Portis Jr." → "Bobby Portis"). A same-name collision is
+disambiguated by active-years overlap with the player's season. Match rate: NBA ~99-100% for any
+real rostered player (the ~20% aggregate miss is almost entirely very-recent draft prospects with
+no bbref page yet, plus a pre-existing empty-name artifact in some historical snapshot rows —
+verified, not a bug); NHL ~98%. `scripts/build_nba_players_ui.py --relink` patches links into an
+already-built `players.html` without needing `snapshots.json` (for a checkout where that
+gitignored intermediate isn't present); `scripts/nhl_build_impact_ui.py`'s normal build includes
+links every time since the NHL parquets are checked out directly.
+
 **Multi-season app.** The UI shows the **7 full seasons in the backtest window** (2017-18, 2018-19,
 2021-22..2025-26 — the two shortened seasons 2019-20/2020-21 are skipped) plus the upcoming one,
 via a season selector. Historical seasons are walk-forward hindsight projections (only pre-season

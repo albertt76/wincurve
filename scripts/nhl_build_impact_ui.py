@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-from nhl import goalies, rapm  # noqa: E402
+from nhl import goalies, player_links, rapm  # noqa: E402
 from nhl.ingest import PROC, season_str  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -126,14 +126,16 @@ def build(alpha: float, skater_floor: int, goalie_floor: int, *, refresh: bool) 
             "skaters": [
                 {"name": r["name"], "pos": r["pos"] or "", "team": r["team"] or "",
                  "toi": round(float(r["toi_min"])), "off": round(float(r["off"]), 2),
-                 "def": round(float(r["def"]), 2), "net": round(float(r["net"]), 2)}
+                 "def": round(float(r["def"]), 2), "net": round(float(r["net"]), 2),
+                 "hr": player_links.url_for(r["name"], yr)}
                 for r in sk.to_dict("records")
             ],
             "goalies": [
                 {"name": r["name"], "team": r["team"] or "", "games": int(r["games"]),
                  "toi": round(float(r["toi_min"])), "xga": round(float(r["xga"]), 1),
                  "ga": int(r["ga"]), "gsax": round(float(r["gsax"]), 1),
-                 "gsax60": round(float(r["gsax_per_60"]), 2)}
+                 "gsax60": round(float(r["gsax_per_60"]), 2),
+                 "hr": player_links.url_for(r["name"], yr)}
                 for r in gl.to_dict("records")
             ],
         }
@@ -144,6 +146,11 @@ def build(alpha: float, skater_floor: int, goalie_floor: int, *, refresh: bool) 
         raise SystemExit(f"no season built successfully (failed: {failed}) -- nothing to write")
     if failed:
         print(f"  (skipped {len(failed)}: {', '.join(season_str(y) for y in failed)})")
+
+    n_players = sum(len(s["skaters"]) + len(s["goalies"]) for s in seasons.values())
+    n_linked = sum(sum(p["hr"] is not None for p in s["skaters"] + s["goalies"])
+                  for s in seasons.values())
+    print(f"  hockey-reference links: {n_linked}/{n_players} player-rows matched")
 
     ok = sorted(int(k) for k in seasons)  # only seasons that actually built get a pill
     return {

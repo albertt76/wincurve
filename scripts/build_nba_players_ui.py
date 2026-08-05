@@ -14,6 +14,16 @@ rebuilt (``scripts/build_snapshots.py``).
 
     python scripts/build_nba_players_ui.py
 
+Each player row also carries a verified ``bbref`` link (``nbaproj.player_links``, an A-Z index of
+basketball-reference.com, not a guessed slug) -- the template renders it as a small "↗" that opens
+the player's Basketball-Reference page in a new tab.
+
+    python scripts/build_nba_players_ui.py --relink
+        Patches bbref links into the ALREADY-BUILT players.html in place, without needing
+        snapshots.json -- for when the source snapshot isn't available but the links still are
+        (e.g. a fresh checkout that never ran build_snapshots.py). The normal path above already
+        includes links every time it runs; this is only for topping up an existing build.
+
 Note on gating: these per-player Off/Def/Impact numbers are premium-gated inside the *team panels*
 of the main app (see ``ui/build.py`` / ``ui/api/premium.js``). Per the owner's decision, THIS
 standalone leaderboard is published PUBLIC with its data inlined (no serverless gating); the team
@@ -22,15 +32,37 @@ panels stay premium. See the PR / root CLAUDE.md.
 
 from __future__ import annotations
 
+import argparse
 import datetime as dt
 import json
+import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from nbaproj import player_links  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOTS = ROOT / "data" / "processed" / "snapshots.json"
 TEMPLATE = ROOT / "ui" / "nba_players" / "template.html"
 OUTPUT = ROOT / "ui" / "nba_players" / "players.html"
+
+
+def add_bbref_links(seasons: dict) -> int:
+    """Mutate each player row in ``seasons`` (season_key -> {label, players: [...]}) to add a
+    verified ``bbref`` URL (or ``None`` if the name isn't in the index). Works on the flattened
+    league-wide list regardless of whether it came from snapshots.json or an existing built page,
+    which is what lets ``--relink`` reuse this exact same logic. Returns the number matched."""
+    n = matched = 0
+    for key, blob in seasons.items():
+        season_start = int(key.split("-")[0])
+        for p in blob["players"]:
+            p["bbref"] = player_links.url_for(p["name"], season_start)
+            n += 1
+            matched += p["bbref"] is not None
+    print(f"  bbref links: {matched}/{n} players matched")
+    return matched
 
 
 def _num(x, ndigits):
@@ -94,6 +126,7 @@ def build() -> dict:
         teams_union.update(p["team"] for p in players if p["team"])
         print(f"  {k}: {len(players)} players "
               f"(top: {players[0]['name']} {players[0]['impact']:+.2f})", flush=True)
+    add_bbref_links(seasons)
 
     return {
         "meta": {
@@ -107,9 +140,31 @@ def build() -> dict:
     }
 
 
+def relink() -> dict:
+    """Patch bbref links into the data already inlined in OUTPUT, without needing SNAPSHOTS. Reads
+    the __DATA__ blob straight back out of the built page's own <script>."""
+    if not OUTPUT.exists():
+        raise SystemExit(f"missing {OUTPUT} -- nothing to relink; run a normal build first")
+    html = OUTPUT.read_text()
+    m = re.search(r"const DATA = (\{.*?\});", html, re.S)
+    assert m, "could not find the inlined DATA blob in " + str(OUTPUT)
+    data = json.loads(m.group(1))
+    add_bbref_links(data["seasons"])
+    return data
+
+
 def main() -> int:
-    print(f"building NBA player-impact leaderboard from {SNAPSHOTS.name}")
-    data = build()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--relink", action="store_true",
+                    help="patch bbref links into the existing players.html without snapshots.json")
+    args = ap.parse_args()
+
+    if args.relink:
+        print(f"relinking bbref URLs into the existing {OUTPUT.name}")
+        data = relink()
+    else:
+        print(f"building NBA player-impact leaderboard from {SNAPSHOTS.name}")
+        data = build()
 
     tpl = TEMPLATE.read_text()
     assert "__DATA__" in tpl, "template placeholder __DATA__ missing"
