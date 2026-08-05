@@ -247,7 +247,47 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     leak high (residual pooled-RAPM linemate noise) — both wash out under minute-weighted team
     aggregation. `rapm.pool_rapm` now caches. **Next: Stage 4** — aggregate projected skaters + goalie
     + special teams → team goals-for/against, then Stage 5 season simulation → points distribution.
-- ⬜ **Stage 3b** — TOI/role & availability; replacement level; rookie/first-year priors.
+- ✅ **Stage 3b — HONEST (non-leaky) roster + TOI (`nhl/rosters.py`, `scripts/nhl_stage3b_honest_gate.py`).**
+  Stage 4/5's end-to-end projection was a **leaky upper bound**: `aggregate.player_toi(Y)` reads season
+  Y's ACTUAL MoneyPuck 5v5 rows, so it knew each team's full-season roster (February trade-deadline
+  acquisitions included) AND every skater's realized minutes — neither knowable when a pre-season
+  projection is made. Stage 3b supplies the point-in-time replacements, mirroring the NBA project's
+  `roster_opening_day` + prior-minutes approach, then re-runs the exact same gate.
+  - **Opening-day roster reconstruction (`rosters.opening_roster`).** No true pre-season roster feed
+    exists this far back, so we reconstruct each team's opening roster from the **shift charts' first-
+    appearance ordering** (as the NBA project reconstructs from first games). A skater is on team T's
+    opening roster iff his **season debut was for T** AND fell within **T's first `k_games` (=20)**.
+    That one rule handles trades correctly by construction: a deadline acquisition debuts for his OLD
+    team, so he is excluded from the new team (and kept on the old one — right for opening day); a
+    player dealt AWAY debuted for T and is kept. **Validated on 2023-24: Jake Guentzel (PIT→CAR at the
+    deadline) lands on PIT's opening roster, never CAR's.** Roster sizes are a sensible ~23 skaters;
+    TOI coverage of a team's actual 5v5 minutes plateaus by ~16-20 games at **~0.89**, matching the
+    leaky bound's ~0.88 (the honest roster captures essentially the same minute mass, without the
+    future knowledge). `k_games` is not a knife-edge — the debut rule does the trade-exclusion; the
+    window only bounds mid-season call-ups/debuts.
+  - **Projected TOI (`rosters.projected_toi`).** Each roster skater is weighted by his **prior-season
+    (Y-1) total 5v5 icetime**, not his realized season-Y minutes; the ~6-7% with no prior season
+    (rookies/new) get a bottom-rotation prior (`ROOKIE_TOI_SEC` = 500 min). Only relative weights
+    matter (the aggregation is a minute-weighted mean).
+  - **Wiring (`rosters.honest_toi` + `aggregate.team_ratings(..., toi=)`).** `honest_toi(Y)` joins the
+    two into the `(player_id, team, icetime)` frame the aggregation consumes through a new `toi=` hook,
+    so the honest projection reuses the EXACT same minute-weighted aggregation, replacement-level fill,
+    and net→points calibration; only the roster set and minute weights change. Default (`toi=None`) is
+    still the leaky bound, so the Stage 4 reports are unchanged.
+  - **Result — the honest projection lands AT the bar, and the leak was worth ~nothing.** Over **9
+    full-season folds (2015-16..2025-26, excl. the 2 covid seasons)**, honest + one-year carryover =
+    **10.61 points** MAE, vs the walk-forward naive bar **10.83 on the same folds (−0.22, within noise
+    ±0.24)** and the fixed Stage 1 bar 10.54 (+0.07). Critically, the **leaky bound over the same 9
+    folds is 10.72** — so removing the roster/TOI leak costs **−0.11 (honest actually edges leaky)**,
+    not the +0.35 the 3-fold snapshot suggested. **The earlier "leaky 10.10" was a favorable 3-fold
+    subset (2023-25);** measured honestly over 9 folds, the leak was not inflating the number, which is
+    the real validation: the point-in-time roster reproduces the leaky projection. The carryover still
+    does the heavy lifting (honest plain 11.22 → +carry 10.61), rho ≈ 0.37-0.48 (unchanged), and the
+    projection stays face-valid (2025-26 top CAR/VGK/EDM/DAL/TBL/LAK, bottom SEA/CHI/SJS/ANA/DET).
+    **Honest read:** the model now sits *at* the bar with no leak and 9 folds instead of 3 — decisively
+    *clearing* it awaits the still-missing Stage 5 levers (special teams, goalie level via
+    goal-diff/Pythagorean, and the regulation/OT/shootout season simulation), exactly as the NBA
+    project's first cuts sat at the bar until its later pieces landed.
 - 🟡 **Stage 4 — team aggregation (started).** `nhl/aggregate.py` +
   `scripts/nhl_stage4_aggregate_report.py`: a team's even-strength rate above/below average is the
   **minute-weighted mean** of its skaters' xG-RAPM impacts (5 on ice always, so the ×5 is absorbed
@@ -285,6 +325,9 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     caveats:** only 3 evaluable folds and still the LEAKY-roster upper bound, so this is a *preliminary*
     beat, not a shipped number — it needs the honest (non-leaky) roster, more folds, and the full
     season-simulation gate. But rho=0.37 on 181 pairs is robust, so the carryover itself is real.
+    **↳ UPDATE (Stage 3b, above): the honest, 9-fold re-run lands at 10.61 — the 10.10 was a favorable
+    3-fold subset (leaky is 10.72 over the wider set), and removing the roster/TOI leak costs ~nothing.
+    So the carryover + honest roster sit AT the bar; the decisive beat awaits the Stage 5 levers.**
 - ⬜ **Stage 5** — season simulation with regulation/OT/shootout → points distribution;
   interval calibration. One-year carryover.
 - ⬜ **Stage 6** — market comparison (season points over/under; Cup/division/playoff odds,
