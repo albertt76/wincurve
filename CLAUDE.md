@@ -274,7 +274,12 @@ overrides so the per-page theme toggle wins):
 ```
 
 Monospace for all data/numbers, system sans for prose. The content column is `.wrap { max-width:
-1080px }` on every page (unify to 1080, do not drift).
+1080px }` on every page (unify to 1080, do not drift). Every page also carries the SAME `◐ theme`
+toggle (`<button class="theme-btn" id="theme">` in its header) backed by a **shared
+`wincurve-theme` `localStorage` key**, so the chosen light/dark theme persists as the user moves
+between pages — a new page must reuse that exact key, not invent its own (the projections page was
+the one page missing the toggle; fixed 2026-08-05, and the NHL/`nhl-theme` + players/`nba-players-theme`
+keys were unified to `wincurve-theme` at the same time).
 
 **2. Shared top nav bar (grouped by league).** Every page includes the SAME full-width sticky bar as
 the first element of `<body>` (immediately before `<div class="wrap">`). Links are **grouped by
