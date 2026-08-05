@@ -381,9 +381,41 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     attempted: real strength-of-schedule (a balanced schedule is assumed — SOS is second-order and
     the per-season shift gaps complicate exact reconstruction), and a live 2026-27 projection (needs
     a current-roster feed — Stage 6).
-- ⬜ **Stage 6** — market comparison (season points over/under; Cup/division/playoff odds,
-  downstream only) + per-team disagreement UI (the NHL **"Records"** page). Consumes the Stage 5
-  points distribution; needs a live 2026-27 opening-roster feed for the upcoming-season projection.
+- 🟡 **Stage 6 — the live projection + market comparison + NHL "Records" page (in progress).** The
+  upcoming-season deliverable: a live projected-standings page and the downstream market comparison.
+  - **✅ Live projection (`nhl/season.py`, `rosters.live_roster`/`live_toi`,
+    `scripts/nhl_project_current.py`).** `nhl/season.py` is the reusable Stage 5/6 pipeline (panel,
+    strength→goals calibration, season-sim mean, one-year carryover, interval sigma) -- **verified to
+    reproduce the gate's 10.50 exactly**, so backtest and production cannot drift. The UPCOMING season
+    has no shift charts, so the roster comes from the NHL web API (`ingest.roster`, the hockey analog
+    of the NBA `commonteamroster` snapshot), weighted by each skater's prior-season 5v5 TOI. The
+    script runs the shipped pipeline on the current roster → per-team 2026-27 projected points + a
+    calibrated 80% interval, recording the roster snapshot date → `data/nhl/processed/
+    projection_current.json`. Face-valid (COL/CAR/TBL/MIN top, VAN/CGY/CHI bottom; the carryover
+    carries the extremes -- COL +11 after a 121-pt season, VAN −13 after collapsing to 58); the league
+    points sum ~2934 matches the structural ~2926. Also outputs projected **wins** (the sim's W), so
+    the bundle is comparison-ready for a wins-settled market.
+  - **✅ Market feed (`nhl/market_live.py`), downstream-only.** Kalshi **`KXNHLWINS`** -- the hockey
+    analog of the NBA's `KXNBAWINS` -- per-team season **win** totals as a threshold ladder,
+    reconstructed to an implied win distribution (median / mean / p10 / p90) with the identical proven
+    NBA algorithm. NOTE the target: Kalshi settles on **wins**, not standings **points** (a win is 2
+    points but an OT/SO loss is still 1), so the comparison is to projected *wins*, never points. As of
+    the 2026-27 pre-season the series has **no open events** (win markets post closer to opening night
+    -- the NHL echo of bbref's Vegas 404 for the NBA), so `market_win_table` returns `{}` and the page
+    shows no ring; it attaches automatically once the market opens.
+  - **✅ The NHL "Records" page (`ui/nhl_records/`, `scripts/nhl_build_records_ui.py`).** A
+    self-contained page following the shared UI conventions (design tokens, the grouped nav with a new
+    **NHL → Records** link added to *every* page, the shared `wincurve-theme` toggle, Vercel route
+    `/nhl/records`): 32 teams on a **shared points axis** with the projected mean + 80% interval band,
+    sortable by points / offense / defense / carryover, each row expanding to its off/def/carryover
+    drivers and a plain-English disagreement story. The market ring is absent-but-ready (an honest "not
+    posted yet" note). Consumes `projection_current.json` inlined via a `__DATA__` placeholder. This is
+    the per-team disagreement surface the whole project builds toward, now for hockey.
+  - **⬜ Remaining.** The market comparison goes live when `KXNHLWINS` posts (activate the wins ring;
+    reconcile the wins-vs-points axis); a historical track-record view awaits a free source of
+    historical NHL market lines (none identified -- bbref has no NHL); per-team player-level roster
+    detail + a what-if editor on the Records page; and the injury / known-absence overlays the NBA
+    project carries.
 
 ---
 

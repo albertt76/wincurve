@@ -41,10 +41,22 @@
 > goalie GSAx into GA **+0.06** (corr 0.21 w/ points, but persistent → carryover eats it), special
 > teams PP/PK **+0.05** (persistence 0.36 ≈ rho 0.37). So the model sits **at** the bar (10.50 vs
 > 10.54; −0.33 vs the per-fold naive) — the expected shape for a high-parity league; the deliverable
-> is per-team disagreement + the interval, not aggregate-MAE dominance. **NEXT: Stage 6** — market
-> comparison (season points over/under; Cup/division odds, downstream only) + the NHL **"Records"**
-> page (consumes the Stage 5 distribution; needs a live 2026-27 opening-roster feed). See the Roadmap
-> in [nhl/DESIGN.md](nhl/DESIGN.md).
+> is per-team disagreement + the interval, not aggregate-MAE dominance. **Stage 6 is now underway —
+> the live projection + Records page ship, market comparison is wired-but-dormant.** `nhl/season.py`
+> is the reusable Stage 5/6 pipeline (verified to reproduce the gate's 10.50 exactly);
+> `rosters.live_roster`/`live_toi` pull the current 2026-27 roster from the NHL web API (no shift
+> charts exist for the upcoming season) weighted by prior-season TOI; `scripts/nhl_project_current.py`
+> → per-team 2026-27 projected points + 80% interval + wins → `projection_current.json` (face-valid:
+> COL/CAR/TBL/MIN top, VAN/CGY/CHI bottom; carryover carries the extremes). `nhl/market_live.py` pulls
+> Kalshi **`KXNHLWINS`** (wins, not points — so compared to projected wins) but the series has **no
+> open events yet** (posts near opening night, like bbref's NBA Vegas 404), so it returns `{}` and the
+> page shows no ring. **The NHL "Records" page ships** (`ui/nhl_records/`,
+> `scripts/nhl_build_records_ui.py`, route `/nhl/records`): 32 teams on a shared points axis with the
+> mean + 80% band, sortable, per-team off/def/carryover drivers + disagreement story; the **NHL →
+> Records** nav link was added to every page. **NEXT:** activate the market ring when `KXNHLWINS`
+> posts (reconcile wins-vs-points); per-team player-level roster detail + what-if on the Records page;
+> a historical track-record view (needs a free NHL market-line source — none found yet). See the
+> Roadmap in [nhl/DESIGN.md](nhl/DESIGN.md).
 
 ## What this project is
 
@@ -310,6 +322,8 @@ and use only shared tokens (`--ink`/`--muted`/`--faint`/`--line`/`--surface`/`--
   </span>
   <span class="nl-group">
     <span class="nl-league">NHL</span>
+    <a class="nl" href="/nhl/records">Records</a>
+    <span class="nl-sep">|</span>
     <a class="nl" href="/nhl">Players</a>
   </span>
 </div></nav>
@@ -327,7 +341,8 @@ and use only shared tokens (`--ink`/`--muted`/`--faint`/`--line`/`--surface`/`--
 ```
 
 Routes live in `ui/vercel.json` (`cleanUrls: true`): `/` → projections, `/players` → NBA players,
-`/nhl` → NHL impact. A new league page adds its route there AND its nav link above.
+`/nhl` → NHL impact (Players), `/nhl/records` → NHL Records (the Stage 6 projected-standings page,
+`ui/nhl_records/`). A new league page adds its route there AND its nav link above.
 
 **3. Cross-page `?team=` deep-link.** Pages link to each other with a `?team=ABBR` query param; the
 **source** page emits the link, the **target** page reads and applies it. NBA is the reference
