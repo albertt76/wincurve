@@ -205,13 +205,25 @@
   .topnav .nl { font-size: 13px; color: var(--muted); text-decoration: none; padding: 3px 1px; border-bottom: 2px solid transparent; }
   .topnav .nl:hover { color: var(--ink); }
   .topnav .nl.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+  .topnav .nl-group { display: inline-flex; align-items: baseline; gap: 9px; }
+  .topnav .nl-league { font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--faint); }
+  .topnav .nl-league::after { content: "\25B8"; margin-left: 5px; color: var(--line); }
+  .topnav .nl-sep { color: var(--line); font-size: 12px; }
 </style>
 
 <nav class="topnav"><div class="topnav-in">
   <a class="brand" href="/">wincurve</a>
-  <a class="nl" href="/">NBA Records</a>
-  <a class="nl active" href="/players">NBA Players</a>
-  <a class="nl" href="/nhl">NHL Impact</a>
+  <span class="nl-group">
+    <span class="nl-league">NBA</span>
+    <a class="nl" href="/">Records</a>
+    <span class="nl-sep">|</span>
+    <a class="nl active" href="/players">Players</a>
+  </span>
+  <span class="nl-group">
+    <span class="nl-league">NHL</span>
+    <a class="nl" href="/nhl">Impact</a>
+  </span>
 </div></nav>
 
 <div class="wrap">
