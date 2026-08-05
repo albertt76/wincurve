@@ -222,7 +222,7 @@
         <h1>NBA Player Impact</h1>
         <p class="sub">
           Every rostered player's projected on-court value, league-wide. <b>Impact</b> is a
-          per-100-possessions rate — offense plus defense, above a replacement-level player — the
+          per-100-possessions rate — offense plus defense, versus an average player — the
           same talent input the team win projections aggregate. It is <b>not</b> a win count.
           Past seasons are walk-forward hindsight projections (pre-season data only); the latest
           is the live upcoming-season projection. Full definitions and caveats below.
@@ -257,7 +257,7 @@
 
   <div class="caveat">
     <b>Read these as projected talent inputs, with the model's honest caveats.</b> Impact is a
-    per-100-possessions <b>rate</b> (offense + defense above replacement), aged and shrunk — not a
+    per-100-possessions <b>rate</b> (offense + defense versus an average player), aged and shrunk — not a
     win count and not last season's box score. <b>Defense is the model's weakest metric</b>:
     box-score defense is positionally biased (it partly measures "is a center"), so treat the
     <b>Def</b> column, and low ratings for celebrated perimeter defenders, with caution. These are
@@ -298,7 +298,7 @@ const grp = pos => (pos ? pos.split("-")[0] : "");
 const COLS = [
   { key: "_rank", label: "#", cls: "rank", static: true },
   { key: "name", label: "Player", left: true },
-  { key: "impact", label: "Impact", signed: true, tip: "per-100-possessions rate; off + def above replacement" },
+  { key: "impact", label: "Impact", signed: true, tip: "per-100-possessions rate; off + def vs an average player (0 = average)" },
   { key: "_bar", label: "", cls: "bar", static: true },
   { key: "off", label: "Off", signed: true, tip: "projected offense per 100" },
   { key: "def", label: "Def", signed: true, tip: "projected defense per 100 (the weakest metric)" },
@@ -378,7 +378,7 @@ function render() {
   const live = state.season === M.current;
   document.getElementById("note").innerHTML =
     `<b>${s.label}</b> · ${s.players.length} rostered players · Impact / Off / Def are ` +
-    `per-100-possessions rates above replacement (higher is better; Def is the weakest metric). ` +
+    `per-100-possessions rates vs an average player (0 = average; higher is better; Def is the weakest metric). ` +
     (live
       ? `This is the <b>live upcoming-season projection</b>.`
       : `Walk-forward hindsight projection (pre-season data only). `) +
@@ -388,13 +388,13 @@ function render() {
 /* ---- glossary (rendered once) ---- */
 function glossary() {
   const items = [
-    ["Impact", "<b>Total projected on-court value per 100 possessions</b> — offense + defense, measured relative to a replacement-level player (a freely-available bench body, not zero). It is a <b>rate, not a win count</b>; the ≈Wins translation lives in the main team app."],
+    ["Impact", "<b>Total projected on-court value per 100 possessions</b> — offense + defense, measured <b>versus an average player</b>: about <b>0</b> is an average rotation player, <b>+4</b> a star (SGA is +4.0), and <b>≈−1.1</b> is replacement level (a freely-available bench body). It is a <b>rate, not a win count</b>; the ≈Wins translation (a WAR-style count, measured above replacement) lives in the main team app."],
     ["Off", "Projected <b>offensive</b> impact per 100 possessions. Higher is better. This is the model's better-measured half — offense calibrates well against team offense."],
     ["Def", "Projected <b>defensive</b> impact per 100 possessions. Higher is better. <b>The model's weakest metric</b>: box-score defense is positionally biased (partly a proxy for playing center), so celebrated perimeter defenders can rate modestly and some rebounding bigs can rate high."],
     ["MPG", "Projected <b>minutes per game</b> for the season shown (opening-day roster). For past seasons this is the walk-forward projection, not the realized minutes."],
     ["Age", "Player age for that season. Blank if unknown for that player-season."],
     ["pos · TEAM", "Listed position and current team (the tag under each name). Position groups the filter to <b>G / F / C</b> by the primary listed position; players with no listed position appear only under <b>All</b>."],
-    ["replacement level", "The baseline these ratings sit above: roughly a minimum-salary player freely available in the off-season. A rating near 0 is replacement-level, not average."],
+    ["replacement level", "Roughly a minimum-salary player freely available in the off-season, sitting at <b>≈−1.1</b> on this scale — below average. A rating near <b>0 is an average rotation player</b>; the ≈Wins column in the main team app is what measures value <em>above</em> replacement."],
   ];
   document.getElementById("gloss").innerHTML = items.map(([t, d]) => `<dt>${t}</dt><dd>${d}</dd>`).join("");
 }
