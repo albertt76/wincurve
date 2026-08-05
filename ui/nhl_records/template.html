@@ -142,6 +142,25 @@
   .rbar i.p { left: 50%; background: var(--pos); }
   .rbar i.n { right: 50%; background: var(--neg); }
 
+  /* ---- what-if editor ---- */
+  .editlink { font-family: var(--mono); font-size: 11px; color: var(--accent); background: none;
+    border: 0; cursor: pointer; padding: 6px 0; text-decoration: none; }
+  .editlink:hover { text-decoration: underline; }
+  .editpanel { display: none; margin-top: 4px; }
+  .editpanel.open { display: block; }
+  .roster.edit td.bench { width: 40px; }
+  .benchbtn { font: inherit; font-family: var(--mono); font-size: 10.5px; cursor: pointer;
+    padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
+    color: var(--faint); }
+  .benchbtn:hover { border-color: var(--neg); color: var(--neg); }
+  .benchbtn.out { background: var(--neg-fill); border-color: var(--neg); color: var(--neg); }
+  .roster tr.out td.nm, .roster tr.out td.num, .roster tr.out td.mpg { opacity: .4; text-decoration: line-through; }
+  .whatif { display: flex; align-items: baseline; gap: 14px; margin-top: 10px; padding: 8px 10px;
+    background: var(--surface-2); border-radius: var(--r); font-family: var(--mono); font-size: 12.5px; }
+  .whatif b { font-size: 14px; }
+  .whatif .resetlink { margin-left: auto; font-size: 11px; color: var(--accent); cursor: pointer; background: none; border: 0; }
+  .whatif .resetlink:hover { text-decoration: underline; }
+
   /* ---- glossary / notes ---- */
   details.gloss { margin-top: 26px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 4px 18px; }
   details.gloss summary { cursor: pointer; font-family: var(--mono); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 10px 0; }
@@ -226,6 +245,7 @@
       <dt>O / D</dt><dd>The team's projected 5-on-5 offense and defense rating (expected goals per 60 above/below average), the skater aggregate that drives goals-for / goals-against.</dd>
       <dt>carry</dt><dd>One-year carryover: last season's over/under-performance vs the roster model persists ~40% (fitted ρ). It is what separates a roster that keeps beating its parts from one that regresses.</dd>
       <dt>wins</dt><dd>Projected regulation + OT + shootout wins (the standings W). Different from points — the market (Kalshi) settles on wins, so that is what a market ring compares to.</dd>
+      <dt>what-if editor</dt><dd>Benching a player replaces his projected off/def with replacement level, as if a call-up filled his exact ice time — an "injury / departure" scenario, not a trade. The recompute is exact (same math this page's projection was built from), except the carryover stays fixed — it reflects <i>last season's</i> team, not this roster edit.</dd>
     </dl>
     <p class="story" style="margin-bottom:12px">
       <b>Honest caveats.</b> Over a 9-season backtest the model's points MAE (~10.5) does <b>not</b>
@@ -254,6 +274,61 @@ const lo = Math.floor((Math.min(...teams.map(t => t.p10)) - 2) / 5) * 5;
 const hi = Math.ceil((Math.max(...teams.map(t => t.p90)) + 2) / 5) * 5;
 const xpct = v => ((v - lo) / (hi - lo)) * 100;
 
+/* ---- the what-if editor: an exact client-side port of nhl.gamesim + nhl.season.goal_rates,
+   so a roster edit reproduces this page's own build script bit-for-bit (same idea as the NBA
+   project's exact client-side aggregation recompute; see CLAUDE.md "Roster edits recompute in
+   the browser"). Only off_mean/def_mean are FROZEN at build time (a single edited team barely
+   moves the true 32-team mean) -- everything else is the live edit. */
+const MAXK = 16;
+function poissonPMFs(lambda) {
+  const p = new Array(MAXK + 1);
+  p[0] = Math.exp(-lambda);
+  for (let k = 1; k <= MAXK; k++) p[k] = p[k - 1] * lambda / k;
+  return p;
+}
+function regWinProb(lamI, lamJ) {
+  const pi = poissonPMFs(lamI), pj = poissonPMFs(lamJ);
+  const cj = new Array(MAXK + 1);
+  let run = 0;
+  for (let a = 0; a <= MAXK; a++) { run += pj[a]; cj[a] = run; }
+  let pIGtJ = 0, pTie = 0;
+  for (let a = 1; a <= MAXK; a++) pIGtJ += pi[a] * cj[a - 1];
+  for (let a = 0; a <= MAXK; a++) pTie += pi[a] * pj[a];
+  const pILtJ = 1 - pIGtJ - pTie;
+  const denom = pIGtJ + pILtJ;
+  return denom > 0 ? pIGtJ / denom : 0.5;
+}
+function gamePointProbs(gf, ga) {
+  const wReg = regWinProb(gf, ga);
+  const pOtWin = 0.5 + meta.ot_skill * (wReg - 0.5);
+  const pWin = (1 - meta.ot_rate) * wReg + meta.ot_rate * pOtWin;
+  const pOtl = meta.ot_rate * (1 - pOtWin);
+  return { pWin, pOtl };
+}
+function goalRates(off, def) {
+  return [meta.level_gf + meta.a1 * (off - meta.off_mean),
+          meta.level_gf + meta.b1 * (def - meta.def_mean)];
+}
+// recompute a team's projection from its (possibly edited) roster; `benched` = Set of player ids
+// forced to replacement level. carry is NOT recomputed -- it reflects last season, not this edit.
+function recompute(t, benched) {
+  let wOff = 0, wDef = 0, ice = 0;
+  for (const p of t.roster) {
+    const out = benched.has(p.id);
+    wOff += (out ? meta.replacement_off : p.off) * p.ice;
+    wDef += (out ? meta.replacement_def : p.def) * p.ice;
+    ice += p.ice;
+  }
+  const off = wOff / ice, def = wDef / ice;
+  const [gf, ga] = goalRates(off, def);
+  const { pWin, pOtl } = gamePointProbs(gf, ga);
+  const mu = meta.games * (2 * pWin + pOtl);
+  const wins0 = meta.games * pWin;
+  return { off, def, net: off + def, proj: mu + t.carry, wins: wins0 + t.carry / 2 };
+}
+
+const editState = {};  // team -> Set of benched player ids
+
 function renderMeta() {
   $("h1").textContent = `NHL ${meta.target_season} projected standings`;
   $("eyebrow").textContent = `Bottom-up roster model · ${meta.snapshot_date}`;
@@ -263,15 +338,19 @@ function renderMeta() {
     `<span>interval SD <b>${fmt(meta.sigma, 1)}</b> pts</span>` +
     `<span>scoring level <b>${fmt(meta.level_gf, 2)}</b> GF/g</span>` +
     `<span>32 teams · 80% coverage <b>0.82</b></span>`;
-  const anyMkt = teams.some(t => t.mkt != null);
-  $("mktnote").innerHTML = anyMkt
-    ? `<b>Market ring</b> = Kalshi <code>KXNHLWINS</code> implied wins, converted to a points-` +
-      `equivalent for the shared axis using each team's OWN model-implied OT-loss share (Kalshi ` +
-      `settles on wins, not points, and doesn't split out the OT-loss share itself) — hover a ring ` +
-      `for the raw win number. Downstream only; the market never feeds the model.`
-    : `<b>Market ring:</b> no live NHL win market is posted yet (Kalshi <code>KXNHLWINS</code> has ` +
-      `no open events this early — win totals post closer to opening night). The hollow ring will ` +
-      `appear here automatically once it opens; the market never feeds the model.`;
+  const nVegas = teams.filter(t => t.mkt_source === "vegas").length;
+  const nKalshi = teams.filter(t => t.mkt_source === "kalshi").length;
+  const book = (teams.find(t => t.mkt_book) || {}).mkt_book;
+  const parts = [];
+  if (nVegas) parts.push(`<b>${nVegas} teams</b> from a live Vegas sportsbook line` +
+    (book ? ` — ${book}` : "") + " — already in points, plotted directly, no conversion.");
+  if (nKalshi) parts.push(`<b>${nKalshi} teams</b> from Kalshi <code>KXNHLWINS</code> implied ` +
+    `wins, converted to a points-equivalent using each team's own model-implied OT-loss share ` +
+    `(Kalshi doesn't split that out itself) — hover a ring for the raw win number.`);
+  $("mktnote").innerHTML = parts.length
+    ? `<b>Market ring.</b> ${parts.join(" ")} Downstream only; the market never feeds the model.`
+    : `<b>Market ring:</b> no live NHL market line is posted for this season yet. The ring will ` +
+      `appear here automatically once one is; the market never feeds the model.`;
 }
 
 function axisTicks() {
@@ -297,7 +376,7 @@ function driverStory(t) {
 }
 
 function rosterTable(t) {
-  const top = t.top || [];
+  const top = (t.roster || []).slice(0, 6);  // pre-sorted by |contrib| server-side
   if (!top.length) return "";
   const maxAbs = Math.max(0.01, ...top.map(p => Math.abs(p.contrib)));
   const rows = top.map(p => {
@@ -315,6 +394,64 @@ function rosterTable(t) {
     `<table class="roster"><tbody>${rows}</tbody></table>`;
 }
 
+function editPanelHTML(t) {
+  const benched = editState[t.team] || new Set();
+  const rows = t.roster.map(p => {
+    const out = benched.has(p.id);
+    return `<tr class="${out ? "out" : ""}" data-id="${p.id}">` +
+      `<td class="nm">${p.name}</td><td class="ps">${p.pos}</td>` +
+      `<td class="num ${p.off >= 0 ? "pos" : "neg"}">${sgn(p.off)}</td>` +
+      `<td class="num ${p.def >= 0 ? "pos" : "neg"}">${sgn(p.def)}</td>` +
+      `<td class="mpg">${fmt(p.mpg)}</td>` +
+      `<td class="bench"><button class="benchbtn${out ? " out" : ""}" data-id="${p.id}">` +
+        `${out ? "OUT" : "bench"}</button></td>` +
+    `</tr>`;
+  }).join("");
+  return `<table class="roster edit"><tbody>${rows}</tbody></table>` +
+    `<div class="whatif">` +
+      `<span>recomputed <b class="wi-proj">${fmt(t.proj)}</b> pts</span>` +
+      `<span class="wi-delta"></span>` +
+      `<button class="resetlink">reset</button>` +
+    `</div>`;
+}
+
+// patch a team's row + edit panel in place (no full re-render, so scroll/open state survives a click)
+function updateTeamUI(t, row, panel) {
+  const benched = editState[t.team] || new Set();
+  // no edits: use the server's own numbers exactly rather than a JSON-rounding-limited JS
+  // reproduction (recompute() differs from the true value by ~0.02-0.1 pts due to the roster's
+  // off/def/icetime being serialized at limited precision -- immaterial once edited, since there's
+  // no "true" answer to compare against for a hypothetical roster anyway)
+  const r = benched.size ? recompute(t, benched) : { off: t.off, def: t.def, net: t.net, proj: t.proj, wins: t.wins };
+  const delta = r.proj - t.proj;
+  const newP10 = t.p10 + delta, newP90 = t.p90 + delta;   // shift the band, keep its width (the
+                                                            // interval's shape barely depends on
+                                                            // which players make it up -- see glossary)
+
+  const band = row.querySelector(".band"), mean = row.querySelector(".mean");
+  band.style.left = xpct(newP10) + "%";
+  band.style.width = Math.max(xpct(newP90) - xpct(newP10), 0.5) + "%";
+  mean.style.left = xpct(r.proj) + "%";
+  const roProj = row.querySelector(".ro-proj");
+  roProj.textContent = fmt(r.proj);
+  roProj.className = "ro-proj" + (delta > 0.05 ? " pos" : delta < -0.05 ? " neg" : "");
+  row.querySelector(".ro-range").textContent = `[${fmt(newP10)}–${fmt(newP90)}]`;
+
+  panel.querySelector(".wi-proj").textContent = fmt(r.proj);
+  const wiDelta = panel.querySelector(".wi-delta");
+  wiDelta.className = "wi-delta" + (delta > 0.05 ? " pos" : delta < -0.05 ? " neg" : "");
+  wiDelta.textContent = benched.size
+    ? `${sgn(delta, 1)} from the original ${fmt(t.proj)}` : "";
+
+  panel.querySelectorAll("tr[data-id]").forEach(tr => {
+    const out = benched.has(Number(tr.dataset.id));
+    tr.classList.toggle("out", out);
+    const b = tr.querySelector(".benchbtn");
+    b.classList.toggle("out", out);
+    b.textContent = out ? "OUT" : "bench";
+  });
+}
+
 function render() {
   const rows = $("rows"); rows.innerHTML = "";
   let list = teams.slice().sort((a, b) => (b[sortKey] ?? -1e9) - (a[sortKey] ?? -1e9));
@@ -326,11 +463,14 @@ function render() {
     const row = document.createElement("div");
     row.className = "row"; row.dataset.team = t.team;
     const bandL = xpct(t.p10), bandR = xpct(t.p90), mean = xpct(t.proj);
+    const mktTitle = t.mkt_source === "vegas"
+      ? `market (${t.mkt_book || "Vegas"}) implies ${fmt(t.mkt)} points`
+      : t.mkt != null ? `market implies ${fmt(t.mkt_wins)} wins (~${fmt(t.mkt)} pts-equivalent)` : "";
     const mktMark = t.mkt != null
-      ? `<span class="mkt" style="left:${xpct(t.mkt)}%" ` +
-        `title="market implies ${fmt(t.mkt_wins)} wins (~${fmt(t.mkt)} pts-equivalent)"></span>` : "";
-    const mktReadout = t.mkt != null
-      ? ` <span class="faint">mkt ${fmt(t.mkt_wins)}w · ${sgn(t.proj - t.mkt, 1)}</span>` : "";
+      ? `<span class="mkt" style="left:${xpct(t.mkt)}%" title="${mktTitle}"></span>` : "";
+    const mktReadout = t.mkt == null ? "" : t.mkt_source === "vegas"
+      ? ` <span class="faint">mkt ${fmt(t.mkt)} · ${sgn(t.proj - t.mkt, 1)}</span>`
+      : ` <span class="faint">mkt ${fmt(t.mkt_wins)}w · ${sgn(t.proj - t.mkt, 1)}</span>`;
     row.innerHTML =
       `<span class="rk">${i + 1}</span>` +
       `<span class="tm"><span class="ab">${t.team}</span><span class="nm">${t.name}</span></span>` +
@@ -338,7 +478,8 @@ function render() {
         `<span class="band" style="left:${bandL}%;width:${Math.max(bandR - bandL, 0.5)}%"></span>` +
         `<span class="mean" style="left:${mean}%"></span>${mktMark}` +
       `</span>` +
-      `<span class="readout"><b>${fmt(t.proj)}</b> &nbsp;[${fmt(t.p10)}–${fmt(t.p90)}]${mktReadout}</span>` +
+      `<span class="readout"><b class="ro-proj">${fmt(t.proj)}</b> &nbsp;` +
+        `<span class="ro-range">[${fmt(t.p10)}–${fmt(t.p90)}]</span>${mktReadout}</span>` +
       `<span class="chev">▶</span>`;
     const det = document.createElement("div");
     det.className = "detail";
@@ -354,6 +495,38 @@ function render() {
       `<div class="story">${driverStory(t)}</div>` +
       rosterTable(t);
     row.addEventListener("click", () => row.classList.toggle("open"));
+
+    const editLink = document.createElement("button");
+    editLink.className = "editlink";
+    editLink.type = "button";
+    editLink.textContent = `Edit roster (${t.roster.length} players) — what if a player is out? ▸`;
+    const panel = document.createElement("div");
+    panel.className = "editpanel";
+    panel.innerHTML = editPanelHTML(t);
+    editLink.addEventListener("click", (e) => {
+      e.stopPropagation();
+      panel.classList.toggle("open");
+      editLink.textContent = panel.classList.contains("open")
+        ? "Edit roster ▾" : `Edit roster (${t.roster.length} players) — what if a player is out? ▸`;
+    });
+    panel.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const btn = e.target.closest(".benchbtn");
+      const reset = e.target.closest(".resetlink");
+      if (btn) {
+        const id = Number(btn.dataset.id);
+        if (!editState[t.team]) editState[t.team] = new Set();
+        const set = editState[t.team];
+        set.has(id) ? set.delete(id) : set.add(id);
+        updateTeamUI(t, row, panel);
+      } else if (reset) {
+        editState[t.team] = new Set();
+        updateTeamUI(t, row, panel);
+      }
+    });
+    det.appendChild(editLink);
+    det.appendChild(panel);
+
     rows.appendChild(row); rows.appendChild(det);
   });
 }

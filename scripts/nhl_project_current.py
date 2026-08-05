@@ -35,7 +35,6 @@ Z80 = norm.ppf(0.9)
 OUT = PROC / "projection_current.json"
 _REF = pd.read_parquet(PROC / "team_reference.parquet")
 NAMES = dict(zip(_REF["tricode"], _REF["team_name"]))
-TOP_N = 6  # roster-detail rows shown per team (the per-team disagreement deliverable)
 
 
 def _skater_names(as_of: int) -> pd.Series:
@@ -47,13 +46,14 @@ def _skater_names(as_of: int) -> pd.Series:
     return sk.set_index("playerId")["name"]
 
 
-def roster_detail(toi: pd.DataFrame, proj_full: pd.DataFrame, live: pd.DataFrame,
-                  names: pd.Series, *, top_n: int = TOP_N) -> dict:
-    """Per-team top roster contributors -- the "who" behind each team's projection.
+def roster_frame(toi: pd.DataFrame, proj_full: pd.DataFrame, live: pd.DataFrame,
+                 names: pd.Series) -> pd.DataFrame:
+    """Every roster skater with his projected off/def/net, name, position, prior-season mpg, and his
+    **contribution to the team's net rating** (``net_impact * his TOI share of the team's total``).
 
-    Ranks every roster skater by his **contribution to the team's net rating**
-    (``net_impact * (his TOI share of the team's total)``), which sums exactly to the team's
-    aggregate net by construction (mirrors the NBA project's per-player win-value decomposition).
+    Contributions sum exactly to the team's aggregate net by construction (mirrors the NBA project's
+    per-player win-value decomposition) -- this is both the "who's driving this projection" display
+    (client sorts by |contrib| for its top-N) and the full editable roster for the what-if editor.
     Uncovered players (rookies / no prior season) fall to the aggregation's replacement level, same
     as the team rating itself -- so a thin rookie correctly shows near the bottom, not blank.
     """
@@ -65,15 +65,21 @@ def roster_detail(toi: pd.DataFrame, proj_full: pd.DataFrame, live: pd.DataFrame
     d["mpg"] = d["icetime"] / 60.0 / 82.0  # prior-season 5v5 min/game (a normal 82-game season)
     d["team_ice"] = d.groupby("team")["icetime"].transform("sum")
     d["contrib"] = d["net"] * (d["icetime"] / d["team_ice"])
+    return d
 
+
+def roster_bundle(d: pd.DataFrame) -> dict:
+    """Group ``roster_frame``'s output into ``{team: [player dicts]}``, sorted by |contribution| --
+    the client derives its own top-N slice and edits from this same full list."""
     out: dict[str, list[dict]] = {}
     for team, grp in d.groupby("team"):
-        top = grp.reindex(grp["contrib"].abs().sort_values(ascending=False).index).head(top_n)
+        ordered = grp.reindex(grp["contrib"].abs().sort_values(ascending=False).index)
         out[team] = [
-            {"name": r["name"], "pos": r["pos"] or "?", "off": round(float(r["off"]), 3),
-             "def": round(float(r["def"]), 3), "net": round(float(r["net"]), 3),
-             "mpg": round(float(r["mpg"]), 1), "contrib": round(float(r["contrib"]), 4)}
-            for _, r in top.iterrows()
+            {"id": int(r["player_id"]), "name": r["name"], "pos": r["pos"] or "?",
+             "off": round(float(r["off"]), 3), "def": round(float(r["def"]), 3),
+             "net": round(float(r["net"]), 3), "mpg": round(float(r["mpg"]), 1),
+             "ice": round(float(r["icetime"]), 0), "contrib": round(float(r["contrib"]), 4)}
+            for _, r in ordered.iterrows()
         ]
     return out
 
@@ -96,6 +102,11 @@ def main() -> int:
     proj_skaters = projection.project(T - 1)
     toi = rosters.live_toi(T, refresh=args.refresh)
     g = aggregate.team_ratings(proj_skaters, T, toi=toi).copy()
+    # frozen so the client-side what-if editor can reproduce goal_rates()'s centering exactly (a single
+    # edited team barely moves the true 32-team mean; freezing it avoids a JS re-average of all 32 teams
+    # on every keystroke and is the same "keep the rest of the league fixed" idea as the NBA's
+    # precomputed-grid approach to a client-side recompute)
+    off_mean, def_mean = float(g["off"].mean()), float(g["def"].mean())
     gf, ga = season.goal_rates(g["off"].values, g["def"].values, cal)
     g["gf"], g["ga"] = gf, ga
     g["mu"] = gamesim.expected_points(gf, ga, league_gf=cal["level"])
@@ -130,9 +141,11 @@ def main() -> int:
     snap = dt.date.today().isoformat()
 
     # 5) per-team roster detail: which players are actually driving each projection (the "here is the
-    # structural reason why" deliverable) -- HTTP-cached, so this second roster call is nearly free.
+    # structural reason why" deliverable, and the what-if editor's input) -- HTTP-cached, so this
+    # second roster call is nearly free.
     live = rosters.live_roster(T)
-    top_by_team = roster_detail(toi, proj_skaters.set_index("player_id"), live, _skater_names(T - 1))
+    rf = roster_frame(toi, proj_skaters.set_index("player_id"), live, _skater_names(T - 1))
+    roster_by_team = roster_bundle(rf)
 
     print(f"NHL {season_str(T)} projected standings points  (roster snapshot {snap})")
     print(f"calibration: off->GF slope {cal['a1']:+.1f}, def->GA slope {cal['b1']:+.1f}, "
@@ -148,8 +161,14 @@ def main() -> int:
             "target_season": season_str(T), "target_start": T, "snapshot_date": snap,
             "model": "stage5-sim+carry", "rho": rho, "sigma": sigma,
             "level_gf": cal["level"], "a1": cal["a1"], "b1": cal["b1"],
+            "off_mean": off_mean, "def_mean": def_mean,
+            "replacement_off": aggregate.REPLACEMENT_OFF, "replacement_def": aggregate.REPLACEMENT_DEF,
+            "ot_rate": gamesim.OT_RATE, "ot_skill": gamesim.OT_SKILL, "games": gamesim.GAMES,
             "note": "82-game standings points; 80% interval = season luck + projection error "
-                    "(walk-forward coverage 0.82). Market lines are downstream-only, never an input.",
+                    "(walk-forward coverage 0.82). Market lines are downstream-only, never an input. "
+                    "off_mean/def_mean/replacement_*/ot_*/games are for the client-side what-if editor "
+                    "-- it reproduces this script's goal_rates()/expected_points()/expected_wins() "
+                    "exactly (frozen at this build's 32-team centering; see ui/nhl_records/template.html).",
         },
         "teams": [
             {"team": r["team"], "name": NAMES.get(r["team"], r["team"]),
@@ -158,7 +177,7 @@ def main() -> int:
              "p90": round(float(r["p90"]), 1), "off": round(float(r["off"]), 4),
              "def": round(float(r["def"]), 4), "net": round(float(r["net"]), 4),
              "carry": round(float(r["carry"]), 1), "cover": round(float(r["cover"]), 3),
-             "top": top_by_team.get(r["team"], [])}
+             "roster": roster_by_team.get(r["team"], [])}
             for _, r in g.iterrows()
         ],
     }

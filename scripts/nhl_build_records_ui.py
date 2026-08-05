@@ -6,13 +6,22 @@ Reads the live projection bundle (`data/nhl/processed/projection_current.json`, 
 `ui/nhl_records/template.html` (a `__DATA__` placeholder) to produce a single dependency-free
 `ui/nhl_records/records.html`, mirroring the NBA `ui/build.py` and the NHL impact-viewer build.
 
-Market lines (Kalshi `KXNHLWINS`) are attached when posted, strictly for display beside the
-projection -- never an input. As of the 2026-27 pre-season the market has no open events, so the
-page shows no ring and says so; re-running once it opens attaches it automatically.
+Market lines are attached when available, strictly for display beside the projection -- never an
+input. Two sources, tried in order (source-aware, like the NBA project's `marketLabel`):
+
+1. **Vegas points** (`nhl.market_vegas`) -- a real sportsbook's season POINTS total, our model's
+   exact target unit, so no conversion is needed. Preferred when present. As of 2026-08 this is
+   BetOnline via a hand-curated gambling911.com recap (see `market_vegas.LIVE_SOURCES` -- it must
+   be re-found and added each season, there is no stable per-season URL the way hockey-reference's
+   historical archive has).
+2. **Kalshi implied WINS** (`nhl.market_live`, `KXNHLWINS`) -- used only for a team Vegas didn't
+   cover. Kalshi settles on wins, not points, so it is converted to a points-equivalent via that
+   team's own implied OT-loss share (documented in `attach_kalshi`). As of the 2026-27 pre-season
+   the series has zero open events, so this path is currently a no-op (kept for when it posts).
 
     python scripts/nhl_project_current.py       # (re)build the projection bundle first
     python scripts/nhl_build_records_ui.py       # inline it into ui/nhl_records/records.html
-    python scripts/nhl_build_records_ui.py --market   # also try to attach the live market wins
+    python scripts/nhl_build_records_ui.py --market   # also try to attach live market lines
 """
 
 from __future__ import annotations
@@ -32,9 +41,28 @@ OUTPUT = ROOT / "ui" / "nhl_records" / "records.html"
 BUNDLE = PROC / "projection_current.json"
 
 
-def attach_market(bundle: dict) -> int:
-    """Best-effort: attach the live Kalshi implied WIN table to each team (downstream display only).
-    Returns the number of teams matched; 0 (and unchanged) when nothing is posted.
+def attach_vegas(bundle: dict) -> int:
+    """Best-effort: attach a live Vegas POINTS total per team. Returns teams matched."""
+    try:
+        from nhl import market_vegas
+        table = market_vegas.live_points_table(bundle["meta"]["target_start"])
+    except Exception as err:  # noqa: BLE001 -- market is optional; never block the build
+        print(f"vegas market: skipped ({type(err).__name__}: {err})")
+        return 0
+    n = 0
+    for t in bundle["teams"]:
+        m = table.get(t["team"])
+        if m:
+            t["mkt"] = round(float(m["points_ou"]), 1)   # already points -- plots directly
+            t["mkt_source"] = "vegas"
+            t["mkt_book"] = m["source"]
+            n += 1
+    return n
+
+
+def attach_kalshi(bundle: dict) -> int:
+    """Best-effort: attach the live Kalshi implied WIN table for teams `attach_vegas` didn't cover.
+    Returns teams newly matched.
 
     Kalshi settles on WINS, but the Records page's shared axis is standings POINTS -- plotting a win
     total straight onto a points axis would silently mix units. Standings points = 2*wins + OT-loss
@@ -50,23 +78,26 @@ def attach_market(bundle: dict) -> int:
         yy = (bundle["meta"]["target_start"] + 1) % 100
         table = market_live.market_win_table(yy)
     except Exception as err:  # noqa: BLE001 -- market is optional; never block the build
-        print(f"market: skipped ({type(err).__name__}: {err})")
+        print(f"kalshi market: skipped ({type(err).__name__}: {err})")
         return 0
     n = 0
     for t in bundle["teams"]:
+        if t.get("mkt") is not None:
+            continue  # Vegas already covered this team
         m = table.get(t["team"])
         if m and m.get("mean") is not None:
             mkt_wins = float(m["mean"])
             our_otl = t["proj"] - 2 * t["wins"]         # our model's implied OT-loss games this team
             t["mkt_wins"] = round(mkt_wins, 1)
             t["mkt"] = round(2 * mkt_wins + our_otl, 1)  # points-equivalent, for the shared axis
+            t["mkt_source"] = "kalshi"
             n += 1
     return n
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--market", action="store_true", help="also try to attach live Kalshi win lines")
+    ap.add_argument("--market", action="store_true", help="also try to attach live market lines")
     args = ap.parse_args()
 
     if not BUNDLE.exists():
@@ -75,8 +106,10 @@ def main() -> int:
     bundle = json.loads(BUNDLE.read_text())
 
     if args.market:
-        n = attach_market(bundle)
-        print(f"market: attached {n} team win lines" if n else "market: not posted yet (no ring)")
+        nv = attach_vegas(bundle)
+        nk = attach_kalshi(bundle)
+        print(f"market: {nv} teams from Vegas, {nk} from Kalshi" if nv or nk
+              else "market: no source posted yet (no ring)")
 
     tpl = TEMPLATE.read_text()
     html = tpl.replace("__DATA__", json.dumps(bundle, separators=(",", ":")))
