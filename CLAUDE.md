@@ -276,19 +276,27 @@ overrides so the per-page theme toggle wins):
 Monospace for all data/numbers, system sans for prose. The content column is `.wrap { max-width:
 1080px }` on every page (unify to 1080, do not drift).
 
-**2. Shared top nav bar.** Every page includes the SAME full-width sticky bar as the first element
-of `<body>` (immediately before `<div class="wrap">`), with **its own link given `class="nl active"`**
-(NBA projections → "NBA Records"; players → "NBA Players"; NHL → "NHL Impact"; a new league adds its
-own `<a class="nl" href="/its-route">…</a>` and marks it active on its own page). The markup and CSS
-are identical across templates and use only shared tokens (`--ink`/`--muted`/`--faint`/`--line`/
-`--surface`/`--mono`):
+**2. Shared top nav bar (grouped by league).** Every page includes the SAME full-width sticky bar as
+the first element of `<body>` (immediately before `<div class="wrap">`). Links are **grouped by
+league** — a faint `nl-league` label (NBA / NHL, followed by a `▸` via `::after`) heads each
+`nl-group`, and **the current page's link is given `class="nl active"`** (NBA projections →
+"Records"; players → "Players"; NHL → "Impact"; a new league adds its own `nl-group` with a label and
+routes, marking its link active on its own page). The markup and CSS are identical across templates
+and use only shared tokens (`--ink`/`--muted`/`--faint`/`--line`/`--surface`/`--mono`):
 
 ```html
 <nav class="topnav"><div class="topnav-in">
   <a class="brand" href="/">wincurve</a>
-  <a class="nl" href="/">NBA Records</a>
-  <a class="nl" href="/players">NBA Players</a>
-  <a class="nl" href="/nhl">NHL Impact</a>
+  <span class="nl-group">
+    <span class="nl-league">NBA</span>
+    <a class="nl active" href="/">Records</a>
+    <span class="nl-sep">|</span>
+    <a class="nl" href="/players">Players</a>
+  </span>
+  <span class="nl-group">
+    <span class="nl-league">NHL</span>
+    <a class="nl" href="/nhl">Impact</a>
+  </span>
 </div></nav>
 ```
 ```css
@@ -298,6 +306,9 @@ are identical across templates and use only shared tokens (`--ink`/`--muted`/`--
 .topnav .nl { font-size: 13px; color: var(--muted); text-decoration: none; padding: 3px 1px; border-bottom: 2px solid transparent; }
 .topnav .nl:hover { color: var(--ink); }
 .topnav .nl.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+.topnav .nl-group { display: inline-flex; align-items: baseline; gap: 9px; }           /* league group */
+.topnav .nl-league { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }  /* + ::after "▸" */
+.topnav .nl-sep { color: var(--line); font-size: 12px; }                               /* "|" between same-league links */
 ```
 
 Routes live in `ui/vercel.json` (`cleanUrls: true`): `/` → projections, `/players` → NBA players,
