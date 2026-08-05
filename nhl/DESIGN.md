@@ -447,12 +447,45 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     *which* players make up a given team strength). Face-valid: benching Colorado's Nathan MacKinnon
     (its #1 contributor, ~half the team's net rating) drops the projection 108.1 → 102.3 (−5.8 pts).
     Not a trade editor (no swap-in-any-player pool) -- that is the natural v2 if wanted.
-  - **⬜ Remaining.** A historical track-record view stays blocked: re-checked for this session --
-    Kalshi's `KXNHLWINS` has **zero** settled/closed events (nothing historical exists on that
-    series) and hockey-reference.com's robots.txt gives no sign of a bbref-style preseason-odds page
-    (no free source identified). Also: injury / known-absence overlays the NBA project carries as
-    hand-authored, forward-looking overrides (the what-if editor's per-player bench toggle covers a
-    lot of this need already, but not the "player X returns from injury" inverse case).
+  - **✅ CORRECTION + Vegas market integration DONE.** The "historical track-record view stays
+    blocked" note above was **wrong** -- it was based on checking Kalshi (genuinely empty) and
+    hockey-reference's robots.txt in isolation, without actually searching for the page itself.
+    Doing that search found **hockey-reference.com/leagues/NHL_&lt;year&gt;_preseason_odds.html**,
+    the exact NHL analog of the bbref page the NBA project already relies on (same company, same
+    `/leagues/` robots.txt allowance, same `data-stat` table convention) -- and it carries a
+    **points** over/under (our model's exact target unit, not wins) with the real final result, for
+    every season since **2010-11**, which happens to be the *exact* floor of our own RAPM/shift-
+    chart backbone. So every season the model can ever backtest also has a real market line.
+    - **`nhl/odds.py`** (mirrors `nbaproj/odds.py` closely): fetches + caches the 16 available
+      pages (`Crawl-delay: 3`, browser User-Agent), parses `team_name`/`over_under`/`points` cells,
+      joins onto `nhl.teams.target_table()`'s era-correct team names (one fix needed vs the NBA
+      version: accent-folding "Montréal" -> "Montreal" via `unicodedata`, not just punctuation-
+      stripping). Validated: the page's own `final_points` matches our `team_summary` points
+      exactly for every row checked -- the parse is correct.
+    - **`scripts/nhl_market_history_report.py`** -- the actual measurement, on the SAME walk-forward
+      folds as the Stage 5 gate (not cherry-picked): **our model 10.50 vs the real Vegas line 10.47
+      over 9 full-season folds (paired mean diff +0.03, SE 0.22, t=0.15) -- a clean statistical
+      TIE**, closer to actual in 6/9 individual folds. This is a materially different honest read
+      than the NBA project's (which does not beat its market, 7.58 vs 6.88) -- a from-scratch,
+      publicly-sourced hockey model matching a professional sportsbook line almost exactly.
+      (2020-21's Vegas MAE spikes to 29.1 -- even the sharp market badly missed that
+      covid-compressed, realigned season; correctly excluded from the full-season headline.)
+    - **`nhl/market_vegas.py`** -- the LIVE piece, answering "can we use Vegas while Kalshi is
+      dormant": BetOnline's 2026-27 points line (opened 2026-07-20, found via a web search, since
+      there is no stable per-season URL the way hockey-reference's archive has -- hand-curated in
+      `LIVE_SOURCES`, the same discipline as `known_absences.json`, must be re-found each season).
+      Verified as a real static HTML table (not JS-rendered), parsed and joined onto all 32 teams.
+    - **The Records page market ring is now source-aware** (`scripts/nhl_build_records_ui.py`):
+      Vegas points preferred (real units, no conversion, `mkt_source: "vegas"`) with Kalshi wins as
+      a fallback for any team Vegas didn't cover (still converted via the OT-loss-share approach
+      above, `mkt_source: "kalshi"`). Live now: **32/32 teams from Vegas**, mean disagreement 4.1
+      points, biggest gaps FLA (we project 22.3 points BELOW the Vegas line -- our carryover and
+      roster numbers see a more mid-pack team than the market's expectation) and PIT (+7.1 above).
+  - **⬜ Remaining.** A "Track record" UI VIEW (the NBA Records page's Projections/Track-record
+    toggle) is the natural next step for the historical Vegas comparison -- the report script above
+    is the data/measurement, not yet a page. Also: injury / known-absence overlays the NBA project
+    carries as hand-authored, forward-looking overrides (the what-if editor's bench toggle covers
+    some of this, not the "player X returns from injury" inverse case).
 
 ---
 
