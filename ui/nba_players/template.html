@@ -377,7 +377,7 @@ function render() {
         const link = p.bbref
           ? ` <a class="extlink" href="${esc(p.bbref)}" target="_blank" rel="noopener noreferrer" ` +
             `title="View ${esc(p.name)} on Basketball-Reference" onclick="event.stopPropagation()">↗</a>` : "";
-        return `<td class="name"><span class="nm">${esc(p.name)}</span><span class="tag">${esc(tag)}</span>${link}</td>`;
+        return `<td class="name"><span class="nm">${esc(p.name)}</span>${link}<span class="tag">${esc(tag)}</span></td>`;
       }
       if (c.key === "_bar") {
         const v = p.impact;

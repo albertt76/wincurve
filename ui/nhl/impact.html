@@ -400,7 +400,7 @@ function render() {
       const link = p.hr
         ? ` <a class="extlink" href="${esc(p.hr)}" target="_blank" rel="noopener noreferrer" ` +
           `title="View ${esc(p.name)} on Hockey-Reference" onclick="event.stopPropagation()">↗</a>` : "";
-      return `<td class="name"><span class="nm">${esc(p.name)}</span><span class="tag">${esc(tag)}</span>${link}</td>`;
+      return `<td class="name"><span class="nm">${esc(p.name)}</span>${link}<span class="tag">${esc(tag)}</span></td>`;
     }
     if (c.key === "_bar") {
       const v = p[barKey];
