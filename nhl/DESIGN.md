@@ -276,6 +276,15 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     shootout) for the calibrated points *distribution*. NOTE: the current end-to-end is a LEAKY upper
     bound — actual roster + TOI; the honest version needs opening-day roster reconstruction + a
     minutes model (Stage 3b).
+  - **One-year carryover — the big lever, exactly as in the NBA (`scripts/nhl_stage4_carryover_report.py`).**
+    The roster projection misses persistent team effects (coaching/system/goalie that repeat), so add
+    `rho · last-season residual`. Residual persistence measured at **AR(1) rho ~0.37, corr 0.38
+    (n=181 pairs)** — essentially the NBA's ~0.36. Applied walk-forward it improves the points MAE
+    **10.84 → 10.10 (−0.74)** and **beats the naive bar (10.44) and Stage 1 bar (10.54) for the first
+    time**, mirroring the NBA where the carryover was the one change that cleared the gate. **Honest
+    caveats:** only 3 evaluable folds and still the LEAKY-roster upper bound, so this is a *preliminary*
+    beat, not a shipped number — it needs the honest (non-leaky) roster, more folds, and the full
+    season-simulation gate. But rho=0.37 on 181 pairs is robust, so the carryover itself is real.
 - ⬜ **Stage 5** — season simulation with regulation/OT/shootout → points distribution;
   interval calibration. One-year carryover.
 - ⬜ **Stage 6** — market comparison (season points over/under; Cup/division/playoff odds,
