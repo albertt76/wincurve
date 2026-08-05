@@ -14,6 +14,7 @@ not a number to trust at face value in small samples).
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from . import ingest
@@ -59,3 +60,33 @@ def project_gsax(end_year: int, *, min_toi: float = 1500.0,
     g = g[(g["season_start"] == end_year) & (g["toi_min"] >= min_toi)].copy()
     g["proj_gsax_per_60"] = beta * g["gsax_per_60"]
     return g[["player_id", "name", "toi_min", "gsax_per_60", "proj_gsax_per_60"]].reset_index(drop=True)
+
+
+# MoneyPuck's legacy dotted team codes (through 2019-20) -> NHL tricodes; see rapm.MP_CODE_ALIASES.
+_MP_GOALIE_ALIASES = {"L.A": "LAK", "N.J": "NJD", "S.J": "SJS", "T.B": "TBL"}
+
+
+def team_gsax_per_game(end_year: int, *, beta: float = GSAX_PERSISTENCE) -> pd.DataFrame:
+    """Projected team goaltending, as goals-against SAVED per game, for season ``end_year + 1``.
+
+    Point-in-time: each goalie's **prior season (``end_year``)** GSAx/60 is regressed toward 0
+    (``beta``, since goaltending barely persists) and attributed to his prior-season team, weighted
+    by that season's share of the team's goalie minutes -- so a team's projected save value is the
+    minute-weighted mean of its returning goalies' regressed GSAx/60 (backups project to ~0). This
+    is the goals-against adjustment the season simulation subtracts from the skater-based GA rate;
+    it is deliberately small (best starters ~+0.1 goals/game), because goalie value is nearly
+    unpredictable in advance. Goalie trades/UFA moves are missed (Y-team-of-record), a known
+    refinement. Returns ``(team, gsax_pg)`` -- positive = saves goals = lowers projected GA.
+    """
+    g = pd.read_parquet(ingest.PROC / "moneypuck_goalies.parquet")
+    g = g[(g["situation"] == "all") & (g["season_start"] == end_year)].copy()
+    g["team"] = g["team"].replace(_MP_GOALIE_ALIASES)
+    g["player_id"] = g["playerId"].astype(int)
+    g["gsax60"] = (g["xGoals"].astype(float) - g["goals"].astype(float)) / (g["icetime"] / 60.0) * 60.0
+    # minute-weighted mean GSAx/60 over each team's goalies, then regress toward 0
+    g["w"] = g["icetime"]
+    agg = g.groupby("team").apply(
+        lambda d: np.average(d["gsax60"], weights=d["w"]), include_groups=False).rename("gsax60")
+    out = agg.reset_index()
+    out["gsax_pg"] = beta * out["gsax60"]        # goals saved per 60 ~= per game (starter ~full game)
+    return out[["team", "gsax_pg"]]

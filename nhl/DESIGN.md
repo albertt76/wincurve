@@ -292,7 +292,7 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     *clearing* it awaits the still-missing Stage 5 levers (special teams, goalie level via
     goal-diff/Pythagorean, and the regulation/OT/shootout season simulation), exactly as the NBA
     project's first cuts sat at the bar until its later pieces landed.
-- 🟡 **Stage 4 — team aggregation (started).** `nhl/aggregate.py` +
+- ✅ **Stage 4 — team aggregation (DONE).** `nhl/aggregate.py` +
   `scripts/nhl_stage4_aggregate_report.py`: a team's even-strength rate above/below average is the
   **minute-weighted mean** of its skaters' xG-RAPM impacts (5 on ice always, so the ×5 is absorbed
   by the downstream calibration slope). **Validated:** the aggregate of *single-season* RAPM
@@ -332,10 +332,58 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     **↳ UPDATE (Stage 3b, above): the honest, 9-fold re-run lands at 10.61 — the 10.10 was a favorable
     3-fold subset (leaky is 10.72 over the wider set), and removing the roster/TOI leak costs ~nothing.
     So the carryover + honest roster sit AT the bar; the decisive beat awaits the Stage 5 levers.**
-- ⬜ **Stage 5** — season simulation with regulation/OT/shootout → points distribution;
-  interval calibration. One-year carryover.
+- ✅ **Stage 5 — season simulation (DONE).** `nhl/gamesim.py` + `scripts/nhl_stage5_sim_report.py`:
+  turn each team's projected strength into a standings-**points distribution** by simulating the
+  games, replacing Stage 4's single linear `net → points` fit. Scored head-to-head on the EXACT same
+  honest roster (Stage 3b), one-year carryover, and 9 full-season walk-forward folds — only
+  strength→points changes.
+  - **The game model** (all anchors measured on 2010-11..2025-26 `team_summary`). Projected 5v5
+    **off → goals-for/game** and **def → goals-against/game**, calibrated *separately* (own slope
+    each) and drift-tracked to the prior season's league scoring level (goals/game rose 2.66 → 3.08
+    over the window; point-in-time safe, uses only year Y−1's actual league scoring). Splitting
+    off/def with their own slopes is what lets defense carry its (lower) persistence weight — the
+    single-`net` line couldn't. Each game: goals ~ **Poisson**, but the OT/SO rate is taken
+    **empirically (~0.23)**, not from the Poisson tie mass (independent Poisson under-counts ties
+    ~0.18, because hockey's score effects — leading team sits back, trailing team pulls the goalie —
+    compress margins). So Poisson decides only *which team is better* (the conditional regulation win
+    prob `w_reg`); the share going past regulation is the league constant; the OT/SO winner is
+    `w_reg` shrunk hard toward a coin flip (a .70-pt% team wins only ~55% of its past-reg games,
+    slope 0.38). Points are **2/1/0** — the loser point makes hockey points a **trinomial**, which
+    the sim reproduces exactly and a win% model cannot. Validated in isolation: an average team →
+    91.4 projected points (league 91.5), goal-diff→points slope 25.5 (measured 27.3), Monte-Carlo
+    mean == closed form; season-luck SD ~8.5 points.
+  - **Result — MAE-neutral, but it delivers the distribution (the point of the stage).** Over 9
+    full-season folds: **sim + carryover = 10.50** vs the shipped **linear + carryover = 10.61**
+    (−0.10, ±0.11 SE — **within noise**, ~1 SE, so genuinely MAE-neutral), vs the walk-forward
+    **naive bar 10.83** (−0.33), vs the fixed **Stage 1 bar 10.54** (−0.04, i.e. the model now sits
+    just past it). The neutrality is expected — goal-diff→points is near-linear (r=0.958), so a
+    proper game model and a good line agree on the *mean*. Its genuine deliverable is the
+    **calibrated points distribution**: the sim's season-luck spread (~8.5) is convolved with a
+    projection-error term fit walk-forward on the sim+carry residual, and the resulting **nominal-80%
+    interval covers 0.82** (target 0.80). Face-valid standings (2025-26 hindsight: CAR/VGK/TBL/LAK/DAL
+    top, CHI/SEA/SJS bottom; `--detail 2025` prints every team's mean + 80% band + actual).
+  - **Both remaining Stage 4 levers built and REJECTED — real signal, redundant with the carryover**
+    (the NBA project's RAPM-vs-carryover finding, again). **Goalie GSAx into goals-against**
+    (`goalies.team_gsax_per_game`): projected prior-season starter GSAx/60, regressed ~85% toward 0,
+    subtracted from the GA rate. Prior-goalie GSAx correlates **0.21** with next-season points and
+    the skater metric (5v5 shot-suppression) contains *no* goaltending, so it is genuinely additive —
+    yet adding it **worsens MAE +0.06**. **Special teams (PP/PK)** (`team_st_goaldiff`): projected
+    prior-season PP+PK net goal-diff/game, regressed to ~36%, shifted onto the goal differential. ST
+    correlates **0.37** with points but its **YoY persistence (0.36) ≈ the carryover rho (0.37)** —
+    the tell — so **+0.05 MAE**. Both are *persistent team traits* the one-year carryover already
+    absorbs; the explicit terms (heavily regressed, hence noisy) only double-count. Kept in the code
+    as gated, documented negatives (the `simG`/`simS` columns in the report).
+  - **Honest conclusion.** The levers that were supposed to *decisively* clear the bar are redundant
+    with the carryover, so the model sits **at** the bar (10.50 vs 10.54; −0.33 vs the per-fold
+    naive). That is the expected shape for a high-parity, high-luck league where the market sits near
+    the achievable frontier — the deliverable is per-team *disagreement* + the calibrated interval,
+    not aggregate-MAE dominance (exactly the NBA project's honest read). Documented refinements not
+    attempted: real strength-of-schedule (a balanced schedule is assumed — SOS is second-order and
+    the per-season shift gaps complicate exact reconstruction), and a live 2026-27 projection (needs
+    a current-roster feed — Stage 6).
 - ⬜ **Stage 6** — market comparison (season points over/under; Cup/division/playoff odds,
-  downstream only) + per-team disagreement UI.
+  downstream only) + per-team disagreement UI (the NHL **"Records"** page). Consumes the Stage 5
+  points distribution; needs a live 2026-27 opening-roster feed for the upcoming-season projection.
 
 ---
 
