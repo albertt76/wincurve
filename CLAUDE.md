@@ -23,10 +23,18 @@
 > (`rapm.blend_box_offense`, +0.016, 6/6) → **`rapm.talent()`**; aging curves (`nhl/aging.py`, net
 > peak ~24, defense declines early); and the **forward projection** (`nhl/projection.py`,
 > `project(end_year)` = per-skill `beta·(talent+aging)`, offense β≈0.62 / defense β≈0.31, calibration
-> slope 1.02). Steps 1-3 are on `main`; step 4 is on branch `nhl-stage3-projection`. **NEXT: Stage 4**
-> — aggregate `project()`'s skaters + goalie GSAx + special teams into team goals-for/against rates
-> (calibrated on projected aggregates), then **Stage 5** season sim (regulation/OT/shootout) → the
-> points distribution. See the Roadmap in [nhl/DESIGN.md](nhl/DESIGN.md).
+> slope 1.02). **Stage 4 (team aggregation + one-year carryover) and Stage 3b (the HONEST, non-leaky
+> roster) are now COMPLETE too.** Stage 3b (`nhl/rosters.py`, `scripts/nhl_stage3b_honest_gate.py`)
+> replaced the leaky actual-roster+TOI aggregation with an **opening-day roster reconstruction**
+> (shift first-appearance debut within the team's first 20 games — validated: Guentzel stays on PIT,
+> excluded from CAR) weighted by **prior-season 5v5 TOI**, wired in via a `toi=` hook on
+> `aggregate.team_ratings`. Honest result over **9 full-season folds: 10.61 points** (beats the
+> per-fold naive 10.83 within noise; +0.07 vs the fixed 10.54 bar) — and the leak was worth ~nothing
+> (leaky is 10.72 over the same 9 folds; the old "10.10" was a favorable 3-fold subset). **NEXT:
+> Stage 5** — the season sim (regulation/OT/shootout → points *distribution*) plus the remaining
+> Stage 4 levers (special teams PP/PK, goalie level via goal-diff/Pythagorean), the pieces still
+> needed to *clear* the bar decisively rather than sit at it. See the Roadmap in
+> [nhl/DESIGN.md](nhl/DESIGN.md).
 
 ## What this project is
 

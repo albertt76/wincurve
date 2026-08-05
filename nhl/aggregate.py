@@ -42,8 +42,8 @@ def player_toi(season_start: int) -> pd.DataFrame:
 
 def team_ratings(impacts: pd.DataFrame, season_start: int, *,
                  replacement_off: float = REPLACEMENT_OFF, replacement_def: float = REPLACEMENT_DEF,
-                 fill: bool = True) -> pd.DataFrame:
-    """Minute-weighted team off/def/net from per-player impacts + that season's 5v5 TOI.
+                 fill: bool = True, toi: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Minute-weighted team off/def/net from per-player impacts + a 5v5 TOI frame.
 
     ``impacts``: a frame with ``player_id`` / ``off`` / ``def`` (contemporaneous RAPM or a forward
     projection). Returns one row per ``team`` with minute-weighted ``off`` / ``def`` / ``net`` and
@@ -51,8 +51,13 @@ def team_ratings(impacts: pd.DataFrame, season_start: int, *,
     roster players without an impact (rookies, sub-floor) get the replacement level, so the
     aggregate is weighted over the team's TOTAL minutes -- validated to beat dropping them
     (``fill=False``, the covered-minute mean). See the report.
+
+    ``toi``: a ``(player_id, team, icetime)`` frame to weight by. Default (``None``) reads season
+    ``season_start``'s ACTUAL 5v5 TOI (``player_toi`` -- the LEAKY upper bound: real roster + real
+    minutes). Pass ``nhl.rosters.honest_toi(season_start)`` for the point-in-time projection
+    (opening-day roster + prior-season minutes). Everything downstream is identical either way.
     """
-    toi = player_toi(season_start)
+    toi = player_toi(season_start) if toi is None else toi
     d = toi.merge(impacts[["player_id", "off", "def"]], on="player_id", how="left")
     covered = d["off"].notna()
     cover = d.loc[covered, "icetime"].groupby(d["team"]).sum() / d.groupby("team")["icetime"].sum()
