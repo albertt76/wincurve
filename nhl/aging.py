@@ -126,3 +126,19 @@ def smooth_curve(metric: str = "net", alpha: float = 3000.0, degree: int = 2, re
         else tbl["slevel"].mean()
     peak_age = int(tbl.loc[tbl["slevel"].idxmax(), "age"])
     return tbl, peak_age
+
+
+def delta_series(metric: str = "net", alpha: float = 3000.0, degree: int = 2) -> pd.Series:
+    """Smoothed per-year aging delta (the change from `age` to age+1), indexed by integer age.
+    This is the aging adjustment a forward projection applies at each player's current age.
+    """
+    tbl, _ = smooth_curve(metric, alpha=alpha, degree=degree)
+    return tbl.set_index("age")["sdelta"]
+
+
+def apply_delta(value: pd.Series, age: pd.Series, metric: str, alpha: float = 3000.0) -> pd.Series:
+    """Age `value` (an off/def series) forward one year by the smoothed delta at each player's age.
+    Ages outside the fitted range are clipped to its ends (flat extrapolation)."""
+    s = delta_series(metric, alpha=alpha)
+    a = age.round().clip(s.index.min(), s.index.max()).astype(int)
+    return value + a.map(s).astype(float).values

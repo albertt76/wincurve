@@ -232,8 +232,21 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     NBA's "blocks decline from the start"); net decline accelerates after ~30. Peaks younger than the
     NBA (~26-27), as hockey aging studies find. **Survivorship caveat:** only players in both seasons
     contribute, so the old-age fall-off is *understated*. The smoothed per-year `sdelta(age)` is the
-    aging adjustment the projection will apply. **Next:** shrinkage/regression-to-mean, then combine
-    `talent()` + aging into a forward projection, then team aggregation → season points.
+    aging adjustment the projection applies.
+  - **Step 4 — forward projection (`nhl/projection.py`, `scripts/nhl_stage3_projection_report.py`).**
+    `project(end_year)` = per-skill **`beta · (talent + aging)`** → projected next-season off/def/net.
+    Two measured findings: (a) **aging is one-year-neutral** for prediction (+0.002 corr) — kept
+    because it is structurally correct (veterans should decline) but honestly small, echoing the NBA
+    "directionally real, practically useless" aging results; (b) **persistence differs sharply by
+    skill — offense beta ~0.62, defense beta ~0.31** (TOI-weighted, 6 folds): defensive RAPM is about
+    half as persistent, the quantified NHL analog of "defense is the weakest, least-predictive
+    metric," so defense is regressed hard toward the mean. **Validated:** actual-on-projected
+    calibration slope averages **1.02** (6 folds), correlation 0.387 (= talent's), and the projection
+    is correctly narrower than realized single-season net (SD 0.14 vs 0.39). Caveats: the projection
+    is offense-dominated (defense near-zeroed by its low beta) and a few thin-sample young players
+    leak high (residual pooled-RAPM linemate noise) — both wash out under minute-weighted team
+    aggregation. `rapm.pool_rapm` now caches. **Next: Stage 4** — aggregate projected skaters + goalie
+    + special teams → team goals-for/against, then Stage 5 season simulation → points distribution.
 - ⬜ **Stage 3b** — TOI/role & availability; replacement level; rookie/first-year priors.
 - ⬜ **Stage 4** — team aggregation (skaters + goalie + special teams → GF/GA rates),
   calibrated per fold on projected aggregates.
