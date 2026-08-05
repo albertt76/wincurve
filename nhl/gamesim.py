@@ -90,6 +90,15 @@ def expected_points(gf: np.ndarray, ga: np.ndarray, *, games: int = GAMES, **kw)
     return games * (2.0 * p_win + p_otl)
 
 
+def expected_wins(gf: np.ndarray, ga: np.ndarray, *, games: int = GAMES, **kw) -> np.ndarray:
+    """Closed-form expected 82-game WINS per team (regulation + OT + shootout; the standings W).
+
+    Standings points and wins are different targets in hockey -- a win is 2 points but an OT/SO loss
+    is still 1 -- so a wins-settled market (Kalshi KXNHLWINS) is compared to this, not to points."""
+    p_win, _, _ = game_point_probs(gf, ga, **kw)
+    return games * p_win
+
+
 def simulate_points(gf: np.ndarray, ga: np.ndarray, *, games: int = GAMES, n_sims: int = 20000,
                     sigma_extra: float = 0.0, rng: np.random.Generator | None = None,
                     **kw) -> np.ndarray:

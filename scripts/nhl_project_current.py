@@ -33,6 +33,8 @@ from nhl.ingest import PROC, season_str  # noqa: E402
 
 Z80 = norm.ppf(0.9)
 OUT = PROC / "projection_current.json"
+_REF = pd.read_parquet(PROC / "team_reference.parquet")
+NAMES = dict(zip(_REF["tricode"], _REF["team_name"]))
 
 
 def main() -> int:
@@ -55,6 +57,7 @@ def main() -> int:
     gf, ga = season.goal_rates(g["off"].values, g["def"].values, cal)
     g["gf"], g["ga"] = gf, ga
     g["mu"] = gamesim.expected_points(gf, ga, league_gf=cal["level"])
+    g["wins"] = gamesim.expected_wins(gf, ga, league_gf=cal["level"])   # standings W (market-ready)
 
     # 3) one-year carryover: rho on residual pairs before T, times each team's season T-1 residual
     pr = P[P["Y"] < T].merge(
@@ -96,7 +99,8 @@ def main() -> int:
                     "(walk-forward coverage 0.82). Market lines are downstream-only, never an input.",
         },
         "teams": [
-            {"team": r["team"], "proj": round(float(r["proj"]), 1),
+            {"team": r["team"], "name": NAMES.get(r["team"], r["team"]),
+             "proj": round(float(r["proj"]), 1), "wins": round(float(r["wins"]), 1),
              "p10": round(float(r["p10"]), 1), "p50": round(float(r["p50"]), 1),
              "p90": round(float(r["p90"]), 1), "off": round(float(r["off"]), 4),
              "def": round(float(r["def"]), 4), "net": round(float(r["net"]), 4),
