@@ -255,10 +255,13 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
   reconstructs team 5v5 xG-for/against at **r~0.92 off / ~0.88 def** (net vs xG-diff r 0.90-0.96 —
   the mechanism is sound); aggregating the *projected* (prior-season, `project(Y-1)`) impacts onto a
   team's actual roster/TOI predicts team 5v5 xG-differential at **r~0.65** (net), with ~88% of team
-  minutes covered by a projection. **Remaining Stage 4/5:** replacement level for the uncovered
-  ~12% (rookies/thin), goalie GSAx + special-teams (PP/PK) layers, the impact→goals→points
-  calibration fit on *projected* aggregates (the NBA distribution-mismatch lesson), one-year
-  carryover, then the season simulation.
+  minutes covered by a projection. **Replacement level DONE:** the uncovered ~12% (rookies/thin) have
+  mean actual 5v5 RAPM net ~−0.03 (below average); filling them at replacement (weighting the
+  aggregate over TOTAL team minutes, not just covered) lifts the projected net→xG-diff correlation
+  **~0.65 → ~0.72 in 5/5 seasons** (`REPLACEMENT_OFF`/`_DEF`, the `fill=True` default). **Remaining
+  Stage 4/5:** goalie GSAx + special-teams (PP/PK) layers, the impact→goals→points calibration fit
+  on *projected* aggregates (the NBA distribution-mismatch lesson), one-year carryover, then the
+  season simulation.
 - ⬜ **Stage 5** — season simulation with regulation/OT/shootout → points distribution;
   interval calibration. One-year carryover.
 - ⬜ **Stage 6** — market comparison (season points over/under; Cup/division/playoff odds,

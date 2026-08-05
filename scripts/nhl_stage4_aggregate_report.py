@@ -48,15 +48,19 @@ def main() -> int:
         ro, rd, rn = _corrs(aggregate.team_ratings(imp, Y), Y)
         print(f"{season_str(Y):>9} {ro:>8.3f} {rd:>9.3f} {rn:>11.3f}")
 
-    print("\n== PROJECTED (forward): project(Y-1) onto team-Y roster ==")
-    print(f"{'season':>9} {'off/xGF':>8} {'def/-xGA':>9} {'net/xGdiff':>11} {'cover':>6}")
+    print("\n== PROJECTED (forward): project(Y-1) onto team-Y roster; net vs team xG-diff ==")
+    print(f"{'season':>9} {'covered-mean':>13} {'+replacement':>13} {'off/xGF':>8} {'def/-xGA':>9} {'cover':>6}")
     for Y in args.targets:
         proj = projection.project(Y - 1)[["player_id", "off", "def"]]
-        g = aggregate.team_ratings(proj, Y)
-        ro, rd, rn = _corrs(g, Y)
-        print(f"{season_str(Y):>9} {ro:>8.3f} {rd:>9.3f} {rn:>11.3f} {g['cover'].mean():>6.0%}")
-    print("\nNext Stage 4/5: replacement level for uncovered minutes, goalie GSAx + special teams,\n"
-          "impact->goals calibration on projected aggregates, one-year carryover, season simulation.")
+        g0 = aggregate.team_ratings(proj, Y, fill=False)
+        g1 = aggregate.team_ratings(proj, Y, fill=True)
+        _, _, rn0 = _corrs(g0, Y)
+        ro, rd, rn1 = _corrs(g1, Y)
+        print(f"{season_str(Y):>9} {rn0:>13.3f} {rn1:>13.3f} {ro:>8.3f} {rd:>9.3f} {g1['cover'].mean():>6.0%}")
+    print("\n(+replacement fills uncovered roster minutes with the replacement level, weighting the\n"
+          " aggregate over TOTAL team TOI -- validated to beat the covered-minute mean.)")
+    print("Next Stage 4/5: goalie GSAx + special teams, impact->goals calibration on projected\n"
+          "aggregates, one-year carryover, season simulation.")
     return 0
 
 

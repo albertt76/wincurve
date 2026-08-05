@@ -19,6 +19,13 @@ import pandas as pd
 
 from . import ingest
 
+# Replacement level: the mean *actual* 5v5 RAPM of players who had no prior-season projection
+# (rookies / sub-floor), measured over 2021-2025 -- slightly below average, as expected. Filling
+# uncovered roster minutes with this (rather than dropping them, which rates them at the covered
+# mean) improved the projected team-net vs xG-diff correlation ~0.65 -> ~0.74 in 5/5 seasons.
+REPLACEMENT_OFF = -0.03
+REPLACEMENT_DEF = 0.00
+
 
 def player_toi(season_start: int) -> pd.DataFrame:
     """player_id -> (team, 5v5 icetime seconds) for a season, from MoneyPuck 5v5 skater rows.
@@ -34,22 +41,24 @@ def player_toi(season_start: int) -> pd.DataFrame:
 
 
 def team_ratings(impacts: pd.DataFrame, season_start: int, *,
-                 replacement: float | None = None) -> pd.DataFrame:
+                 replacement_off: float = REPLACEMENT_OFF, replacement_def: float = REPLACEMENT_DEF,
+                 fill: bool = True) -> pd.DataFrame:
     """Minute-weighted team off/def/net from per-player impacts + that season's 5v5 TOI.
 
     ``impacts``: a frame with ``player_id`` / ``off`` / ``def`` (contemporaneous RAPM or a forward
     projection). Returns one row per ``team`` with minute-weighted ``off`` / ``def`` / ``net`` and
-    ``cover`` (the share of the team's 5v5 minutes that had an impact). Roster players without an
-    impact (rookies, sub-floor) get ``replacement`` if given, else are dropped (so the aggregate is
-    the covered-minute mean -- which implicitly rates the uncovered ~12% at the covered mean; a
-    fitted replacement level is a Stage 4 refinement).
+    ``cover`` (the share of the team's 5v5 minutes that had an impact). By default (``fill=True``)
+    roster players without an impact (rookies, sub-floor) get the replacement level, so the
+    aggregate is weighted over the team's TOTAL minutes -- validated to beat dropping them
+    (``fill=False``, the covered-minute mean). See the report.
     """
     toi = player_toi(season_start)
     d = toi.merge(impacts[["player_id", "off", "def"]], on="player_id", how="left")
     covered = d["off"].notna()
     cover = d.loc[covered, "icetime"].groupby(d["team"]).sum() / d.groupby("team")["icetime"].sum()
-    if replacement is not None:
-        d[["off", "def"]] = d[["off", "def"]].fillna(replacement)
+    if fill:
+        d["off"] = d["off"].fillna(replacement_off)
+        d["def"] = d["def"].fillna(replacement_def)
     else:
         d = d[covered]
     d = d.assign(woff=d["off"] * d["icetime"], wdef=d["def"] * d["icetime"])
