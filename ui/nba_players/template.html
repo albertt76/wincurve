@@ -158,6 +158,14 @@
   .pos { color: var(--pos); }
   .neg { color: var(--neg); }
   .zero { color: var(--faint); }
+
+  /* ≈Wins: bold total, small "o / d" split line beneath (mirrors the main team app) */
+  td.wins { text-align: right; }
+  .wtot { display: block; font-weight: 600; }
+  .wtot.pos { color: var(--pos); } .wtot.neg { color: var(--neg); }
+  .wsplit { display: block; font-size: 9px; letter-spacing: .01em; margin-top: 1px; font-family: var(--mono); }
+  .wsplit > span { margin-right: 5px; }
+  .wsplit .pos { color: var(--pos); } .wsplit .neg { color: var(--neg); }
   .empty { padding: 40px 16px; text-align: center; color: var(--faint);
     font-family: var(--mono); font-size: 13px; }
 
@@ -321,6 +329,7 @@ const COLS = [
   { key: "_bar", label: "", cls: "bar", static: true },
   { key: "off", label: "Off", signed: true, tip: "projected offense per 100" },
   { key: "def", label: "Def", signed: true, tip: "projected defense per 100 (the weakest metric)" },
+  { key: "wins", label: "≈ Wins", cls: "wins", tip: "wins above replacement -- the WAR-like translation of Impact, scaled by minute share" },
   { key: "mpg", label: "MPG", dec: 1, tip: "projected minutes per game" },
   { key: "age", label: "Age" },
 ];
@@ -385,6 +394,16 @@ function render() {
         const bar = v >= 0 ? `<i class="p" style="width:${w}%"></i>` : `<i class="n" style="width:${w}%"></i>`;
         return `<td class="bar"><div class="barwrap">${bar}</div></td>`;
       }
+      if (c.key === "wins") {
+        if (p.wins == null) return `<td class="wins zero">—</td>`;
+        const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1);
+        const tot = `<span class="wtot ${cls(p.wins)}">${sgn(p.wins)}</span>`;
+        const split = p.winsSplit
+          ? `<span class="wsplit"><span class="${cls(p.winsOff)}">o&nbsp;${sgn(p.winsOff)}</span>` +
+            `<span class="${cls(p.winsDef)}">d&nbsp;${sgn(p.winsDef)}</span></span>`
+          : "";
+        return `<td class="wins">${tot}${split}</td>`;
+      }
       const v = p[c.key];
       if (c.signed) return `<td class="${cls(v)}">${sign(v, 2)}</td>`;
       if (v == null) return `<td class="zero">—</td>`;
@@ -410,9 +429,10 @@ function render() {
 /* ---- glossary (rendered once) ---- */
 function glossary() {
   const items = [
-    ["Impact", "<b>Total projected on-court value per 100 possessions</b> — offense + defense, measured <b>versus an average player</b>: about <b>0</b> is an average rotation player, <b>+4</b> a star (SGA is +4.0), and <b>≈−1.1</b> is replacement level (a freely-available bench body). It is a <b>rate, not a win count</b>; the ≈Wins translation (a WAR-style count, measured above replacement) lives in the main team app."],
+    ["Impact", "<b>Total projected on-court value per 100 possessions</b> — offense + defense, measured <b>versus an average player</b>: about <b>0</b> is an average rotation player, <b>+4</b> a star (SGA is +4.0), and <b>≈−1.1</b> is replacement level (a freely-available bench body). It is a <b>rate, not a win count</b> — see <b>≈ Wins</b> below for the count."],
     ["Off", "Projected <b>offensive</b> impact per 100 possessions. Higher is better. This is the model's better-measured half — offense calibrates well against team offense."],
     ["Def", "Projected <b>defensive</b> impact per 100 possessions. Higher is better. <b>The model's weakest metric</b>: box-score defense is positionally biased (partly a proxy for playing center), so celebrated perimeter defenders can rate modestly and some rebounding bigs can rate high."],
+    ["≈ Wins", "How many of his <b>team's projected wins</b> this player accounts for, versus a freely-available <b>replacement-level</b> player taking his minutes — a WAR-style (wins above replacement) count, not a rate. It decomposes the same way the team rating does: offense and defense priced by their own slopes and scaled by projected minute share (capped to the team's 240-min/game budget), so it reconciles to the team's projected win total. The small <b>o / d</b> line splits it into offensive and defensive wins."],
     ["MPG", "Projected <b>minutes per game</b> for the season shown (opening-day roster). For past seasons this is the walk-forward projection, not the realized minutes."],
     ["Age", "Player age for that season. Blank if unknown for that player-season."],
     ["pos · TEAM", "Listed position and current team (the tag under each name). Position groups the filter to <b>G / F / C</b> by the primary listed position; players with no listed position appear only under <b>All</b>."],
