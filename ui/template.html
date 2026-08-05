@@ -252,6 +252,12 @@
     border-top: 1px solid var(--line-soft);
   }
   .panel.open { display: block; }
+  /* per-team deep-link to the public NBA player leaderboard (shared cross-league pattern) */
+  .teamlink {
+    display: inline-block; margin: 8px 0 2px; font-family: var(--mono); font-size: 11.5px;
+    color: var(--muted); text-decoration: none; border-bottom: 1px solid var(--line);
+  }
+  .teamlink:hover { color: var(--ink); border-bottom-color: var(--ink); }
   .panel-head {
     display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center;
     padding: 10px 0 12px;
@@ -542,7 +548,21 @@
     .tr-calls { grid-template-columns: 1fr; gap: 18px; }
     .tr-row { grid-template-columns: 66px 1fr 78px; gap: 8px; }
   }
+  /* shared cross-league top nav (see root CLAUDE.md "UI conventions") */
+  .topnav { position: sticky; top: 0; z-index: 50; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .topnav-in { max-width: 1080px; margin: 0 auto; padding: 9px 20px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .topnav .brand { font-family: var(--mono); font-weight: 650; font-size: 14px; color: var(--ink); text-decoration: none; letter-spacing: -.01em; }
+  .topnav .nl { font-size: 13px; color: var(--muted); text-decoration: none; padding: 3px 1px; border-bottom: 2px solid transparent; }
+  .topnav .nl:hover { color: var(--ink); }
+  .topnav .nl.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
 </style>
+
+<nav class="topnav"><div class="topnav-in">
+  <a class="brand" href="/">wincurve</a>
+  <a class="nl active" href="/">NBA Records</a>
+  <a class="nl" href="/players">NBA Players</a>
+  <a class="nl" href="/nhl">NHL Impact</a>
+</div></nav>
 
 <div class="wrap">
   <header>
@@ -849,6 +869,13 @@ function lockedPanel() {
       reasons behind the projection, the offseason-move (trade) undo, and the live what-if editor.</p>
     <button class="act unlock-btn">Unlock details</button>
   </div>`;
+}
+
+// Cross-page deep-link to the PUBLIC NBA player leaderboard, pre-filtered to this team
+// (/players?team=ABBR — see root CLAUDE.md "UI conventions"). Shown to everyone: it is a plain
+// anchor using only the public `abbr`, and never touches the premium gate (ui/api/premium.js).
+function teamPlayersLink(t) {
+  return `<a class="teamlink" href="/players?team=${encodeURIComponent(t.abbr)}">${t.abbr} players on the leaderboard &rarr;</a>`;
 }
 
 document.getElementById('rep').textContent = GMETA.replacement_impact.toFixed(2);
@@ -1433,7 +1460,8 @@ function movesSection(t) {
 }
 
 function renderPanel(t, w) {
-  if (!unlocked || !t.players) return lockedPanel();
+  const link = teamPlayersLink(t);   // public per-team deep-link, shown locked or unlocked
+  if (!unlocked || !t.players) return link + lockedPanel();
   const st = state.get(t.id);
   const roster = t.players.map(p => ({ p, off: st.off.has(p.id), added: false }))
     .concat(st.added.map(p => ({ p, off: false, added: true })));
@@ -1475,7 +1503,7 @@ function renderPanel(t, w) {
     `<span class="stat" title="${title}">${label} <b class="odv ${v >= 0 ? 'p' : 'n'}">`
     + `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}</b></span>`;
 
-  return `
+  return link + `
     <div class="panel-head">
       <span class="stat">Coach <b>${t.coach}</b></span>
       ${odStat('Offense', cr.offR, 'Projected team offense versus league average, in points per 100 possessions (the one-year carryover is separate). Positive is good.')}

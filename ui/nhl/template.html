@@ -60,7 +60,7 @@
     font-family: var(--sans); font-size: 15px; line-height: 1.55;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 80px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 20px 80px; }
 
   /* ---- header ---- */
   .title-row {
@@ -203,7 +203,21 @@
   }
   .caveat b { color: var(--ink); font-weight: 600; }
   footer { margin-top: 34px; font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  /* shared cross-league top nav (see root CLAUDE.md "UI conventions") */
+  .topnav { position: sticky; top: 0; z-index: 50; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .topnav-in { max-width: 1080px; margin: 0 auto; padding: 9px 20px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .topnav .brand { font-family: var(--mono); font-weight: 650; font-size: 14px; color: var(--ink); text-decoration: none; letter-spacing: -.01em; }
+  .topnav .nl { font-size: 13px; color: var(--muted); text-decoration: none; padding: 3px 1px; border-bottom: 2px solid transparent; }
+  .topnav .nl:hover { color: var(--ink); }
+  .topnav .nl.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
 </style>
+
+<nav class="topnav"><div class="topnav-in">
+  <a class="brand" href="/">wincurve</a>
+  <a class="nl" href="/">NBA Records</a>
+  <a class="nl" href="/players">NBA Players</a>
+  <a class="nl active" href="/nhl">NHL Impact</a>
+</div></nav>
 
 <div class="wrap">
   <header>

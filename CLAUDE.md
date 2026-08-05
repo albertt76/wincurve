@@ -246,6 +246,72 @@ team-seasons), roughly half the backbone's coverage.
 
 ## UI
 
+### UI conventions (all leagues)
+
+Every wincurve web page — NBA projections (`ui/template.html` → `/`), NBA players
+(`ui/nba_players/template.html` → `/players`), NHL impact (`ui/nhl/template.html` → `/nhl`), and
+**every future league page** (NFL, soccer, …) — is a `template.html` → self-contained `.html`
+build that MUST read as one product. Three rules make that happen; new pages follow them, they are
+not optional.
+
+**1. Shared design tokens + fonts.** Every template's `<style>` opens with the SAME `:root` design
+tokens and font stacks — do not introduce new colors or fonts, reuse these (they are theme-aware:
+a `@media (prefers-color-scheme: dark)` block plus `:root[data-theme="dark"]` / `[data-theme="light"]`
+overrides so the per-page theme toggle wins):
+
+```
+--ground --surface --surface-2 --line --line-soft --ink --muted --faint   (+ per-page accents)
+--mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+--sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+```
+
+Monospace for all data/numbers, system sans for prose. The content column is `.wrap { max-width:
+1080px }` on every page (unify to 1080, do not drift).
+
+**2. Shared top nav bar.** Every page includes the SAME full-width sticky bar as the first element
+of `<body>` (immediately before `<div class="wrap">`), with **its own link given `class="nl active"`**
+(NBA projections → "NBA Records"; players → "NBA Players"; NHL → "NHL Impact"; a new league adds its
+own `<a class="nl" href="/its-route">…</a>` and marks it active on its own page). The markup and CSS
+are identical across templates and use only shared tokens (`--ink`/`--muted`/`--faint`/`--line`/
+`--surface`/`--mono`):
+
+```html
+<nav class="topnav"><div class="topnav-in">
+  <a class="brand" href="/">wincurve</a>
+  <a class="nl" href="/">NBA Records</a>
+  <a class="nl" href="/players">NBA Players</a>
+  <a class="nl" href="/nhl">NHL Impact</a>
+</div></nav>
+```
+```css
+.topnav { position: sticky; top: 0; z-index: 50; background: var(--surface); border-bottom: 1px solid var(--line); }
+.topnav-in { max-width: 1080px; margin: 0 auto; padding: 9px 20px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.topnav .brand { font-family: var(--mono); font-weight: 650; font-size: 14px; color: var(--ink); text-decoration: none; letter-spacing: -.01em; }
+.topnav .nl { font-size: 13px; color: var(--muted); text-decoration: none; padding: 3px 1px; border-bottom: 2px solid transparent; }
+.topnav .nl:hover { color: var(--ink); }
+.topnav .nl.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+```
+
+Routes live in `ui/vercel.json` (`cleanUrls: true`): `/` → projections, `/players` → NBA players,
+`/nhl` → NHL impact. A new league page adds its route there AND its nav link above.
+
+**3. Cross-page `?team=` deep-link.** Pages link to each other with a `?team=ABBR` query param; the
+**source** page emits the link, the **target** page reads and applies it. NBA is the reference
+implementation, and every league follows the pattern:
+- **Target** (NBA players, `ui/nba_players/template.html`): on boot, read
+  `new URLSearchParams(location.search).get("team")`, and if it matches a known team (case-insensitive,
+  wrapped in try/catch) pre-select that team's filter and render filtered; an unknown/absent/malformed
+  param falls back to showing all.
+- **Source** (NBA projections, `ui/template.html`): `teamPlayersLink(t)` emits a small
+  `<a class="teamlink" href="/players?team=${t.abbr}">ABBR players on the leaderboard →</a>` at the top
+  of each team's expanded panel, styled with shared tokens. It is prepended in `renderPanel` for
+  **both** the locked and unlocked branches, so every visitor can drill through (the `abbr` is public
+  data). It is a plain anchor — it uses only the public `abbr` and does **not** touch the premium
+  gating (`ui/api/premium.js`); premium still gates the roster/what-if body below it.
+
+A future league page that wants a per-team drill-down uses the same contract: its target page reads
+`?team=`, its source page links with it.
+
 **Multi-season app.** The UI shows the **7 full seasons in the backtest window** (2017-18, 2018-19,
 2021-22..2025-26 — the two shortened seasons 2019-20/2020-21 are skipped) plus the upcoming one,
 via a season selector. Historical seasons are walk-forward hindsight projections (only pre-season
