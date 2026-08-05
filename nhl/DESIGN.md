@@ -248,8 +248,34 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     aggregation. `rapm.pool_rapm` now caches. **Next: Stage 4** — aggregate projected skaters + goalie
     + special teams → team goals-for/against, then Stage 5 season simulation → points distribution.
 - ⬜ **Stage 3b** — TOI/role & availability; replacement level; rookie/first-year priors.
-- ⬜ **Stage 4** — team aggregation (skaters + goalie + special teams → GF/GA rates),
-  calibrated per fold on projected aggregates.
+- 🟡 **Stage 4 — team aggregation (started).** `nhl/aggregate.py` +
+  `scripts/nhl_stage4_aggregate_report.py`: a team's even-strength rate above/below average is the
+  **minute-weighted mean** of its skaters' xG-RAPM impacts (5 on ice always, so the ×5 is absorbed
+  by the downstream calibration slope). **Validated:** the aggregate of *single-season* RAPM
+  reconstructs team 5v5 xG-for/against at **r~0.92 off / ~0.88 def** (net vs xG-diff r 0.90-0.96 —
+  the mechanism is sound); aggregating the *projected* (prior-season, `project(Y-1)`) impacts onto a
+  team's actual roster/TOI predicts team 5v5 xG-differential at **r~0.65** (net), with ~88% of team
+  minutes covered by a projection. **Replacement level DONE:** the uncovered ~12% (rookies/thin) have
+  mean actual 5v5 RAPM net ~−0.03 (below average); filling them at replacement (weighting the
+  aggregate over TOTAL team minutes, not just covered) lifts the projected net→xG-diff correlation
+  **~0.65 → ~0.72 in 5/5 seasons** (`REPLACEMENT_OFF`/`_DEF`, the `fill=True` default). **Goalie
+  GSAx projection DONE (and a defining NHL finding):** GSAx/60 barely persists year-over-year —
+  **corr ~0.13, slope ~0.15** (2011-2024, 1500-min starters), vs skater offense ~0.62. Goaltending
+  is nearly unpredictable in advance, so `goalies.project_gsax` regresses ~85% toward 0 (best
+  projected starter ~+0.09) — projected goaltending barely differentiates teams; the skater
+  aggregation carries the projection even though realized goalie variance swings standings (a big
+  reason the NHL market is hard to beat).
+  - **FIRST END-TO-END points projection (`scripts/nhl_stage45_points_report.py`).** project(Y-1)
+    skaters → team 5v5 net → a walk-forward linear calibration to 82-game points. **At parity with
+    the bar, not beating it yet:** MAE **10.76** vs naive **10.50** on 3 folds (Stage 1 bar 10.54) —
+    the expected shape (the NBA's first cuts didn't beat the bar either). Projections are face-valid
+    (CAR/TBL/FLA/EDM top, SEA/SJS/CHI bottom). It ties *despite* a leaky roster advantage, so the
+    missing pieces carry real weight. **Remaining to beat the bar (Stage 4/5):** the **one-year
+    carryover** (the NBA's single biggest lever, +0.35), special-teams (PP/PK), goalie level,
+    impact→goals→points via goal-diff/Pythagorean, then the **season simulation** (regulation/OT/
+    shootout) for the calibrated points *distribution*. NOTE: the current end-to-end is a LEAKY upper
+    bound — actual roster + TOI; the honest version needs opening-day roster reconstruction + a
+    minutes model (Stage 3b).
 - ⬜ **Stage 5** — season simulation with regulation/OT/shootout → points distribution;
   interval calibration. One-year carryover.
 - ⬜ **Stage 6** — market comparison (season points over/under; Cup/division/playoff odds,
