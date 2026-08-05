@@ -248,8 +248,17 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     aggregation. `rapm.pool_rapm` now caches. **Next: Stage 4** — aggregate projected skaters + goalie
     + special teams → team goals-for/against, then Stage 5 season simulation → points distribution.
 - ⬜ **Stage 3b** — TOI/role & availability; replacement level; rookie/first-year priors.
-- ⬜ **Stage 4** — team aggregation (skaters + goalie + special teams → GF/GA rates),
-  calibrated per fold on projected aggregates.
+- 🟡 **Stage 4 — team aggregation (started).** `nhl/aggregate.py` +
+  `scripts/nhl_stage4_aggregate_report.py`: a team's even-strength rate above/below average is the
+  **minute-weighted mean** of its skaters' xG-RAPM impacts (5 on ice always, so the ×5 is absorbed
+  by the downstream calibration slope). **Validated:** the aggregate of *single-season* RAPM
+  reconstructs team 5v5 xG-for/against at **r~0.92 off / ~0.88 def** (net vs xG-diff r 0.90-0.96 —
+  the mechanism is sound); aggregating the *projected* (prior-season, `project(Y-1)`) impacts onto a
+  team's actual roster/TOI predicts team 5v5 xG-differential at **r~0.65** (net), with ~88% of team
+  minutes covered by a projection. **Remaining Stage 4/5:** replacement level for the uncovered
+  ~12% (rookies/thin), goalie GSAx + special-teams (PP/PK) layers, the impact→goals→points
+  calibration fit on *projected* aggregates (the NBA distribution-mismatch lesson), one-year
+  carryover, then the season simulation.
 - ⬜ **Stage 5** — season simulation with regulation/OT/shootout → points distribution;
   interval calibration. One-year carryover.
 - ⬜ **Stage 6** — market comparison (season points over/under; Cup/division/playoff odds,
