@@ -338,15 +338,19 @@ function renderMeta() {
     `<span>interval SD <b>${fmt(meta.sigma, 1)}</b> pts</span>` +
     `<span>scoring level <b>${fmt(meta.level_gf, 2)}</b> GF/g</span>` +
     `<span>32 teams · 80% coverage <b>0.82</b></span>`;
-  const anyMkt = teams.some(t => t.mkt != null);
-  $("mktnote").innerHTML = anyMkt
-    ? `<b>Market ring</b> = Kalshi <code>KXNHLWINS</code> implied wins, converted to a points-` +
-      `equivalent for the shared axis using each team's OWN model-implied OT-loss share (Kalshi ` +
-      `settles on wins, not points, and doesn't split out the OT-loss share itself) — hover a ring ` +
-      `for the raw win number. Downstream only; the market never feeds the model.`
-    : `<b>Market ring:</b> no live NHL win market is posted yet (Kalshi <code>KXNHLWINS</code> has ` +
-      `no open events this early — win totals post closer to opening night). The hollow ring will ` +
-      `appear here automatically once it opens; the market never feeds the model.`;
+  const nVegas = teams.filter(t => t.mkt_source === "vegas").length;
+  const nKalshi = teams.filter(t => t.mkt_source === "kalshi").length;
+  const book = (teams.find(t => t.mkt_book) || {}).mkt_book;
+  const parts = [];
+  if (nVegas) parts.push(`<b>${nVegas} teams</b> from a live Vegas sportsbook line` +
+    (book ? ` — ${book}` : "") + " — already in points, plotted directly, no conversion.");
+  if (nKalshi) parts.push(`<b>${nKalshi} teams</b> from Kalshi <code>KXNHLWINS</code> implied ` +
+    `wins, converted to a points-equivalent using each team's own model-implied OT-loss share ` +
+    `(Kalshi doesn't split that out itself) — hover a ring for the raw win number.`);
+  $("mktnote").innerHTML = parts.length
+    ? `<b>Market ring.</b> ${parts.join(" ")} Downstream only; the market never feeds the model.`
+    : `<b>Market ring:</b> no live NHL market line is posted for this season yet. The ring will ` +
+      `appear here automatically once one is; the market never feeds the model.`;
 }
 
 function axisTicks() {
@@ -459,11 +463,14 @@ function render() {
     const row = document.createElement("div");
     row.className = "row"; row.dataset.team = t.team;
     const bandL = xpct(t.p10), bandR = xpct(t.p90), mean = xpct(t.proj);
+    const mktTitle = t.mkt_source === "vegas"
+      ? `market (${t.mkt_book || "Vegas"}) implies ${fmt(t.mkt)} points`
+      : t.mkt != null ? `market implies ${fmt(t.mkt_wins)} wins (~${fmt(t.mkt)} pts-equivalent)` : "";
     const mktMark = t.mkt != null
-      ? `<span class="mkt" style="left:${xpct(t.mkt)}%" ` +
-        `title="market implies ${fmt(t.mkt_wins)} wins (~${fmt(t.mkt)} pts-equivalent)"></span>` : "";
-    const mktReadout = t.mkt != null
-      ? ` <span class="faint">mkt ${fmt(t.mkt_wins)}w · ${sgn(t.proj - t.mkt, 1)}</span>` : "";
+      ? `<span class="mkt" style="left:${xpct(t.mkt)}%" title="${mktTitle}"></span>` : "";
+    const mktReadout = t.mkt == null ? "" : t.mkt_source === "vegas"
+      ? ` <span class="faint">mkt ${fmt(t.mkt)} · ${sgn(t.proj - t.mkt, 1)}</span>`
+      : ` <span class="faint">mkt ${fmt(t.mkt_wins)}w · ${sgn(t.proj - t.mkt, 1)}</span>`;
     row.innerHTML =
       `<span class="rk">${i + 1}</span>` +
       `<span class="tm"><span class="ab">${t.team}</span><span class="nm">${t.name}</span></span>` +
