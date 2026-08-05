@@ -411,10 +411,20 @@ NBA project's RAPM took. Aging curves + shrinkage and the skater/goalie **projec
     drivers and a plain-English disagreement story. The market ring is absent-but-ready (an honest "not
     posted yet" note). Consumes `projection_current.json` inlined via a `__DATA__` placeholder. This is
     the per-team disagreement surface the whole project builds toward, now for hockey.
-  - **⬜ Remaining.** The market comparison goes live when `KXNHLWINS` posts (activate the wins ring;
-    reconcile the wins-vs-points axis); a historical track-record view awaits a free source of
-    historical NHL market lines (none identified -- bbref has no NHL); per-team player-level roster
-    detail + a what-if editor on the Records page; and the injury / known-absence overlays the NBA
+  - **✅ Wins-vs-points reconciliation DONE (found + fixed proactively).** Testing the dormant market
+    ring with a fabricated Kalshi post surfaced two bugs before the market ever went live: (1) the
+    build script wrote `mkt_wins`, the template read `mkt` -- the ring would never have rendered; (2)
+    `wins` was computed pre-carryover while `proj` (points) included it, so a large-carryover team
+    (VAN, carry −12.9) produced a structurally impossible **negative implied OT-loss count**. Fixed by
+    splitting the carryover onto wins at "2 points per marginal win" (`wins = wins0 + carry/2`), which
+    makes `proj − 2·wins` recover exactly the sim's own OT-loss games (≥ 0 by construction; verified 0
+    of 32 teams negative). The ring now converts Kalshi's win mean to a points-equivalent via each
+    team's own implied OT-loss share (`mkt = 2·mkt_wins + our_otl`) so it plots correctly on the
+    points axis once `KXNHLWINS` actually posts; the raw win number stays visible in the tooltip +
+    a `mkt Xw · ±Y` readout (the NBA `mkt N · ±diff` pattern).
+  - **⬜ Remaining.** A historical track-record view awaits a free source of historical NHL market
+    lines (none identified -- bbref has no NHL); per-team player-level roster detail + a what-if
+    editor on the Records page; and the injury / known-absence overlays the NBA
     project carries.
 
 ---
