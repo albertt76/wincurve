@@ -1,6 +1,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>wincurve — NHL Projected Standings</title>
+<title>wincurve — NHL Standings Projections</title>
 
 <style>
   /* ---- tokens: shared with the NBA + NHL-impact UI so it reads as one product ---- */
@@ -93,7 +93,7 @@
   .axis .tk { position: absolute; top: 4px; transform: translateX(-50%); font-family: var(--mono); font-size: 10px; color: var(--faint); }
   .axis .tk::before { content: ""; position: absolute; left: 50%; top: 13px; width: 1px; height: 6px; background: var(--line); }
   .rows { }
-  .row { display: grid; grid-template-columns: 24px 128px 1fr 150px 22px; align-items: center;
+  .row { display: grid; grid-template-columns: 24px 128px 1fr 210px 22px; align-items: center;
     gap: 10px; padding: 5px 14px; border-top: 1px solid var(--line-soft); cursor: pointer; }
   .row:first-child { border-top: 0; }
   .row:hover { background: var(--surface-2); }
@@ -111,6 +111,7 @@
     border-radius: 50%; transform: translateX(-50%); background: transparent; }
   .readout { font-family: var(--mono); font-size: 12px; text-align: right; color: var(--muted); }
   .readout b { color: var(--ink); font-size: 13px; font-weight: 650; }
+  .readout .faint { color: var(--faint); font-size: 11px; }
   .chev { font-size: 11px; color: var(--faint); text-align: center; transition: transform .12s; }
   .row.open .chev { transform: rotate(90deg); }
 
@@ -124,6 +125,22 @@
   .drivers .v { color: var(--ink); }
   .story { font-size: 13px; color: var(--muted); max-width: 72ch; }
   .story b { color: var(--ink); font-weight: 600; }
+
+  /* ---- per-team roster contributors ---- */
+  .roster-hd { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--faint); margin: 14px 0 6px; }
+  .roster { width: 100%; border-collapse: collapse; font-size: 12.5px; max-width: 640px; }
+  .roster td { padding: 3px 8px 3px 0; white-space: nowrap; }
+  .roster td.nm { font-weight: 600; color: var(--ink); }
+  .roster td.ps { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 20px; }
+  .roster td.num { font-family: var(--mono); text-align: right; width: 52px; }
+  .roster td.mpg { font-family: var(--mono); text-align: right; color: var(--muted); width: 42px; }
+  .roster td.bar { width: 90px; }
+  .rbar { position: relative; height: 12px; width: 100%; }
+  .rbar::before { content: ""; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--line); }
+  .rbar i { position: absolute; top: 1px; height: 10px; border-radius: 2px; }
+  .rbar i.p { left: 50%; background: var(--pos); }
+  .rbar i.n { right: 50%; background: var(--neg); }
 
   /* ---- glossary / notes ---- */
   details.gloss { margin-top: 26px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 4px 18px; }
@@ -167,8 +184,8 @@
   <header>
     <div class="title-row">
       <div>
-        <div class="eyebrow" id="eyebrow">wincurve · nhl · stage 6</div>
-        <h1 id="h1">NHL Projected Standings</h1>
+        <div class="eyebrow" id="eyebrow">Bottom-up roster model</div>
+        <h1 id="h1">NHL projected standings</h1>
         <p class="sub">
           Each team's projected regular-season <b>standings points</b> for the upcoming season, as a
           <b>distribution</b> — the mean plus a calibrated 80% interval — built bottom-up from the
@@ -238,8 +255,8 @@ const hi = Math.ceil((Math.max(...teams.map(t => t.p90)) + 2) / 5) * 5;
 const xpct = v => ((v - lo) / (hi - lo)) * 100;
 
 function renderMeta() {
-  $("h1").textContent = `NHL ${meta.target_season} — Projected Standings`;
-  $("eyebrow").textContent = `wincurve · nhl · stage 6 · ${meta.model}`;
+  $("h1").textContent = `NHL ${meta.target_season} projected standings`;
+  $("eyebrow").textContent = `Bottom-up roster model · ${meta.snapshot_date}`;
   $("meta").innerHTML =
     `<span>roster snapshot <b>${meta.snapshot_date}</b></span>` +
     `<span>carryover ρ <b>${fmt(meta.rho, 2)}</b></span>` +
@@ -248,7 +265,10 @@ function renderMeta() {
     `<span>32 teams · 80% coverage <b>0.82</b></span>`;
   const anyMkt = teams.some(t => t.mkt != null);
   $("mktnote").innerHTML = anyMkt
-    ? `<b>Market ring</b> = Kalshi <code>KXNHLWINS</code> implied wins (downstream only).`
+    ? `<b>Market ring</b> = Kalshi <code>KXNHLWINS</code> implied wins, converted to a points-` +
+      `equivalent for the shared axis using each team's OWN model-implied OT-loss share (Kalshi ` +
+      `settles on wins, not points, and doesn't split out the OT-loss share itself) — hover a ring ` +
+      `for the raw win number. Downstream only; the market never feeds the model.`
     : `<b>Market ring:</b> no live NHL win market is posted yet (Kalshi <code>KXNHLWINS</code> has ` +
       `no open events this early — win totals post closer to opening night). The hollow ring will ` +
       `appear here automatically once it opens; the market never feeds the model.`;
@@ -276,6 +296,25 @@ function driverStory(t) {
   return parts.join(" ");
 }
 
+function rosterTable(t) {
+  const top = t.top || [];
+  if (!top.length) return "";
+  const maxAbs = Math.max(0.01, ...top.map(p => Math.abs(p.contrib)));
+  const rows = top.map(p => {
+    const w = Math.min(50, Math.abs(p.contrib) / maxAbs * 50);
+    const bar = p.contrib >= 0 ? `<i class="p" style="width:${w}%"></i>` : `<i class="n" style="width:${w}%"></i>`;
+    return `<tr>` +
+      `<td class="nm">${p.name}</td><td class="ps">${p.pos}</td>` +
+      `<td class="num ${p.off >= 0 ? "pos" : "neg"}">${sgn(p.off)}</td>` +
+      `<td class="num ${p.def >= 0 ? "pos" : "neg"}">${sgn(p.def)}</td>` +
+      `<td class="mpg">${fmt(p.mpg)}</td>` +
+      `<td class="bar"><div class="rbar">${bar}</div></td>` +
+    `</tr>`;
+  }).join("");
+  return `<div class="roster-hd">Top roster contributors (by share of team net rating)</div>` +
+    `<table class="roster"><tbody>${rows}</tbody></table>`;
+}
+
 function render() {
   const rows = $("rows"); rows.innerHTML = "";
   let list = teams.slice().sort((a, b) => (b[sortKey] ?? -1e9) - (a[sortKey] ?? -1e9));
@@ -288,7 +327,10 @@ function render() {
     row.className = "row"; row.dataset.team = t.team;
     const bandL = xpct(t.p10), bandR = xpct(t.p90), mean = xpct(t.proj);
     const mktMark = t.mkt != null
-      ? `<span class="mkt" style="left:${xpct(t.mkt)}%" title="market implies ${fmt(t.mkt)}"></span>` : "";
+      ? `<span class="mkt" style="left:${xpct(t.mkt)}%" ` +
+        `title="market implies ${fmt(t.mkt_wins)} wins (~${fmt(t.mkt)} pts-equivalent)"></span>` : "";
+    const mktReadout = t.mkt != null
+      ? ` <span class="faint">mkt ${fmt(t.mkt_wins)}w · ${sgn(t.proj - t.mkt, 1)}</span>` : "";
     row.innerHTML =
       `<span class="rk">${i + 1}</span>` +
       `<span class="tm"><span class="ab">${t.team}</span><span class="nm">${t.name}</span></span>` +
@@ -296,7 +338,7 @@ function render() {
         `<span class="band" style="left:${bandL}%;width:${Math.max(bandR - bandL, 0.5)}%"></span>` +
         `<span class="mean" style="left:${mean}%"></span>${mktMark}` +
       `</span>` +
-      `<span class="readout"><b>${fmt(t.proj)}</b> &nbsp;[${fmt(t.p10)}–${fmt(t.p90)}]</span>` +
+      `<span class="readout"><b>${fmt(t.proj)}</b> &nbsp;[${fmt(t.p10)}–${fmt(t.p90)}]${mktReadout}</span>` +
       `<span class="chev">▶</span>`;
     const det = document.createElement("div");
     det.className = "detail";
@@ -309,7 +351,8 @@ function render() {
         `<span><span class="k">carryover</span> <span class="v ${t.carry >= 0 ? "pos" : "neg"}">${sgn(t.carry, 1)}</span></span>` +
         `<span><span class="k">roster covered</span> <span class="v">${Math.round(t.cover * 100)}%</span></span>` +
       `</div>` +
-      `<div class="story">${driverStory(t)}</div>`;
+      `<div class="story">${driverStory(t)}</div>` +
+      rosterTable(t);
     row.addEventListener("click", () => row.classList.toggle("open"));
     rows.appendChild(row); rows.appendChild(det);
   });
