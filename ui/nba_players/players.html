@@ -198,9 +198,41 @@
   }
   .caveat b { color: var(--ink); font-weight: 600; }
   footer { margin-top: 34px; font-family: var(--mono); font-size: 11px; color: var(--faint); }
+
+  /* ---- shared cross-page nav (grouped by league) ---- */
+  .site-nav { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px 24px;
+    padding: 0 0 13px; margin-bottom: 22px; border-bottom: 1px solid var(--line);
+    font-family: var(--sans); font-size: 13px; line-height: 1.25; }
+  .site-nav .sn-brand { font-weight: 700; color: var(--ink); text-decoration: none;
+    font-size: 15px; letter-spacing: -0.02em; margin-right: 2px; }
+  .site-nav .sn-brand:hover { color: var(--accent); }
+  .site-nav .sn-groups { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 20px; }
+  .site-nav .sn-group { display: flex; align-items: baseline; gap: 12px; }
+  .site-nav .sn-league { font-family: var(--mono); font-size: 10px; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--faint); }
+  .site-nav .sn-link { color: var(--muted); text-decoration: none; padding-bottom: 3px;
+    border-bottom: 2px solid transparent; transition: color .12s, border-color .12s; }
+  .site-nav .sn-link:hover { color: var(--ink); }
+  .site-nav .sn-link[aria-current="page"] { color: var(--ink); font-weight: 600;
+    border-bottom-color: var(--accent); }
+  @media (max-width: 600px) { .site-nav { gap: 6px 16px; } .site-nav .sn-groups { gap: 4px 14px; } }
 </style>
 
 <div class="wrap">
+  <nav class="site-nav" aria-label="Site sections">
+    <a class="sn-brand" href="/">wincurve</a>
+    <span class="sn-groups">
+      <span class="sn-group">
+        <span class="sn-league">NBA</span>
+        <a class="sn-link" href="/projections">Projections</a>
+        <a class="sn-link" href="/players" aria-current="page">Players</a>
+      </span>
+      <span class="sn-group">
+        <span class="sn-league">NHL</span>
+        <a class="sn-link" href="/nhl">Impact</a>
+      </span>
+    </span>
+  </nav>
   <header>
     <div class="title-row">
       <div>
