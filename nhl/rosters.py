@@ -122,3 +122,46 @@ def honest_toi(season_start: int, k_games: int = FIRST_GAMES_WINDOW,
     roster["player_id"] = roster["player_id"].astype(int)
     roster["icetime"] = roster["player_id"].map(prior).fillna(rookie_toi_sec)
     return roster[["player_id", "team", "icetime"]]
+
+
+# --- LIVE upcoming-season roster (Stage 6) ---------------------------------
+# The backtest reconstructs each opening roster from that season's shift charts. The UPCOMING season
+# has none yet, so the live roster comes straight from the NHL web API (`ingest.roster`), the hockey
+# analog of the NBA project's `commonteamroster` snapshot. A projection is only as current as its
+# pull date -- trades continue all season -- so the caller records the snapshot date.
+def active_tricodes(last_season: int = ingest.LAST_SEASON) -> list[str]:
+    """The current NHL teams -- tricodes with a team-summary row in the last completed season."""
+    ts = pd.read_parquet(ingest.PROC / "team_summary.parquet")
+    ids = set(ts[ts["season_start"] == last_season]["teamId"])
+    ref = pd.read_parquet(ingest.PROC / "team_reference.parquet")
+    return sorted(ref[ref["team_id"].isin(ids)]["tricode"])
+
+
+def live_roster(target_year: int, *, refresh: bool = False) -> pd.DataFrame:
+    """Current skater roster for every active team for season ``target_year`` from the NHL web API.
+
+    Returns ``(team, player_id, pos)`` for forwards + defensemen (goalies excluded, as skater impact
+    is 5v5). This is a live snapshot -- re-pull with ``refresh=True`` to pick up later moves.
+    """
+    frames = []
+    for tri in active_tricodes():
+        r = ingest.roster(tri, target_year, refresh=refresh)
+        frames.append(r[r["group"] != "goalies"][["tricode", "player_id", "pos"]]
+                      .rename(columns={"tricode": "team"}))
+    return pd.concat(frames, ignore_index=True)
+
+
+def live_toi(target_year: int, rookie_toi_sec: float = ROOKIE_TOI_SEC, *,
+             refresh: bool = False) -> pd.DataFrame:
+    """Live ``(player_id, team, icetime)`` for the UPCOMING season -- a drop-in for ``honest_toi``.
+
+    The current API roster (``live_roster``) weighted by each skater's PRIOR-season 5v5 TOI
+    (``projected_toi(target_year)`` = season ``target_year-1``); skaters with no prior season get
+    ``rookie_toi_sec``. Feed to ``aggregate.team_ratings(project(target_year-1), target_year,
+    toi=live_toi(target_year))``.
+    """
+    roster = live_roster(target_year, refresh=refresh).copy()
+    prior = projected_toi(target_year, rookie_toi_sec)
+    roster["player_id"] = roster["player_id"].astype(int)
+    roster["icetime"] = roster["player_id"].map(prior).fillna(rookie_toi_sec)
+    return roster[["player_id", "team", "icetime"]]

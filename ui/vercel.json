@@ -5,6 +5,7 @@
   "rewrites": [
     { "source": "/", "destination": "/projections" },
     { "source": "/nhl", "destination": "/nhl/impact" },
+    { "source": "/nhl/records", "destination": "/nhl_records/records" },
     { "source": "/players", "destination": "/nba_players/players" }
   ],
   "headers": [
@@ -16,6 +17,12 @@
     },
     {
       "source": "/nhl/impact",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/nhl/records",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
       ]
