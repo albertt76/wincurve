@@ -552,14 +552,26 @@ one **shared** password (no accounts). Next step for real subscriptions: per-use
 **✅ League-wide player-impact leaderboard (shipped 2026-08-04, `ui/nba_players/`).** A standalone,
 self-contained companion view — one sortable / searchable / team- and position-filterable table of
 **every rostered player's projected impact league-wide**, per season, mirroring the NHL impact viewer
-(`ui/nhl/`). Columns: rank, Player (`pos · TEAM` subtitle), Impact, Off, Def, MPG, Age; default sort
-Impact desc, centered mini-bar on Impact, sign-colored Off/Def/Impact, light/dark toggle, glossary +
-the honest caveats (Impact is a per-100 rate not a win count; defense is the weakest metric; these are
-projected talent inputs). `scripts/build_nba_players_ui.py` flattens `snapshots.json`'s per-team
-`players` into one league-wide list per season (auto-detects seasons; dedupes players who appear on two
-rosters in a walk-forward snapshot, preferring the row with a listed position — verified value-lossless)
-and inlines it into `ui/nba_players/template.html` → `ui/nba_players/players.html` (`__DATA__`
-placeholder, `allow_nan=False`). Rebuild after a snapshot rebuild:
+(`ui/nhl/`). Columns: rank, Player (`pos · TEAM` subtitle, external ↗ link — see "External player
+links" above), Impact, Off, Def, **≈ Wins**, MPG, Age; default sort Impact desc, centered mini-bar on
+Impact, sign-colored Off/Def/Impact/≈Wins, light/dark toggle, glossary + the honest caveats (Impact is
+a per-100 rate not a win count; defense is the weakest metric; these are projected talent inputs).
+`scripts/build_nba_players_ui.py` flattens `snapshots.json`'s per-team `players` into one league-wide
+list per season (auto-detects seasons; dedupes players who appear on two rosters in a walk-forward
+snapshot, preferring the row with a listed position — verified value-lossless) and inlines it into
+`ui/nba_players/template.html` → `ui/nba_players/players.html` (`__DATA__` placeholder,
+`allow_nan=False`). Rebuild after a snapshot rebuild:
+
+**≈ Wins column (added 2026-08-05).** A Python port (`win_parts`/`team_cap_factor` in
+`scripts/build_nba_players_ui.py`) of the main team app's client-side `winParts`/`teamCapFactor`
+(`ui/template.html`) — the WAR-like (wins-above-replacement) translation of a player's Impact,
+decomposed into offensive and defensive wins by the same off/def slopes, RAPM-blended defensive
+deviation, and 240-min/game roster-cap factor the team rating itself uses. Computed at **build time**
+in Python (this standalone page has no team what-if editor to recompute client-side), one call per
+player against his own team's roster context from `snapshots.json`. **Verified bit-for-bit against the
+live JS**: the exact `winParts` function was run in Node against the same BOS 2026-27 roster and
+matched the Python port to 4 decimal places for every player checked. Rendered as a bold total with a
+small `o / d` split line beneath (`.wtot`/`.wsplit`), mirroring the main app's roster-panel styling.
 
 ```
 python scripts/build_nba_players_ui.py

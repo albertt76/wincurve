@@ -77,7 +77,40 @@ def _int(x):
     return None if x is None else int(x)
 
 
-def season_players(season_blob: dict) -> list[dict]:
+def team_cap_factor(team: dict, mpg_budget: float) -> float:
+    """Same as ``teamCapFactor`` in ui/template.html: the team's 240-min/game budget cap scales
+    an over-budget roster's minutes down before minute-weighting, so ≈Wins must apply the same
+    factor or it over-credits every player on a bloated (summer camp invite) roster."""
+    load = sum((p.get("mpg") or 0) * (p.get("avail") or 0) for p in team.get("players", []))
+    return mpg_budget / load if load > mpg_budget else 1.0
+
+
+def win_parts(p: dict, team: dict, season_meta: dict, gmeta: dict) -> tuple[float, float, bool]:
+    """Port of ``winParts`` in ui/template.html: a player's WAR-like ("wins above replacement")
+    value, decomposing the SAME model the team rating uses -- offense and defense priced by their
+    own slopes, defense the turnover-weighted blend of box and RAPM. Returns (off, def, split)."""
+    mpg_budget = gmeta["minutes_budget"] / gmeta["full_season_games"]
+    cap = team_cap_factor(team, mpg_budget)
+    minshare = (p.get("mpg") or 0) * (p.get("avail") or 0) / mpg_budget * cap
+    off_slope = season_meta.get("off_slope")
+    if off_slope is not None:
+        def_dev = (p.get("def") or 0) - season_meta["replacement_def"]
+        rep_def_rapm = season_meta.get("replacement_def_rapm")
+        if rep_def_rapm is not None:
+            w = min(max(team.get("turnover") or 0, 0), 1)
+            defr = p["defr"] if p.get("defr") is not None else p.get("def")
+            def_dev = (1 - w) * ((p.get("def") or 0) - season_meta["replacement_def"]) \
+                + w * ((defr or 0) - rep_def_rapm)
+        k = gmeta["wins_per_rating_point"] * minshare
+        off = k * off_slope * ((p.get("off") or 0) - season_meta["replacement_off"])
+        deff = k * season_meta["def_slope"] * def_dev
+        return off, deff, True
+    total = gmeta["wins_per_rating_point"] * season_meta["rating_slope"] \
+        * minshare * ((p.get("impact") or 0) - gmeta["replacement_impact"])
+    return 0.0, total, False
+
+
+def season_players(season_blob: dict, gmeta: dict) -> list[dict]:
     """Flatten every team's roster into one league-wide player list for a season.
 
     A player can appear on TWO teams' rosters in the same walk-forward snapshot (a mid-season
@@ -90,6 +123,7 @@ def season_players(season_blob: dict) -> list[dict]:
         abbr = team.get("abbr") or ""
         for p in team.get("players", []):
             pid = int(p["id"])
+            wins_off, wins_def, split = win_parts(p, team, season_blob, gmeta)
             row = {
                 "id": pid,
                 "name": str(p.get("name", "")),
@@ -100,6 +134,10 @@ def season_players(season_blob: dict) -> list[dict]:
                 "def": _num(p.get("def"), 2),
                 "mpg": _num(p.get("mpg"), 1),
                 "age": _int(p.get("age")),
+                "wins": _num(wins_off + wins_def, 2),
+                "winsOff": _num(wins_off, 2),
+                "winsDef": _num(wins_def, 2),
+                "winsSplit": split,
             }
             prev = seen.get(pid)
             # prefer the row that actually carries a position (the other is the same player)
@@ -113,6 +151,7 @@ def build() -> dict:
         raise SystemExit(f"missing {SNAPSHOTS} -- copy it in / run scripts/build_snapshots.py first")
     snap = json.loads(SNAPSHOTS.read_text())
     snapshots = snap["snapshots"]
+    gmeta = snap["meta"]
 
     keys = sorted(snapshots.keys())  # season labels sort correctly ("2017-18" < ... < "2026-27")
     if not keys:
@@ -121,7 +160,7 @@ def build() -> dict:
     seasons: dict[str, dict] = {}
     teams_union: set[str] = set()
     for k in keys:
-        players = season_players(snapshots[k])
+        players = season_players(snapshots[k], gmeta)
         seasons[k] = {"label": k, "players": players}
         teams_union.update(p["team"] for p in players if p["team"])
         print(f"  {k}: {len(players)} players "
