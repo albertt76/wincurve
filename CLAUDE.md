@@ -430,6 +430,23 @@ never touches the model** (that rule is what keeps the disagreement analysis mea
 Mean |ours − market| ≈ 4.2 wins; biggest gaps are the deliverable (open a team for the
 roster reason). Refresh through the season with `fetch_market.py --refresh`.
 
+**Bug found + fixed (2026-08-05): ladder reconstruction used a forward-only monotonicity
+clamp.** User-reported: the live page showed Indiana's Kalshi win total as 38.9 when the real
+market implied ~43.5-44. Root cause in `nbaproj.market_live._ladder`: a threshold ladder's
+survival function P(wins ≥ k) must be non-increasing in k, and the old fix for noisy rungs
+clamped every LATER point down to match an earlier noisy one. One illiquid rung (IND's "10+
+wins" quote had a $0.59/$0.99 bid/ask — mid $0.79 — sitting below five tighter, more-liquid
+quotes above it at ~$0.92-$0.955) dragged all five down to its own value, corrupting the mean
+by ~5 wins and the implied 10th-percentile down to 7.4 wins (nonsensical for a playoff-caliber
+roster). **Not just staleness** — a sweep of the live ladder found 20/30 teams currently have at
+least one monotonicity-violated rung, so this was a live, recurring risk, not a one-off. Fixed
+with an **isotonic regression** (`sklearn.isotonic.IsotonicRegression`, already a project
+dependency) across all rungs at once, weighted by each rung's own liquidity (inverse bid/ask
+spread) — a tight two-sided quote pulls the fit toward itself, a wide/one-sided one is trusted
+less and gets pooled with neighbors instead of dragging them down. Verified against the exact
+stale IND snapshot that triggered the report (38.9 → 42.8 mean, p10 7.4 → 31.9) and against a
+fresh live pull (0/30 teams non-monotonic, all distributions valid).
+
 **Historical market comparison (completed seasons, shipped 2026-07-31).** Each completed
 season's view *also* carries a market ring — the **preseason Vegas over/under** for that year
 (bbref, `market_baseline.parquet`, joined by TEAM_ID in `build_snapshots._attach_historical_market`,
