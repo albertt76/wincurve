@@ -46,6 +46,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from sklearn.isotonic import IsotonicRegression
+
 from .cache import DATA_DIR
 
 log = logging.getLogger(__name__)
@@ -107,20 +109,45 @@ def _mid(market: dict) -> float | None:
 
 
 def _ladder(event: dict) -> list[tuple[float, float]]:
-    """(threshold, survival) points, cleaned to a valid non-increasing survival function."""
-    pts: list[tuple[float, float]] = []
+    """(threshold, survival) points, cleaned to a valid non-increasing survival function.
+
+    A survival function P(wins >= k) can only fall as k rises, but individual rungs are
+    noisy -- a resting bid nobody has updated, or a market with no two-sided quote at all.
+    An earlier version of this function fixed inversions by CLAMPING every later point
+    down to match an earlier noisy one (forward-only). That lets one bad rung corrupt
+    every rung above it. Found via a real case: IND's 2026-07-30 snapshot had a wide
+    ($0.59 bid / $0.99 ask, mid $0.79) "10+ wins" quote sitting below five tighter,
+    more-liquid quotes above it (all ~$0.92-$0.955) -- the forward clamp dragged all five
+    down to $0.79, which corrupted the reconstructed mean by ~5 wins (38.9 vs a same-day
+    median of 43.9, and an implied 10th-percentile of just 7.4 wins for a playoff-caliber
+    roster). Fixed with an ISOTONIC regression across all rungs at once (fits the closest
+    non-increasing curve in a weighted-least-squares sense), weighted by each rung's own
+    liquidity (inverse bid/ask spread): a tight two-sided quote pulls the fit toward
+    itself, a wide or one-sided quote is trusted less and gets pooled with its neighbors
+    instead of dragging them down.
+    """
+    pts: list[tuple[float, float, float]] = []
     for m in event.get("markets", []):
         k = m.get("floor_strike")
         s = _mid(m)
         if k is None or s is None:
             continue
-        pts.append((float(k), min(1.0, max(0.0, s))))
+        bid = float(m.get("yes_bid_dollars") or 0)
+        ask = float(m.get("yes_ask_dollars") or 0)
+        # A one-sided quote (only a bid, only an ask, or a stale last-trade fallback) has
+        # no observed spread to judge it by -- treat it as maximally wide (least trusted).
+        spread = (ask - bid) if (bid > 0 and ask > 0) else 1.0
+        weight = 1.0 / max(spread, 0.02)
+        pts.append((float(k), min(1.0, max(0.0, s)), weight))
     pts.sort()
-    # A survival function can only fall as the bar rises; clamp any inversions from noise.
-    for i in range(1, len(pts)):
-        if pts[i][1] > pts[i - 1][1]:
-            pts[i] = (pts[i][0], pts[i - 1][1])
-    return pts
+    if len(pts) < 2:
+        return [(k, s) for k, s, _ in pts]
+    ks = [p[0] for p in pts]
+    ss = [p[1] for p in pts]
+    ws = [p[2] for p in pts]
+    iso = IsotonicRegression(increasing=False, y_min=0.0, y_max=1.0)
+    fitted = iso.fit_transform(ks, ss, sample_weight=ws)
+    return list(zip(ks, (float(v) for v in fitted)))
 
 
 def _cross(pts: list[tuple[float, float]], level: float) -> float | None:
