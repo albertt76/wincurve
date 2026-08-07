@@ -877,14 +877,14 @@ const CURRENT_MAE = 7.39;               // shipped MAE (position-relative oreb o
 // Season-dependent globals, (re)built by loadSeason().
 let DATA, state, byId, allPlayers;
 
-// --- premium gate: rosters + what-if grids live behind a shared password (serverless function,
-// ui/api/premium.js). The unlock UI is gated off for now (no button reaches doUnlock's old
-// path) -- the public payload carries no players/grid, so panels stay locked. The merge/render
-// machinery below is kept so the feature can be re-enabled later without rebuilding it. ---
-let PREMIUM = null, unlocked = false;
+// --- team detail (rosters + what-if grids) is PUBLIC: each team's players + the what-if grid are
+// inlined directly into this page (ui/build.py), so every expanded panel renders for everyone, no
+// login. `unlocked` simply reflects whether the loaded payload carries that detail (loadSeason
+// sets it); a payload without players/grid falls back to the base projection. ---
+let unlocked = false;
 
-// Team display: recompute live from the roster when unlocked; else use the stored precomputed
-// values (the public payload carries no players/grid, so the base projection is read directly).
+// Team display: recompute live from the roster when the detail is present (unlocked); else use the
+// stored precomputed values (a payload without players/grid reads the base projection directly).
 function teamView(t) {
   if (unlocked && t.players) {
     const cr = computeRating(t), st = state.get(t.id);
@@ -912,8 +912,8 @@ function lockedPanel() {
 }
 
 // Cross-page deep-link to the PUBLIC NBA player leaderboard, pre-filtered to this team
-// (/players?team=ABBR — see root CLAUDE.md "UI conventions"). Shown to everyone: it is a plain
-// anchor using only the public `abbr`, and never touches the premium gate (ui/api/premium.js).
+// (/players?team=ABBR — see root CLAUDE.md "UI conventions"). Shown at the top of every team's
+// expanded panel, using only the public `abbr`.
 function teamPlayersLink(t) {
   return `<a class="teamlink" href="/players?team=${encodeURIComponent(t.abbr)}">${t.abbr} players on the leaderboard &rarr;</a>`;
 }
@@ -945,15 +945,9 @@ sel.addEventListener('change', () => loadSeason(sel.value));
 
 function loadSeason(key) {
   DATA = SNAP.snapshots[key];
-  // Merge the premium payload (rosters + what-if grid) for this season, if unlocked.
-  if (PREMIUM && PREMIUM[key]) {
-    const pk = PREMIUM[key];
-    DATA = Object.assign({}, DATA, {
-      grid: pk.grid,
-      teams: DATA.teams.map(t => Object.assign({}, t, { players: pk.teams[String(t.id)] || [] })),
-    });
-    unlocked = true;
-  }
+  // Team detail (players + what-if grid) ships inlined and PUBLIC, so panels render for everyone.
+  // `unlocked` just reflects whether this payload actually carries that detail.
+  unlocked = !!(DATA.grid && DATA.teams.some(t => t.players && t.players.length));
   state = new Map(); byId = new Map(); allPlayers = [];
   DATA.teams.forEach(t => {
     state.set(t.id, { off: new Set(), added: [] });

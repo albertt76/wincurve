@@ -24,10 +24,9 @@ the player's Basketball-Reference page in a new tab.
         (e.g. a fresh checkout that never ran build_snapshots.py). The normal path above already
         includes links every time it runs; this is only for topping up an existing build.
 
-Note on gating: these per-player Off/Def/Impact numbers are premium-gated inside the *team panels*
-of the main app (see ``ui/build.py`` / ``ui/api/premium.js``). Per the owner's decision, THIS
-standalone leaderboard is published PUBLIC with its data inlined (no serverless gating); the team
-panels stay premium. See the PR / root CLAUDE.md.
+Note on gating: none. This standalone leaderboard is PUBLIC with its data inlined, and as of
+2026-08-07 the main app's team panels expose the same per-player Off/Def/Impact numbers publicly
+too (the old password gate was removed — see root CLAUDE.md "Team detail is PUBLIC").
 """
 
 from __future__ import annotations
