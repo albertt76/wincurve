@@ -370,7 +370,14 @@ and use only shared tokens (`--ink`/`--muted`/`--faint`/`--line`/`--surface`/`--
 
 Routes live in `ui/vercel.json` (`cleanUrls: true`): `/` → projections, `/players` → NBA players,
 `/nhl` → NHL impact (Players), `/nhl/records` → NHL Records (the Stage 6 projected-standings page,
-`ui/nhl_records/`). A new league page adds its route there AND its nav link above.
+`ui/nhl_records/`), and `/performance` → the NBA **Performance** page (`ui/performance/`, Track
+record + Drift — see below). A new league page adds its route there AND its nav link above.
+
+**Deliberately UNLINKED route: `/performance`.** The Performance page is reachable by direct URL
+only — it is intentionally **not** in any nav group (the top nav on that page carries the other
+links but no self-link). So a route in `vercel.json` does **not** always imply a nav link; this one
+is the exception, by owner request (keep the analytics/track-record surface off the main NBA page
+but still accessible). If you add a nav link later, add it to every template's `.topnav`.
 
 **3. Cross-page `?team=` deep-link.** Pages link to each other with a `?team=ABBR` query param; the
 **source** page emits the link, the **target** page reads and applies it. NBA is the reference
@@ -461,15 +468,18 @@ you read per team whether the model or the market landed closer. Historical is *
 Kalshi/Polymarket are too recent to have any history. Marker/readout are source-aware
 (`marketLabel` → "Kalshi" live, "Vegas" historical); the market is still strictly downstream.
 
-**Track record view (shipped 2026-07-31, extended to 7 seasons 2026-08-02).** A `Projections /
-Track record` toggle opens a second view that scores the model against the market longitudinally:
-per completed season, our MAE vs the Vegas MAE vs a .500 baseline (bars), the honest aggregate
-(**7 full seasons: model 7.75, Vegas 6.90, model closer in 2 of 7** — we do not beat a sharp
-market on average, as promised), and the per-team **best calls / where the market won**
-(biggest model-vs-Vegas disagreements ranked by
-who was closer to the actual). All computed **client-side from the inlined snapshots**
-(`renderTrackRecord`, `seasonModelMAE`/`seasonMarketMAE`/`seasonBaselineMAE`) — no new data.
-The per-team disagreement payoff is the whole point of the tool, now made visible and gradeable.
+**Track record view (shipped 2026-07-31, extended to 7 seasons 2026-08-02; MOVED to the
+Performance page 2026-08-07).** Scores the model against the market longitudinally: per completed
+season, our MAE vs the Vegas MAE vs a .500 baseline (bars), the honest aggregate (**7 full
+seasons: model 7.56, Vegas 6.90, model closer in 2 of 7** — we do not beat a sharp market on
+average, as promised), and the per-team **best calls / where the market won** (biggest
+model-vs-Vegas disagreements ranked by who was closer to the actual). All computed
+**client-side from the inlined snapshots** (`renderTrackRecord`,
+`seasonModelMAE`/`seasonMarketMAE`/`seasonBaselineMAE`) — no new data. The per-team disagreement
+payoff is the whole point of the tool, now made visible and gradeable. **It no longer lives on the
+Records page** — it and Drift were moved to the standalone, deliberately-unlinked **Performance
+page** (`ui/performance/`, route `/performance`); see "Records page controls + Performance page"
+below.
 
 **Disagreement attribution + conviction (shipped 2026-08-02).** The tool's core deliverable, in
 each team's expanded panel (the "details" surface — the natural place to gate behind auth later).
@@ -502,10 +512,14 @@ all 30 teams; before the fix ATL/CHA/MIL overstated by 3–6 wins in aggregate).
 investigation below — the "bloat" was checked and is not a defect). The green/red edit delta is
 now tooltip-labelled "change from the original projection".
 
-**Offense/defense split + defensive disagreement (added 2026-07).** Every team row shows its
-rating split as **`O ±x · D ±y`** (colored by sign), so you can see whether a projection is
-carried or dragged by offense vs defense — e.g. Detroit is defense-carried (O −0.1, D +0.8),
-Charlotte offense-carried (O +0.6, D −0.5). The roster panel splits Impact into **Off / Def**
+**Offense/defense split + defensive disagreement (added 2026-07; row-level `O·D` readout REMOVED
+from the Records page 2026-08-07).** The team's offense/defense rating split is shown in its
+**expanded panel head** (Offense / Defense stats), colored by sign, so you can see whether a
+projection is carried or dragged by offense vs defense — e.g. Detroit is defense-carried,
+Charlotte offense-carried. (Until 2026-08-07 each collapsed team ROW also carried a small
+`O ±x · D ±y` readout in the Wins column via `odReadout()`; that was removed to declutter the
+Wins column — it duplicated what the expansion already shows. `odReadout` is gone; the panel-head
+split remains.) The roster panel splits Impact into **Off / Def**
 columns and its header shows the team **Offense / Defense** rating. Players whose box-score
 defense disagrees with play-by-play **RAPM** get a **`D↑` / `D↓` flag** by their name (`D↑` =
 RAPM higher, we likely underrate his D — e.g. Alex Caruso, NAW; `D↓` = we likely overrate,
@@ -516,9 +530,14 @@ per-team `off_rating`/`def_rating`, per-player `off`/`def`, and each player's mo
 recompute is decoupled too, so a roster edit reprices offense and defense independently.
 
 **Method toggle: Blended / Box / RAPM (shipped 2026-08-06, replaces the old RAPM-only-defense
-side readout).** A 3-way switch in the header of both the Records page and the Players
-leaderboard controls **which measurement drives every number on the page**: team ratings, win
-totals, bars, and rankings on Records; Impact/Off/Def/≈Wins on Players. **Blended** (the shipped
+side readout; MOVED above the table 2026-08-07).** A 3-way pill switch controls **which
+measurement drives every number on the page**: team ratings, win totals, bars, and rankings on
+Records; Impact/Off/Def/≈Wins on Players. On the **Records page** it now sits in a **controls bar
+above the table** (`.controls` → a `method` `.grp` of `.pill` buttons, next to the new
+`filter team…` box — see "Records page controls" below), styled like the NHL Records
+sort/filter controls, rather than in the header title-row where it used to live; on the Players
+leaderboard it stays in that page's own header. The buttons keep their `#method-blended/box/rapm`
+IDs and the `.active` class the JS toggles (`.pill.active` = teal fill). **Blended** (the shipped
 default) is the turnover-weighted box+RAPM blend on both sides. **Box** is the classic
 box-score-only method. **RAPM** prices both offense and defense purely from play-by-play, no box
 score at all — the natural generalization of the old defense-only RAPM arm, now covering offense
@@ -564,8 +583,41 @@ gap can net higher. See the CLAUDE.md "Open items" entry for the follow-up (re-c
 `top_scorer_share_weight` specifically for this player group).
 
 
-`ui/template.html` + `ui/build.py` -> `ui/projections.html` (self-contained, data inlined).
-Rebuild after regenerating projections:
+**Records page controls + Performance page (2026-08-07).** Four UI changes, all client/build-side
+only (no model change), matching the NHL Records page so the two Records pages read as one product:
+
+1. **Method toggle moved above the table.** The Blended/Box/RAPM switch left the header title-row
+   for a `.controls` bar directly above the rows (a `method` `.grp` of `.pill` buttons), styled like
+   the NHL Records sort pills. Same button IDs (`#method-blended/box/rapm`) and `.active`-class JS as
+   before; only the position and pill styling changed.
+2. **`filter team…` box.** A live substring filter (`#team-filter` → `TEAM_QUERY`) in the same
+   controls bar, filtering the projections table by team abbreviation OR full name (so "den" matches
+   DEN *and* Gol**den** State, exactly like the NHL box). A `#team-count` ("N of 30") shows only while
+   filtering. Display only — never touches the model.
+3. **Wins column reflowed.** The per-row **`O ±x · D ±y`** readout (`odReadout`, now deleted) was
+   removed from the Wins column — it duplicated the offense/defense split already in the team
+   expansion. The column is widened (`grid-template-columns` third track 108→164px) and shows the
+   NHL-style compact readout: bold mean on top, then the 80% range and the market ring/diff together
+   on one line (`.line2`).
+4. **Track record + Drift moved off the Records page to a new Performance page.** The Records page's
+   3-way `Projections / Track record / Drift` tab bar is gone (only Projections remains, so the tab
+   bar was removed entirely); `renderTrackRecord`/`renderDrift` and their helpers (`completedSeasons`,
+   `seasonModelMAE`, `seasonBaselineMAE`, `BASELINE_WINS`, the 3-way `setView`) moved to
+   `ui/performance/template.html` → `ui/performance/performance.html`, route **`/performance`**, with
+   its own 2-way Track record / Drift toggle. `seasonMarketMAE` STAYS on the Records page too (its
+   hindsight caveat still uses it). The Performance page is **deliberately UNLINKED** from every nav
+   (reachable by direct URL only) — its top nav carries the other links but no self-link.
+
+**`ui/build.py` now builds TWO pages** from `snapshots.json`: the full payload into
+`projections.html` (Records, as before), and a **slim** payload (only per-team
+`abbr`/`wins`/`actual`/`mkt_wins` + `projection_history` + `meta.seasons` — the heavy `players`/`grid`
+blobs stripped) into `performance/performance.html`, so the Performance page stays light (~45 KB vs
+~1.6 MB). `.vercelignore`'s `template.html`/`build.py` patterns already exclude the new template at
+any depth; `ui/vercel.json` adds the `/performance` rewrite + cache header.
+
+`ui/template.html` + `ui/build.py` -> `ui/projections.html` **and**
+`ui/performance/performance.html` (self-contained, data inlined). Rebuild after regenerating
+projections:
 
 ```
 python scripts/project_current.py && python ui/build.py
@@ -1675,23 +1727,26 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   marker/readout are now source-aware (`marketLabel`); the detailed live-Kalshi caveat stays
   upcoming-season-only, the hindsight caveat explains the Vegas ring.
 - ✅ **Model-vs-market-vs-actual "Track record" view — SHIPPED (2026-07-31), extended to 7 seasons
-  (2026-08-02).** A second view (Projections / Track record toggle) charts, per completed season,
-  our MAE vs the Vegas MAE vs a .500 baseline, plus the honest scoreboard (**7 full seasons:
-  model 7.75, Vegas 6.90, model closer in 2 of 7**) and the per-team "best calls / where the
-  market won." Extended from 5 to 7 by adding the two remaining FULL seasons in the backtest
-  window (2017-18, 2018-19); the shortened 2019-20/2020-21 are skipped (bubble/covid, market not
+  (2026-08-02), MOVED to the Performance page (2026-08-07).** Charts, per completed season, our
+  MAE vs the Vegas MAE vs a .500 baseline, plus the honest scoreboard (**7 full seasons: model
+  7.56, Vegas 6.90, model closer in 2 of 7**) and the per-team "best calls / where the market
+  won." Extended from 5 to 7 by adding the two remaining FULL seasons in the backtest window
+  (2017-18, 2018-19); the shortened 2019-20/2020-21 are skipped (bubble/covid, market not
   comparable). All client-side from the inlined snapshots (`renderTrackRecord`), no new data.
-  Further back is blocked on the `team_rosters` 2016-17 floor (Vegas lines go to 2005-06) — a
-  historical `commonteamroster` pull would unblock the full ~19 seasons.
+  **No longer a tab on the Records page — it now lives on the unlinked `/performance` page** (see
+  "Records page controls + Performance page"). Further back is blocked on the `team_rosters`
+  2016-17 floor (Vegas lines go to 2005-06) — a historical `commonteamroster` pull would unblock
+  the full ~19 seasons.
 - ✅ **Projection time series + drift charts — SHIPPED (2026-08-02).** `scripts/log_projection.py`
   appends each run of `project_current.py` (preseason) or `project_inseason.py` (in-season) to
   **`data/projection_history.json`** — a compact per-team record keyed by (run_date, model, season),
   idempotent per key. It lives at the `data/` root (**tracked**, not under gitignored
   `data/processed/`), so the series persists across checkouts/deploys, like the override files.
-  `build_snapshots.py` inlines it (`projection_history`) into `snapshots.json`. A new **Drift** view
-  (`renderDrift`, third toggle beside Projections / Track record) charts, per team, projected wins
-  over run dates as small-multiple SVG sparklines (latest wins + change-since-first chip), sorted by
-  latest wins, shared y-axis. Client-side from the inlined history. **Honest scope caveat surfaced in
+  `build_snapshots.py` inlines it (`projection_history`) into `snapshots.json`. A **Drift** view
+  (`renderDrift`) charts, per team, projected wins over run dates as small-multiple SVG sparklines
+  (latest wins + change-since-first chip), sorted by latest wins, shared y-axis. Client-side from the
+  inlined history. **As of 2026-08-07 it lives on the unlinked `/performance` page** (with Track
+  record), not as a tab on the Records page. **Honest scope caveat surfaced in
   the view (`modelNote`):** a *preseason*-model run's drift is a **roster-composition** signal
   (trades/injuries/overrides), NOT this-year form (the preseason model has no in-season updating); an
   *in-season*-model run's drift additionally reflects **team form**. Seeded with the current
