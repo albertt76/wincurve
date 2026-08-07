@@ -159,22 +159,6 @@
   .agree { color: var(--faint); }
   .above-mkt { color: var(--pos); } .below-mkt { color: var(--neg); }
 
-  /* RAPM-only defensive arm: a small downward triangle marking where the projection lands if
-     defense were priced purely from play-by-play RAPM instead of the box+RAPM blend. */
-  .rapm-mark {
-    position: absolute; top: 0; width: 0; height: 0; transform: translateX(-50%);
-    border-left: 4px solid transparent; border-right: 4px solid transparent;
-    border-top: 6px solid var(--rapm);
-  }
-  .rapmnum { color: var(--muted); font-size: 11px; }
-  .rapmnum b { color: var(--rapm); font-weight: 650; }
-  .rapm-dot {
-    display: inline-block; width: 0; height: 0; vertical-align: middle; margin-right: 3px;
-    border-left: 4px solid transparent; border-right: 4px solid transparent;
-    border-top: 6px solid var(--rapm);
-  }
-  .rapm-hi { color: var(--pos); } .rapm-lo { color: var(--neg); }
-
   /* ---- axis + legend ---- */
   .axis-head {
     display: grid; grid-template-columns: 190px 1fr 108px; gap: 14px;
@@ -485,6 +469,9 @@
   /* ---- view toggle (Projections / Track record) ---- */
   .view-toggle { display: inline-flex; gap: 2px; margin: 4px 0 20px; padding: 3px;
     background: var(--surface-2); border-radius: 8px; }
+  /* inline instance in the header (the Blended/Box/RAPM method toggle) needs no bottom margin */
+  .title-row .method-toggle { margin: 0; }
+  .title-row .method-toggle .vt-btn { padding: 6px 11px; }
   .vt-btn { font: inherit; font-size: 13px; font-weight: 600; letter-spacing: -.01em;
     color: var(--muted); background: transparent; border: 0; border-radius: 6px;
     padding: 6px 14px; cursor: pointer; transition: background .15s, color .15s; }
@@ -595,6 +582,12 @@
         <select id="season-select" aria-label="Select season"></select>
       </label>
       <button id="unlock-top" class="unlock-btn" type="button">Unlock details</button>
+      <nav class="view-toggle method-toggle" role="tablist" aria-label="Method"
+           title="Which measurement drives every number below: Blended (shipped default — box score and play-by-play RAPM combined by roster turnover), Box only (the classic box-score-only method), or RAPM only (play-by-play regularized adjusted plus/minus only). Team win totals, bars, and player Off/Def/Impact/&asymp;Wins all recompute. Every other team is held at its Blended rating while you look at one method — not a full league resimulation.">
+        <button id="method-blended" class="vt-btn active" role="tab" aria-selected="true">Blended</button>
+        <button id="method-box" class="vt-btn" role="tab" aria-selected="false">Box</button>
+        <button id="method-rapm" class="vt-btn" role="tab" aria-selected="false">RAPM</button>
+      </nav>
       <button class="theme-btn" id="theme" type="button" title="Toggle light / dark">◐ theme</button>
     </div>
     <p class="sub">
@@ -793,16 +786,18 @@
           by your edit, versus this team's original projection. Removing a good player makes
           it negative.</dd>
 
-        <dt><span class="rapm-dot"></span> rapm (RAPM-only arm)</dt>
-        <dd>The small triangle on the bar and the <span class="rapmnum"><b>rapm</b></span>
-          readout: a <b>second win projection with defense priced purely from play-by-play
-          RAPM</b> (regularized adjusted plus/minus) instead of the shipped box+RAPM blend, all
-          else equal. The signed number is <b>RAPM-only minus the blend</b> &mdash; positive
-          means RAPM rates this team's defense higher than the box score does, a perimeter signal
-          the box misses. The gap is a defensive-uncertainty flag; it is largest on low-turnover
-          teams (where the blend leans on the box metric) and smallest on high-turnover ones
-          (where the blend already leans on RAPM). Display only &mdash; re-weighting the blend
-          toward RAPM did not beat the backtest, so the projection keeps the turnover blend.</dd>
+        <dt>Blended / Box / RAPM (the method toggle)</dt>
+        <dd>The three-way switch in the header controls <b>which measurement drives every
+          number on the page</b>: team ratings, win totals, bars, and rankings. <b>Blended</b>
+          (the shipped default) combines the box score and play-by-play <b>RAPM</b> (regularized
+          adjusted plus/minus) by each team's roster turnover &mdash; a steady roster leans on
+          the box metric, a turned-over one leans on RAPM. <b>Box</b> shows the classic
+          box-score-only method. <b>RAPM</b> prices both offense and defense purely from
+          play-by-play, with no box score at all. Each method is calibrated with its own
+          slope, so switching is a genuine re-projection, not a cosmetic relabel. One caveat:
+          every other team is held at its Blended rating while you look at one method &mdash;
+          this is not a full league resimulation, the same simplification the shipped model has
+          always used for its defensive RAPM comparison.</dd>
 
         <dt><span class="swatch"></span> market</dt>
         <dd>The hollow ring on the bar and the market readout: the win total the market implies.
@@ -855,9 +850,41 @@ const GMETA = SNAP.meta;
   });
 })();
 
+/* ---- method toggle (Blended/Box/RAPM; persisted; shared "wincurve-method" key so the choice
+   carries across pages, same convention as the theme toggle). Which measurement drives every
+   number: team ratings/wins/bars AND player Off/Def/Impact/Wins all recompute. Replaces the old
+   always-on RAPM-only-defense side readout (the rose triangle marker) -- RAPM-only is now one of
+   the three states, covering both offense and defense priced by RAPM, not just defense. ---- */
+let METHOD = "blended";
+(function () {
+  const sGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const sSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* no-op */ } };
+  const saved = sGet("wincurve-method");
+  if (saved === "box" || saved === "rapm" || saved === "blended") METHOD = saved;
+  const btns = { blended: document.getElementById("method-blended"),
+                 box: document.getElementById("method-box"),
+                 rapm: document.getElementById("method-rapm") };
+  function syncButtons() {
+    for (const [k, b] of Object.entries(btns)) {
+      if (!b) continue;
+      b.classList.toggle("active", k === METHOD);
+      b.setAttribute("aria-selected", String(k === METHOD));
+    }
+  }
+  syncButtons();
+  for (const [k, b] of Object.entries(btns)) {
+    if (!b) continue;
+    b.addEventListener("click", () => {
+      if (METHOD === k) return;
+      METHOD = k; sSet("wincurve-method", k); syncButtons();
+      if (typeof render === "function") render();
+    });
+  }
+})();
+
 const AX_LO = 12, AX_HI = 70;            // win axis bounds
 const pct = w => ((Math.min(Math.max(w, AX_LO), AX_HI) - AX_LO) / (AX_HI - AX_LO)) * 100;
-const CURRENT_MAE = 7.58;               // shipped MAE (RAPM blend + rim/hustle + position-relative dreb + BPM position fallback + current-box RAPM prior)
+const CURRENT_MAE = 7.40;               // shipped MAE (+ position-relative offense + RAPM offense blend, 2026-08-06; 7.58 before those two)
 
 // Season-dependent globals, (re)built by loadSeason().
 let DATA, state, byId, allPlayers;
@@ -890,14 +917,18 @@ function syncUnlockBtn() {
 function teamView(t) {
   if (unlocked && t.players) {
     const cr = computeRating(t), st = state.get(t.id);
-    return { w: winsAt(t, cr.rating),
-             wRapm: cr.ratingRapm != null ? winsAt(t, cr.ratingRapm) : null,
-             rating: cr.rating, offR: cr.offR, defR: cr.defR,
+    const active = cr[METHOD] || cr.blended;
+    return { w: winsAt(t, active.rating),
+             wRapm: cr.rapm != null ? winsAt(t, cr.rapm.rating) : null,
+             rating: active.rating, offR: active.offR, defR: active.defR,
              edited: st.off.size > 0 || st.added.length > 0 };
   }
-  return { w: { mean: t.wins, p10: t.p10, p25: t.p25, p75: t.p75, p90: t.p90 },
+  const suf = METHOD === "blended" ? "" : `_${METHOD}`;
+  return { w: { mean: t[`wins${suf}`], p10: t[`p10${suf}`], p25: t[`p25${suf}`],
+               p75: t[`p75${suf}`], p90: t[`p90${suf}`] },
            wRapm: t.wins_rapm != null ? { mean: t.wins_rapm } : null,
-           rating: t.rating, offR: t.off_rating, defR: t.def_rating, edited: false };
+           rating: t[`rating${suf}`], offR: t[`off_rating${suf}`], defR: t[`def_rating${suf}`],
+           edited: false };
 }
 
 function lockedPanel() {
@@ -1132,44 +1163,44 @@ function computeRating(team) {
                     + leftover * DATA.replacement_off) / budget;
     const aggDefBox = (roster.reduce((a, p, i) => a + mins[i] * p.def, 0)
                        + leftover * DATA.replacement_def) / budget;
-    // Blend box offense with play-by-play RAPM by the team's roster turnover, the same way
-    // defense already does. Older snapshots without the RAPM split (replacement_off_rapm
-    // absent) fall back to pure box offense.
-    let aggOff = aggOffBox;
+    // Pure-RAPM aggregates, for the Blended weight AND the RAPM-only method arm. Older
+    // snapshots without the RAPM split (replacement_*_rapm absent) leave these null.
+    let aggOffRapm = null, aggDefRapm = null;
     if (DATA.replacement_off_rapm != null) {
-      const aggOffRapm = (roster.reduce((a, p, i) => a + mins[i] * (p.offr != null ? p.offr : p.off), 0)
-                          + leftover * DATA.replacement_off_rapm) / budget;
-      const w = Math.min(Math.max(team.turnover || 0, 0), 1);
-      aggOff = (1 - w) * aggOffBox + w * aggOffRapm;
+      aggOffRapm = (roster.reduce((a, p, i) => a + mins[i] * (p.offr != null ? p.offr : p.off), 0)
+                    + leftover * DATA.replacement_off_rapm) / budget;
     }
-    // Blend box defense with play-by-play RAPM by the team's roster turnover. Older snapshots
-    // without the RAPM split (replacement_def_rapm absent) fall back to pure box defense.
-    let aggDef = aggDefBox;
     if (DATA.replacement_def_rapm != null) {
-      const aggDefRapm = (roster.reduce((a, p, i) => a + mins[i] * (p.defr != null ? p.defr : p.def), 0)
-                          + leftover * DATA.replacement_def_rapm) / budget;
-      const w = Math.min(Math.max(team.turnover || 0, 0), 1);
-      aggDef = (1 - w) * aggDefBox + w * aggDefRapm;
+      aggDefRapm = (roster.reduce((a, p, i) => a + mins[i] * (p.defr != null ? p.defr : p.def), 0)
+                    + leftover * DATA.replacement_def_rapm) / budget;
     }
-    const offR = DATA.off_slope * aggOff + DATA.off_intercept;
-    const defR = DATA.def_slope * aggDef + DATA.def_intercept;
-    // RAPM-only display arm: same offense + carryover, defense priced purely from RAPM (its own
-    // lower slope). Null on older snapshots without the RAPM calibration. Recomputes under edits.
-    let ratingRapm = null, defRrapm = null;
-    if (DATA.def_slope_rapm != null && DATA.replacement_def_rapm != null) {
-      const aggDefRapm = (roster.reduce((a, p, i) => a + mins[i] * (p.defr != null ? p.defr : p.def), 0)
-                          + leftover * DATA.replacement_def_rapm) / budget;
-      defRrapm = DATA.def_slope_rapm * aggDefRapm + DATA.def_intercept_rapm;
-      ratingRapm = offR + defRrapm + carry;
-    }
-    return { rating: offR + defR + carry, offR, defR, ratingRapm, defRrapm,
+    const w = Math.min(Math.max(team.turnover || 0, 0), 1);
+    const aggOffBlend = aggOffRapm != null ? (1 - w) * aggOffBox + w * aggOffRapm : aggOffBox;
+    const aggDefBlend = aggDefRapm != null ? (1 - w) * aggDefBox + w * aggDefRapm : aggDefBox;
+
+    // One arm per method -- each priced with its OWN slope (never the blended slope applied to
+    // an unblended aggregate). null when a method's calibration/aggregate isn't available
+    // (older snapshots), so callers can fall back to blended.
+    const arm = (offSlope, offInt, aggOff, defSlope, defInt, aggDef) => {
+      if (offSlope == null || defSlope == null || aggOff == null || aggDef == null) return null;
+      const offR = offSlope * aggOff + offInt, defR = defSlope * aggDef + defInt;
+      return { rating: offR + defR + carry, offR, defR };
+    };
+    const blended = arm(DATA.off_slope, DATA.off_intercept, aggOffBlend,
+                        DATA.def_slope, DATA.def_intercept, aggDefBlend);
+    const box = arm(DATA.off_slope_box, DATA.off_intercept_box, aggOffBox,
+                    DATA.def_slope_box, DATA.def_intercept_box, aggDefBox);
+    const rapm = arm(DATA.off_slope_rapm, DATA.off_intercept_rapm, aggOffRapm,
+                     DATA.def_slope_rapm, DATA.def_intercept_rapm, aggDefRapm);
+    return { blended: blended || box, box: box || blended, rapm,
              n: roster.length, unabsorbed };
   }
   // Fallback for any snapshot without the off/def split: the original combined slope.
   const agg = (roster.reduce((a, p, i) => a + mins[i] * p.impact, 0)
                + leftover * GMETA.replacement_impact) / budget;
-  return { rating: DATA.rating_slope * agg + DATA.rating_intercept + carry,
-           offR: null, defR: null, n: roster.length, unabsorbed };
+  const single = { rating: DATA.rating_slope * agg + DATA.rating_intercept + carry,
+                   offR: null, defR: null };
+  return { blended: single, box: single, rapm: null, n: roster.length, unabsorbed };
 }
 
 /* Interpolate the precomputed win distribution at this team's rating offset. The grid was
@@ -1258,7 +1289,7 @@ function disagreementBlock(t, w, cr, wRapm) {
 
   // Top players driving our number (largest |WAR-like contribution|). Full names -- last-token
   // extraction mangles suffixes ("Robert Williams III" -> "III").
-  const drivers = t.players.map(p => ({ name: p.name, wp: winParts(p, t) }))
+  const drivers = t.players.map(p => ({ name: p.name, wp: winParts(p, t, METHOD) }))
     .sort((a, b) => Math.abs(b.wp.total) - Math.abs(a.wp.total)).slice(0, 3)
     .map(d => `${d.name} ${d.wp.total >= 0 ? '+' : ''}${d.wp.total.toFixed(1)}`);
 
@@ -1316,28 +1347,63 @@ function teamCapFactor(team) {
   const load = team.players.reduce((a, p) => a + p.mpg * p.avail, 0);
   return load > MPG_BUDGET ? MPG_BUDGET / load : 1;
 }
+// Offense/defense deviation-from-replacement for one player under `method`
+// ('blended'/'box'/'rapm'). 'box' and 'rapm' branch directly to the pure aggregate (no
+// (1-w)*box + w*rapm indirection with w forced to 0/1); 'blended' uses the team's turnover
+// weight, exactly like the shipped team rating. Mirrors scripts/build_nba_players_ui.py's
+// _method_devs bit-for-bit.
+function methodDevs(p, team, method) {
+  const boxOff = p.off, boxDef = p.def;
+  if (method === 'box') {
+    return [boxOff - DATA.replacement_off, boxDef - DATA.replacement_def];
+  }
+  const rapmOff = p.offr != null ? p.offr : boxOff;
+  const rapmDef = p.defr != null ? p.defr : boxDef;
+  if (method === 'rapm') {
+    const offDev = DATA.replacement_off_rapm != null
+      ? rapmOff - DATA.replacement_off_rapm : boxOff - DATA.replacement_off;
+    const defDev = DATA.replacement_def_rapm != null
+      ? rapmDef - DATA.replacement_def_rapm : boxDef - DATA.replacement_def;
+    return [offDev, defDev];
+  }
+  const w = Math.min(Math.max(team.turnover || 0, 0), 1);
+  let offDev = boxOff - DATA.replacement_off;
+  if (DATA.replacement_off_rapm != null) {
+    offDev = (1 - w) * (boxOff - DATA.replacement_off) + w * (rapmOff - DATA.replacement_off_rapm);
+  }
+  let defDev = boxDef - DATA.replacement_def;
+  if (DATA.replacement_def_rapm != null) {
+    defDev = (1 - w) * (boxDef - DATA.replacement_def) + w * (rapmDef - DATA.replacement_def_rapm);
+  }
+  return [offDev, defDev];
+}
+
+// Off/def RATING (not deviation) to show in the roster table under `method`: Box passes through
+// raw p.off/p.def, RAPM passes through raw p.offr/p.defr, Blended is replacement + the exact
+// off_dev/def_dev winParts computes -- so Off/Def move with ≈Wins under the toggle instead of
+// staying frozen at the box value.
+function displayOffDef(p, team, method) {
+  if (method === 'box') return [p.off, p.def];
+  if (method === 'rapm') return [p.offr != null ? p.offr : p.off, p.defr != null ? p.defr : p.def];
+  if (DATA.replacement_off == null || DATA.replacement_def == null) return [p.off, p.def];
+  const [offDev, defDev] = methodDevs(p, team, 'blended');
+  return [DATA.replacement_off + offDev, DATA.replacement_def + defDev];
+}
+
 // The WAR-like value split into the OFFENSIVE and DEFENSIVE wins it is built from. Because the
-// team rating is off + def priced by their own slopes, ≈Wins decomposes exactly the same way:
-// offWins comes from offense above replacement, defWins from the turnover-blended (box vs RAPM)
-// defence above replacement. off + def === total, by construction. Older snapshots without the
+// team rating is off + def priced by their own slopes, ≈Wins decomposes exactly the same way,
+// each side priced with its OWN method-specific slope (never the blended slope applied to an
+// unblended aggregate). off + def === total, by construction. Older snapshots without the
 // off/def split fall back to a combined total with no meaningful halves.
-function winParts(p, team) {
+function winParts(p, team, method = 'blended') {
   const minshare = p.mpg * p.avail / MPG_BUDGET * teamCapFactor(team);
-  if (DATA.off_slope != null) {
-    const w = Math.min(Math.max(team.turnover || 0, 0), 1);
-    let offDev = p.off - DATA.replacement_off;
-    if (DATA.replacement_off_rapm != null) {
-      offDev = (1 - w) * (p.off - DATA.replacement_off)
-             + w * ((p.offr != null ? p.offr : p.off) - DATA.replacement_off_rapm);
-    }
-    let defDev = p.def - DATA.replacement_def;
-    if (DATA.replacement_def_rapm != null) {
-      defDev = (1 - w) * (p.def - DATA.replacement_def)
-             + w * ((p.defr != null ? p.defr : p.def) - DATA.replacement_def_rapm);
-    }
+  const suf = method === 'blended' ? '' : `_${method}`;
+  const offSlope = DATA[`off_slope${suf}`], defSlope = DATA[`def_slope${suf}`];
+  if (offSlope != null && defSlope != null) {
+    const [offDev, defDev] = methodDevs(p, team, method);
     const k = GMETA.wins_per_rating_point * minshare;
-    const off = k * DATA.off_slope * offDev;
-    const def = k * DATA.def_slope * defDev;
+    const off = k * offSlope * offDev;
+    const def = k * defSlope * defDev;
     return { off, def, total: off + def, split: true };
   }
   const total = GMETA.wins_per_rating_point * DATA.rating_slope
@@ -1407,22 +1473,12 @@ function odReadout(offR, defR) {
     + `D <b class="${c(defR)}">${f(defR)}</b></span>`;
 }
 
-// Second, RAPM-only defensive arm: the win projection if defense were priced purely from
-// play-by-play RAPM instead of the shipped box+RAPM blend. The gap wRapm - w isolates the
-// defensive-metric choice; it is largest on low-turnover teams, where the blend leans on the box
-// metric that misses perimeter defense. Display only -- re-weighting the blend toward RAPM did
-// not clear the backtest gate.
-function rapmReadout(t, w, wRapm) {
-  if (wRapm == null) return '';
-  const gap = wRapm.mean - w.mean;
-  const cls = Math.abs(gap) < 1.5 ? 'agree' : (gap > 0 ? 'rapm-hi' : 'rapm-lo');
-  return `<span class="rapmnum" title="RAPM-only projection: wins if defense were priced purely `
-    + `from play-by-play RAPM (regularized adjusted plus/minus) instead of the shipped box+RAPM `
-    + `blend. The second number is RAPM-only minus the blend — positive means RAPM sees this `
-    + `team's defense as better than the box score does (a perimeter-defense signal the box `
-    + `misses). Display only; never an input.">`
-    + `<span class="rapm-dot"></span>rapm <b>${fmt1(wRapm.mean)}</b> `
-    + `<span class="${cls}">${gap >= 0 ? '+' : ''}${fmt1(gap)}</span></span>`;
+// Read a team's UNEDITED baseline for whichever base name ('wins'/'rating'/...) under the
+// currently active METHOD -- e.g. methodField(t, 'wins') is t.wins for Blended, t.wins_box for
+// Box, t.wins_rapm for RAPM. Used to compare an edited roster against the right baseline (the
+// method the user is currently looking at), not always the blended one.
+function methodField(t, base) {
+  return METHOD === 'blended' ? t[base] : t[`${base}_${METHOD}`];
 }
 
 function render() {
@@ -1431,10 +1487,11 @@ function render() {
   const rowsData = DATA.teams.map(t => ({ t, ...teamView(t) }))
     .sort((a, b) => b.w.mean - a.w.mean);
 
-  rowsData.forEach(({ t, w, wRapm, offR, defR, edited }) => {
+  rowsData.forEach(({ t, w, offR, defR, edited }) => {
     const wide = t.turnover >= WIDE_TURNOVER;
     const wc = wide ? ' w' : '';
-    const delta = w.mean - t.wins;
+    const baseWins = methodField(t, 'wins');
+    const delta = w.mean - baseWins;
 
     const btn = document.createElement('button');
     btn.className = 'row';
@@ -1448,8 +1505,7 @@ function render() {
         <span class="mid" style="left:${pct(41)}%"></span>
         <span class="band${wc}" style="left:${pct(w.p10)}%;width:${pct(w.p90) - pct(w.p10)}%"></span>
         <span class="band inner${wc}" style="left:${pct(w.p25)}%;width:${pct(w.p75) - pct(w.p25)}%"></span>
-        ${edited ? `<span class="ghost" style="left:${pct(t.wins)}%" title="original projection"></span>` : ''}
-        ${wRapm != null ? `<span class="rapm-mark" style="left:${pct(wRapm.mean)}%" title="RAPM-only defense: ${fmt1(wRapm.mean)} wins"></span>` : ''}
+        ${edited ? `<span class="ghost" style="left:${pct(baseWins)}%" title="original projection"></span>` : ''}
         <span class="mean" style="left:${pct(w.mean)}%"></span>
         ${t.actual != null ? `<span class="actual" style="left:${pct(t.actual)}%" title="actual: ${fmt1(t.actual)} wins"></span>` : ''}
         ${t.mkt_wins != null ? `<span class="market" style="left:${pct(t.mkt_wins)}%" title="${marketLabel()}: ${fmt1(t.mkt_wins)} wins"></span>` : ''}
@@ -1459,7 +1515,6 @@ function render() {
         ${edited ? `<span class="delta ${delta >= 0 ? 'up' : 'down'}" title="change from this team&rsquo;s original projected wins, caused by your roster edit"> ${delta >= 0 ? '+' : ''}${fmt1(delta)}</span>` : ''}
         <br>${t.actual != null ? actualReadout(t, w) : `<span class="rng">${fmt1(w.p10)}&ndash;${fmt1(w.p90)}</span>`}
         ${offR != null ? `<br>${odReadout(offR, defR)}` : ''}
-        ${wRapm != null ? `<br>${rapmReadout(t, w, wRapm)}` : ''}
         ${t.mkt_wins != null ? `<br>${marketReadout(t, w)}` : ''}
       </span>`;
 
@@ -1519,7 +1574,7 @@ function renderPanel(t, w) {
   const roster = t.players.map(p => ({ p, off: st.off.has(p.id), added: false }))
     .concat(st.added.map(p => ({ p, off: false, added: true })));
   const rows = roster.map(({ p, off, added }) => {
-    const wp = winParts(p, t);
+    const wp = winParts(p, t, METHOD);
     const wv = wp.total;
     const sgn = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
     const wcell = wp.split
@@ -1527,8 +1582,7 @@ function renderPanel(t, w) {
         + `<span class="wsplit"><span class="${wp.off >= 0 ? 'p' : 'n'}">o&nbsp;${sgn(wp.off)}</span>`
         + `<span class="${wp.def >= 0 ? 'p' : 'n'}">d&nbsp;${sgn(wp.def)}</span></span>`
       : `<span class="wtot ${wv >= 0 ? 'p' : 'n'}">${wv >= 0 ? '+' : ''}${wv.toFixed(1)}</span>`;
-    const offv = p.off != null ? p.off : (p.impact || 0);   // fallback if no split
-    const defv = p.def != null ? p.def : 0;
+    const [offv, defv] = p.off != null ? displayOffDef(p, t, METHOD) : [p.impact || 0, 0];
     return `
     <tr class="${off ? 'off' : ''}${added ? ' added' : ''}">
       <td>${p.name}${p.rookie ? '<span class="tag">rookie</span>' : ''}${p.override ? '<span class="tag">out</span>' : ''}${p.ret_override ? `<span class="tag ret" title="${(p.ret_reason || 'Injury return: projected as his last healthy season (manual override).').replace(/"/g, '&quot;')}">back</span>` : ''}${p.prev && !off && !added ? `<span class="tag mv" title="Offseason arrival from ${p.prev} — undo in the Offseason moves panel above">&larr; ${p.prev}</span>` : ''}${rapmFlag(p)}${honorFlags(p)}</td>
@@ -1551,7 +1605,8 @@ function renderPanel(t, w) {
   const loadMpg = active.reduce((a, p) => a + p.mpg * p.avail, 0);
   const loadCls = loadMpg > 290 ? ' class="mins-flag"' : '';
   const cr = computeRating(t);
-  const wRapm = cr.ratingRapm != null ? winsAt(t, cr.ratingRapm) : null;
+  const activeArm = cr[METHOD] || cr.blended;
+  const wRapm = cr.rapm != null ? winsAt(t, cr.rapm.rating) : null;
   const odStat = (label, v, title) => v == null ? '' :
     `<span class="stat" title="${title}">${label} <b class="odv ${v >= 0 ? 'p' : 'n'}">`
     + `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}</b></span>`;
@@ -1559,9 +1614,8 @@ function renderPanel(t, w) {
   return link + `
     <div class="panel-head">
       <span class="stat">Coach <b>${t.coach}</b></span>
-      ${odStat('Offense', cr.offR, 'Projected team offense versus league average, in points per 100 possessions (the one-year carryover is separate). Positive is good.')}
-      ${odStat('Defense', cr.defR, 'Projected team defense versus league average (positive = fewer points allowed). Built from box-score defense, the model&rsquo;s weakest part — the D-arrow flags in the table mark players where play-by-play RAPM disagrees with it.')}
-      ${wRapm != null ? `<span class="stat rapm-stat" title="RAPM-only arm: defense priced purely from play-by-play RAPM (regularized adjusted plus/minus) instead of the shipped box+RAPM blend, with the same offense. Shows how much the defensive-metric choice moves this team — largest on low-turnover rosters, where the blend leans on the box metric that misses perimeter defense. Display only, never an input.">RAPM-only D <b class="odv ${cr.defRrapm >= 0 ? 'p' : 'n'}">${cr.defRrapm >= 0 ? '+' : '−'}${Math.abs(cr.defRrapm).toFixed(1)}</b> &rarr; <b>${fmt1(wRapm.mean)}</b> wins</span>` : ''}
+      ${odStat('Offense', activeArm.offR, 'Projected team offense versus league average, in points per 100 possessions (the one-year carryover is separate). Positive is good. Reflects the active Blended/Box/RAPM method.')}
+      ${odStat('Defense', activeArm.defR, 'Projected team defense versus league average (positive = fewer points allowed). Reflects the active Blended/Box/RAPM method — the D-arrow flags in the table mark players where play-by-play RAPM disagrees with the box score.')}
       <span class="stat">Roster turnover <b>${(t.turnover * 100).toFixed(0)}%</b></span>
       <span class="stat" title="Sum of every active player&rsquo;s minutes-per-game times availability. A real rotation supplies 240 player-minutes per game; well above 240 means an oversized off-season roster the model scales back down.">Minutes supplied <b${loadCls}>${loadMpg.toFixed(0)}</b>/240</span>
       <span class="stat">Range width <b>&plusmn;${((w.p90 - w.p10) / 2).toFixed(1)}</b> wins</span>
@@ -1569,7 +1623,7 @@ function renderPanel(t, w) {
       <button class="act" data-reset="${t.id}"
         ${st.off.size || st.added.length ? '' : 'disabled'}>Reset roster</button>
     </div>
-    ${disagreementBlock(t, w, cr, wRapm)}
+    ${disagreementBlock(t, w, activeArm, wRapm)}
     ${movesSection(t)}
     <div class="tbl-scroll">
       <table>

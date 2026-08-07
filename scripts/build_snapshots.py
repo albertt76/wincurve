@@ -27,7 +27,7 @@ from nbaproj.aging import (  # noqa: E402
 from nbaproj.availability import build_availability, build_features, fit_predict  # noqa: E402
 from nbaproj.carryover import apply_carryover, fit_rho  # noqa: E402
 from nbaproj.minutes import MINUTES_PER_GAME  # noqa: E402
-from nbaproj.project import calibrate_projected_ratings, roster_opening_day  # noqa: E402
+from nbaproj.project import roster_opening_day  # noqa: E402
 from nbaproj.awards import honor_lookup, load_honors  # noqa: E402
 from nbaproj.rapm import box_vs_rapm_by_player, build_rapm_impact  # noqa: E402
 from nbaproj.rapm_blend import (  # noqa: E402
@@ -121,6 +121,10 @@ def build_historical(season: int, data: dict) -> dict:
     off_slope, off_int = cal_c["off_slope"], cal_c["off_intercept"]
     def_slope, def_int = cal_c["def_slope"], cal_c["def_intercept"]
     slope, intercept = cal_c["rating_slope"], cal_c["rating_intercept"]
+    off_slope_box, off_int_box = cal_c["off_slope_box"], cal_c["off_intercept_box"]
+    def_slope_box, def_int_box = cal_c["def_slope_box"], cal_c["def_intercept_box"]
+    off_slope_rapm, off_int_rapm = cal_c["off_slope_rapm"], cal_c["off_intercept_rapm"]
+    def_slope_rapm, def_int_rapm = cal_c["def_slope_rapm"], cal_c["def_intercept_rapm"]
     ratings = _aggregate_from_roster(base, rep, rep_off, rep_def, rep_off_rapm, rep_def_rapm)
     turnover = roster_turnover(pts, season_start=season)
     ratings = ratings.merge(turnover, on="team_id", how="left")
@@ -139,14 +143,16 @@ def build_historical(season: int, data: dict) -> dict:
     ratings = apply_carryover(ratings, scored, ts, target_season=season)
     rho = fit_rho(scored, ts, before_season=season)
 
-    # RAPM-only display arm: same offense + carryover, defense from pure RAPM (its own
-    # walk-forward slope). rating_rapm - rating is exactly the (RAPM - blend) defensive
-    # difference. Display only -- see scripts/gate_blend_weight.py for why the blend is not
-    # re-weighted toward it.
-    ds_rapm, di_rapm = calibrate_projected_ratings(
-        A, ts, target_season=season, target="def_rating", agg_col="agg_def_rapm")
-    ratings["def_rating_rapm"] = ds_rapm * ratings["agg_def_rapm"] + di_rapm
-    ratings["rating_rapm"] = (ratings["off_rating"] + ratings["def_rating_rapm"]
+    # Method-toggle arms (Box only / RAPM only), each priced with its own slope, same shared
+    # carryover as the blended model -- see scripts/project_current.py's twin for the full
+    # rationale (this mirrors it exactly, per historical season).
+    ratings["off_rating_box"] = off_slope_box * ratings["agg_off_box"] + off_int_box
+    ratings["def_rating_box"] = def_slope_box * ratings["agg_def_box"] + def_int_box
+    ratings["off_rating_rapm"] = off_slope_rapm * ratings["agg_off_rapm"] + off_int_rapm
+    ratings["def_rating_rapm"] = def_slope_rapm * ratings["agg_def_rapm"] + def_int_rapm
+    ratings["rating_box"] = (ratings["off_rating_box"] + ratings["def_rating_box"]
+                             + ratings["carryover"])
+    ratings["rating_rapm"] = (ratings["off_rating_rapm"] + ratings["def_rating_rapm"]
                               + ratings["carryover"])
 
     actual = ts[ts["season_start"] == season].copy()
@@ -164,7 +170,10 @@ def build_historical(season: int, data: dict) -> dict:
     honors = honor_lookup(data.get("honors"), before_season=season)
     cal = {"off_slope": off_slope, "off_intercept": off_int,
            "def_slope": def_slope, "def_intercept": def_int,
-           "def_slope_rapm": ds_rapm, "def_intercept_rapm": di_rapm,
+           "off_slope_box": off_slope_box, "off_intercept_box": off_int_box,
+           "def_slope_box": def_slope_box, "def_intercept_box": def_int_box,
+           "off_slope_rapm": off_slope_rapm, "off_intercept_rapm": off_int_rapm,
+           "def_slope_rapm": def_slope_rapm, "def_intercept_rapm": def_int_rapm,
            "replacement_off": rep_off, "replacement_def": rep_def,
            "replacement_off_rapm": rep_off_rapm, "replacement_def_rapm": rep_def_rapm}
     games = int(actual["games"].mode().iloc[0]) if not actual.empty else FULL_SEASON_GAMES
@@ -207,17 +216,20 @@ def _age_lookup(ages: pd.DataFrame, season: int) -> dict:
     return a.to_dict()
 
 
-def _grid_mean_wins(grid: list[dict], offset: float) -> float:
-    """Interpolate mean wins from a team's rating-offset grid (mirrors the UI's winsAt)."""
+def _grid_interp(grid: list[dict], offset: float) -> dict:
+    """Interpolate a full win distribution (mean + p10/p25/p75/p90) from a team's rating-offset
+    grid. See scripts/project_current.py's twin for why this is safe to reuse for the Box-only
+    and RAPM-only method-toggle arms without a new simulation."""
+    keys = ("mean", "p10", "p25", "p75", "p90")
     if offset <= grid[0]["offset"]:
-        return grid[0]["mean"]
+        return {k: grid[0][k] for k in keys}
     if offset >= grid[-1]["offset"]:
-        return grid[-1]["mean"]
+        return {k: grid[-1][k] for k in keys}
     for a, b in zip(grid, grid[1:]):
         if a["offset"] <= offset <= b["offset"]:
             f = (offset - a["offset"]) / (b["offset"] - a["offset"])
-            return a["mean"] + f * (b["mean"] - a["mean"])
-    return grid[len(grid) // 2]["mean"]
+            return {k: round(a[k] + f * (b[k] - a[k]), 1) for k in keys}
+    return {k: grid[len(grid) // 2][k] for k in keys}
 
 
 def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, rho,
@@ -299,19 +311,30 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
             return rec
         players = [_player(p) for _, p in g.iterrows()]
         base = grid[tid][len(RATING_GRID) // 2]
+        pred = float(tr["pred_net_rating_dev"])
+        rating_box = float(tr["rating_box"])
         rating_rapm = float(tr["rating_rapm"])
+        wb = _grid_interp(grid[tid], rating_box - pred)
+        wr = _grid_interp(grid[tid], rating_rapm - pred)
         rec = {
             "id": tid, "abbr": abbr.get(tid, name_map.get(tid, {}).get("team", "?")),
             "name": name_map.get(tid, {}).get("team_name", "?"),
             "coach": coach_map.get(tid, "unknown"),
             "agg_impact": round(float(tr["agg_impact"]), 4),
-            "rating": round(float(tr["pred_net_rating_dev"]), 2),
+            "rating": round(pred, 2),
             "off_rating": round(float(tr["off_rating"]), 2),
             "def_rating": round(float(tr["def_rating"]), 2),
+            # Method-toggle arms (Box only / RAPM only), full recompute via the shared grid.
+            "rating_box": round(rating_box, 2),
+            "off_rating_box": round(float(tr["off_rating_box"]), 2),
+            "def_rating_box": round(float(tr["def_rating_box"]), 2),
+            "wins_box": wb["mean"], "p10_box": wb["p10"], "p25_box": wb["p25"],
+            "p75_box": wb["p75"], "p90_box": wb["p90"],
             "rating_rapm": round(rating_rapm, 2),
+            "off_rating_rapm": round(float(tr["off_rating_rapm"]), 2),
             "def_rating_rapm": round(float(tr["def_rating_rapm"]), 2),
-            "wins_rapm": round(_grid_mean_wins(
-                grid[tid], rating_rapm - float(tr["pred_net_rating_dev"])), 1),
+            "wins_rapm": wr["mean"], "p10_rapm": wr["p10"], "p25_rapm": wr["p25"],
+            "p75_rapm": wr["p75"], "p90_rapm": wr["p90"],
             "carryover": round(float(tr.get("carryover", 0.0)), 2),
             "sigma": round(float(tr["sigma"]), 3),
             "turnover": round(float(tr["new_minute_share"]), 3),
@@ -340,6 +363,12 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
         "off_intercept": round(cal["off_intercept"], 4),
         "def_slope": round(cal["def_slope"], 4),
         "def_intercept": round(cal["def_intercept"], 4),
+        "off_slope_box": round(cal["off_slope_box"], 4),
+        "off_intercept_box": round(cal["off_intercept_box"], 4),
+        "def_slope_box": round(cal["def_slope_box"], 4),
+        "def_intercept_box": round(cal["def_intercept_box"], 4),
+        "off_slope_rapm": round(cal["off_slope_rapm"], 4),
+        "off_intercept_rapm": round(cal["off_intercept_rapm"], 4),
         "def_slope_rapm": round(cal["def_slope_rapm"], 4),
         "def_intercept_rapm": round(cal["def_intercept_rapm"], 4),
         "replacement_off": round(cal["replacement_off"], 4),
@@ -444,8 +473,12 @@ def main() -> int:
         if b:
             nm = _attach_historical_market(b, mkt_hist)
             snapshots[b["season"]] = b
+            sums = {lbl: round(sum(t[key] for t in b["teams"]))
+                    for lbl, key in [("blended", "wins"), ("box", "wins_box"),
+                                     ("rapm", "wins_rapm")]}
             print(f"  {b['season']}: MAE {b['season_mae']}  "
-                  f"({len(b['teams'])} teams, rho {b['rho_carryover']}, Vegas {nm}/30)")
+                  f"({len(b['teams'])} teams, rho {b['rho_carryover']}, Vegas {nm}/30, "
+                  f"sum wins {sums})")
 
     # Current season from the existing live bundle.
     cur_path = PROC / "projections_current.json"
@@ -464,6 +497,12 @@ def main() -> int:
             "off_intercept": cur["meta"].get("off_intercept"),
             "def_slope": cur["meta"].get("def_slope"),
             "def_intercept": cur["meta"].get("def_intercept"),
+            "off_slope_box": cur["meta"].get("off_slope_box"),
+            "off_intercept_box": cur["meta"].get("off_intercept_box"),
+            "def_slope_box": cur["meta"].get("def_slope_box"),
+            "def_intercept_box": cur["meta"].get("def_intercept_box"),
+            "off_slope_rapm": cur["meta"].get("off_slope_rapm"),
+            "off_intercept_rapm": cur["meta"].get("off_intercept_rapm"),
             "def_slope_rapm": cur["meta"].get("def_slope_rapm"),
             "def_intercept_rapm": cur["meta"].get("def_intercept_rapm"),
             "replacement_off": cur["meta"].get("replacement_off"),

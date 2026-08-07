@@ -123,20 +123,48 @@ def backtest_aggregates(imp: pd.DataFrame, rapm_imp: pd.DataFrame, pts: pd.DataF
 
 
 def calibrate_blend(A: pd.DataFrame, ts: pd.DataFrame, *, target_season: int) -> dict:
-    """Walk-forward calibration for the blended model: offense on the turnover-blended
-    agg_off_used (falls back to pure-box agg_off if the offense RAPM arm was not built, e.g. a
-    caller that never passed rapm_off_imp to backtest_aggregates), defense on the
-    turnover-blended agg_def_used, each mapped to team offense/defense with its own slope.
-    Returns the four coefficients plus the combined slope (display-only)."""
+    """Walk-forward calibration for the blended model AND its two extremes (box-only, RAPM-only),
+    each mapped to team offense/defense with its own slope, so a caller can price a team under
+    any of the three methods with a like-for-like fit rather than reusing the blended slope on
+    an unblended aggregate.
+
+    Blended: offense on the turnover-blended agg_off_used (falls back to pure-box agg_off if the
+    offense RAPM arm was not built, e.g. a caller that never passed rapm_off_imp to
+    backtest_aggregates), defense on the turnover-blended agg_def_used. Box-only: agg_off /
+    agg_def_box. RAPM-only: agg_off_rapm / agg_def_rapm (only returned when those columns are
+    present, i.e. rapm_off_imp was passed to backtest_aggregates).
+
+    Powers the Blended/Box/RAPM method toggle (ui/template.html, ui/nba_players): each method
+    needs its own slope because the three aggregates have different scale/dispersion -- reusing
+    one slope across methods would repeat the exact mismatch this project's own history warns
+    against (fitting a calibration on one kind of quantity and applying it to another).
+    """
     off_col = "agg_off_used" if "agg_off_used" in A.columns else "agg_off"
     off_slope, off_int = calibrate_projected_ratings(
         A, ts, target_season=target_season, target="off_rating", agg_col=off_col)
     def_slope, def_int = calibrate_projected_ratings(
         A, ts, target_season=target_season, target="def_rating", agg_col="agg_def_used")
     slope, intercept = calibrate_projected_ratings(A, ts, target_season=target_season)
-    return {"off_slope": off_slope, "off_intercept": off_int,
-            "def_slope": def_slope, "def_intercept": def_int,
-            "rating_slope": slope, "rating_intercept": intercept}
+    off_slope_box, off_int_box = calibrate_projected_ratings(
+        A, ts, target_season=target_season, target="off_rating", agg_col="agg_off")
+    def_slope_box, def_int_box = calibrate_projected_ratings(
+        A, ts, target_season=target_season, target="def_rating", agg_col="agg_def_box")
+    out = {"off_slope": off_slope, "off_intercept": off_int,
+           "def_slope": def_slope, "def_intercept": def_int,
+           "rating_slope": slope, "rating_intercept": intercept,
+           "off_slope_box": off_slope_box, "off_intercept_box": off_int_box,
+           "def_slope_box": def_slope_box, "def_intercept_box": def_int_box}
+    if "agg_off_rapm" in A.columns:
+        off_slope_rapm, off_int_rapm = calibrate_projected_ratings(
+            A, ts, target_season=target_season, target="off_rating", agg_col="agg_off_rapm")
+        out["off_slope_rapm"] = off_slope_rapm
+        out["off_intercept_rapm"] = off_int_rapm
+    if "agg_def_rapm" in A.columns:
+        def_slope_rapm, def_int_rapm = calibrate_projected_ratings(
+            A, ts, target_season=target_season, target="def_rating", agg_col="agg_def_rapm")
+        out["def_slope_rapm"] = def_slope_rapm
+        out["def_intercept_rapm"] = def_int_rapm
+    return out
 
 
 def team_def_blend(agg_def_box: float, agg_def_rapm: float, new_minute_share: float) -> float:
@@ -146,9 +174,9 @@ def team_def_blend(agg_def_box: float, agg_def_rapm: float, new_minute_share: fl
 
 
 def team_off_blend(agg_off_box: float, agg_off_rapm: float, weight: float) -> float:
-    """A weighted offensive aggregate for one team, given an already-computed weight. Generic
-    (unlike `team_def_blend`, which hardcodes the shipped turnover weight) because the
-    offensive blend weight is still an open experiment -- see scripts/gate_rapm_offense_blend.py.
-    """
+    """A weighted offensive aggregate for one team, given an already-computed weight. Takes the
+    weight explicitly rather than hardcoding it (unlike `team_def_blend`) so a caller can pass
+    the shipped turnover weight (`blend_weight(new_minute_share)`, the normal case) or 0/1 for
+    the box-only/RAPM-only extremes of the method toggle."""
     w = float(np.clip(weight, 0.0, 1.0))
     return (1 - w) * agg_off_box + w * agg_off_rapm

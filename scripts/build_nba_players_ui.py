@@ -85,35 +85,77 @@ def team_cap_factor(team: dict, mpg_budget: float) -> float:
     return mpg_budget / load if load > mpg_budget else 1.0
 
 
-def win_parts(p: dict, team: dict, season_meta: dict, gmeta: dict) -> tuple[float, float, bool]:
+def _method_devs(p: dict, team: dict, season_meta: dict, method: str) -> tuple[float, float]:
+    """Offense/defense deviation-from-replacement for one player under `method`
+    ('blended'/'box'/'rapm'). 'box' and 'rapm' branch directly to the pure aggregate (no
+    (1-w)*box + w*rapm indirection with w forced to 0/1 -- simpler, matches how the shipped
+    RAPM-only-defense arm already worked before the method toggle); 'blended' uses the team's
+    turnover weight, exactly like the shipped team rating (nbaproj.rapm_blend.blend_weight)."""
+    box_off = p.get("off") or 0
+    box_def = p.get("def") or 0
+    rep_off, rep_def = season_meta["replacement_off"], season_meta["replacement_def"]
+    if method == "box":
+        return box_off - rep_off, box_def - rep_def
+    rapm_off = p["offr"] if p.get("offr") is not None else box_off
+    rapm_def = p["defr"] if p.get("defr") is not None else box_def
+    rep_off_rapm = season_meta.get("replacement_off_rapm")
+    rep_def_rapm = season_meta.get("replacement_def_rapm")
+    if method == "rapm":
+        off_dev = (rapm_off - rep_off_rapm) if rep_off_rapm is not None else (box_off - rep_off)
+        def_dev = (rapm_def - rep_def_rapm) if rep_def_rapm is not None else (box_def - rep_def)
+        return off_dev, def_dev
+    w = min(max(team.get("turnover") or 0, 0), 1)
+    off_dev = box_off - rep_off
+    if rep_off_rapm is not None:
+        off_dev = (1 - w) * (box_off - rep_off) + w * (rapm_off - rep_off_rapm)
+    def_dev = box_def - rep_def
+    if rep_def_rapm is not None:
+        def_dev = (1 - w) * (box_def - rep_def) + w * (rapm_def - rep_def_rapm)
+    return off_dev, def_dev
+
+
+def _display_off_def(p: dict, team: dict, season_meta: dict, method: str) -> tuple[float, float]:
+    """Off/def RATING (not deviation) to show under `method`: Box passes through raw p.off/p.def,
+    RAPM passes through raw p.offr/p.defr, Blended is replacement + the exact off_dev/def_dev
+    win_parts computes -- so Off/Def/Impact move together with ≈Wins under the toggle instead of
+    staying frozen at the box value while only wins changes."""
+    if method == "box":
+        return p.get("off") or 0, p.get("def") or 0
+    if method == "rapm":
+        offr = p["offr"] if p.get("offr") is not None else p.get("off")
+        defr = p["defr"] if p.get("defr") is not None else p.get("def")
+        return offr or 0, defr or 0
+    rep_off, rep_def = season_meta.get("replacement_off"), season_meta.get("replacement_def")
+    if rep_off is None or rep_def is None:
+        return p.get("off") or 0, p.get("def") or 0
+    off_dev, def_dev = _method_devs(p, team, season_meta, "blended")
+    return rep_off + off_dev, rep_def + def_dev
+
+
+def win_parts(p: dict, team: dict, season_meta: dict, gmeta: dict,
+             method: str = "blended") -> tuple[float, float, bool]:
     """Port of ``winParts`` in ui/template.html: a player's WAR-like ("wins above replacement")
-    value, decomposing the SAME model the team rating uses -- offense and defense priced by their
-    own slopes, defense the turnover-weighted blend of box and RAPM. Returns (off, def, split)."""
+    value under the given method, decomposing the SAME model the team rating uses -- offense and
+    defense each priced by their OWN method-specific slope (never the blended slope applied to
+    an unblended aggregate). Returns (off, def, split)."""
     mpg_budget = gmeta["minutes_budget"] / gmeta["full_season_games"]
     cap = team_cap_factor(team, mpg_budget)
     minshare = (p.get("mpg") or 0) * (p.get("avail") or 0) / mpg_budget * cap
-    off_slope = season_meta.get("off_slope")
-    if off_slope is not None:
-        w = min(max(team.get("turnover") or 0, 0), 1)
-        off_dev = (p.get("off") or 0) - season_meta["replacement_off"]
-        rep_off_rapm = season_meta.get("replacement_off_rapm")
-        if rep_off_rapm is not None:
-            offr = p["offr"] if p.get("offr") is not None else p.get("off")
-            off_dev = (1 - w) * ((p.get("off") or 0) - season_meta["replacement_off"]) \
-                + w * ((offr or 0) - rep_off_rapm)
-        def_dev = (p.get("def") or 0) - season_meta["replacement_def"]
-        rep_def_rapm = season_meta.get("replacement_def_rapm")
-        if rep_def_rapm is not None:
-            defr = p["defr"] if p.get("defr") is not None else p.get("def")
-            def_dev = (1 - w) * ((p.get("def") or 0) - season_meta["replacement_def"]) \
-                + w * ((defr or 0) - rep_def_rapm)
+    suf = "" if method == "blended" else f"_{method}"
+    off_slope = season_meta.get(f"off_slope{suf}")
+    def_slope = season_meta.get(f"def_slope{suf}")
+    if off_slope is not None and def_slope is not None:
+        off_dev, def_dev = _method_devs(p, team, season_meta, method)
         k = gmeta["wins_per_rating_point"] * minshare
         off = k * off_slope * off_dev
-        deff = k * season_meta["def_slope"] * def_dev
+        deff = k * def_slope * def_dev
         return off, deff, True
     total = gmeta["wins_per_rating_point"] * season_meta["rating_slope"] \
         * minshare * ((p.get("impact") or 0) - gmeta["replacement_impact"])
     return 0.0, total, False
+
+
+METHODS = [("blended", ""), ("box", "_box"), ("rapm", "_rapm")]
 
 
 def season_players(season_blob: dict, gmeta: dict) -> list[dict]:
@@ -123,28 +165,35 @@ def season_players(season_blob: dict, gmeta: dict) -> list[dict]:
     trade / roster-reconstruction artifact); the duplicate rows carry identical impact/off/def/mpg
     (verified), so deduping by player id is lossless. We keep the row with a non-empty ``pos`` when
     one exists (cleaner subtitle), else the first seen -- one clean league-wide row per player.
+
+    Each of impact/off/def/wins/winsOff/winsDef is emitted 3x for the method toggle: unsuffixed
+    = Blended (the shipped default -- note this is a naming change from before the toggle, when
+    unsuffixed off/def/impact meant pure box), `_box` = Box only, `_rapm` = RAPM only.
     """
     seen: dict[int, dict] = {}
     for team in season_blob.get("teams", []):
         abbr = team.get("abbr") or ""
         for p in team.get("players", []):
             pid = int(p["id"])
-            wins_off, wins_def, split = win_parts(p, team, season_blob, gmeta)
             row = {
                 "id": pid,
                 "name": str(p.get("name", "")),
                 "pos": str(p.get("pos") or ""),
                 "team": abbr,
-                "impact": _num(p.get("impact"), 2),
-                "off": _num(p.get("off"), 2),
-                "def": _num(p.get("def"), 2),
                 "mpg": _num(p.get("mpg"), 1),
                 "age": _int(p.get("age")),
-                "wins": _num(wins_off + wins_def, 2),
-                "winsOff": _num(wins_off, 2),
-                "winsDef": _num(wins_def, 2),
-                "winsSplit": split,
             }
+            split = False
+            for method, suf in METHODS:
+                off_disp, def_disp = _display_off_def(p, team, season_blob, method)
+                wins_off, wins_def, split = win_parts(p, team, season_blob, gmeta, method)
+                row[f"impact{suf}"] = _num(off_disp + def_disp, 2)
+                row[f"off{suf}"] = _num(off_disp, 2)
+                row[f"def{suf}"] = _num(def_disp, 2)
+                row[f"wins{suf}"] = _num(wins_off + wins_def, 2)
+                row[f"winsOff{suf}"] = _num(wins_off, 2)
+                row[f"winsDef{suf}"] = _num(wins_def, 2)
+            row["winsSplit"] = split
             prev = seen.get(pid)
             # prefer the row that actually carries a position (the other is the same player)
             if prev is None or (not prev["pos"] and row["pos"]):
