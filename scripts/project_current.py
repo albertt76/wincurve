@@ -29,7 +29,8 @@ from nbaproj.carryover import apply_carryover, fit_rho  # noqa: E402
 from nbaproj.awards import honor_lookup, load_honors  # noqa: E402
 from nbaproj.rapm import box_vs_rapm_by_player, build_rapm_impact  # noqa: E402
 from nbaproj.rapm_blend import (  # noqa: E402
-    backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def, project_rapm_off,
+    backtest_aggregates, blend_weight, calibrate_blend, offense_blend_weight,
+    project_rapm_def, project_rapm_off,
 )
 from nbaproj.rosters import (  # noqa: E402
     apply_overrides, apply_return_overrides, draft_history, fit_rookie_priors,
@@ -282,10 +283,12 @@ def main() -> int:
     turnover = roster_turnover(pts, season_start=TARGET, roster=roster)
     hca, margin_sd = estimate_game_params(gl, before_season=TARGET)
 
-    # --- aggregate each team: offense and defense, both ways (box and RAPM). Both aggregates
-    #     actually used are the turnover-weighted blend -- a steady roster leans on the box
-    #     metric (which the carryover corrects), a turned-over one on RAPM whose value follows
-    #     the incoming players. off_rating + def_rating is the roster's net rating. ---
+    # --- aggregate each team: offense and defense, both ways (box and RAPM). DEFENSE blends by
+    #     roster turnover (a steady roster leans on the box metric the carryover corrects, a
+    #     turned-over one on RAPM whose value follows the incoming players). OFFENSE blends by the
+    #     team's prior-season top-scorer share (offense_blend_weight) -- usage, not continuity, is
+    #     what says "trust plus-minus over the box here", which restores stable-roster creators the
+    #     turnover weight left behind. off_rating + def_rating is the roster's net rating. ---
     budget = 240.0 * FULL_SEASON_GAMES
     team_rows = []
     for tid, g in roster.groupby("team_id"):
@@ -307,8 +310,12 @@ def main() -> int:
                           "agg_off_rapm": agg_off_rapm, "agg_def_rapm": agg_def_rapm,
                           "leftover_share": leftover / budget})
     teams = pd.DataFrame(team_rows).merge(turnover, on="team_id", how="left")
-    w = blend_weight(teams["new_minute_share"])
-    teams["agg_off_used"] = (1 - w) * teams["agg_off_box"] + w * teams["agg_off_rapm"]
+    off_w = offense_blend_weight(pts, [TARGET])[["team_id", "off_weight"]]
+    teams = teams.merge(off_w, on="team_id", how="left")
+    teams["off_weight"] = teams["off_weight"].fillna(off_w["off_weight"].median()).clip(0.0, 1.0)
+    w = blend_weight(teams["new_minute_share"])          # defensive weight: roster turnover
+    wo = teams["off_weight"]                              # offensive weight: prior top-scorer share
+    teams["agg_off_used"] = (1 - wo) * teams["agg_off_box"] + wo * teams["agg_off_rapm"]
     teams["agg_def_used"] = (1 - w) * teams["agg_def_box"] + w * teams["agg_def_rapm"]
     teams["agg_impact"] = teams["agg_off_used"] + teams["agg_def_used"]
     teams["off_rating"] = off_slope * teams["agg_off_used"] + off_int
@@ -520,6 +527,7 @@ def main() -> int:
             "carryover": round(float(tr.get("carryover", 0.0)), 2),
             "sigma": round(float(tr["sigma"]), 3),
             "turnover": round(float(tr["new_minute_share"]), 3),
+            "off_weight": round(float(tr["off_weight"]), 3),
             "wins": base["mean"],
             "p10": base["p10"], "p25": base["p25"],
             "p75": base["p75"], "p90": base["p90"],

@@ -31,7 +31,8 @@ from nbaproj.project import roster_opening_day  # noqa: E402
 from nbaproj.awards import honor_lookup, load_honors  # noqa: E402
 from nbaproj.rapm import box_vs_rapm_by_player, build_rapm_impact  # noqa: E402
 from nbaproj.rapm_blend import (  # noqa: E402
-    backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def, project_rapm_off,
+    backtest_aggregates, blend_weight, calibrate_blend, offense_blend_weight,
+    project_rapm_def, project_rapm_off,
 )
 from nbaproj.simulate import (  # noqa: E402
     estimate_game_params, extract_schedule, fit_rating_sigma, roster_turnover,
@@ -129,8 +130,12 @@ def build_historical(season: int, data: dict) -> dict:
     turnover = roster_turnover(pts, season_start=season)
     ratings = ratings.merge(turnover, on="team_id", how="left")
     ratings["new_minute_share"] = ratings["new_minute_share"].fillna(0.3)
-    w = blend_weight(ratings["new_minute_share"])
-    ratings["agg_off_used"] = (1 - w) * ratings["agg_off_box"] + w * ratings["agg_off_rapm"]
+    off_w = offense_blend_weight(pts, [season])[["team_id", "off_weight"]]
+    ratings = ratings.merge(off_w, on="team_id", how="left")
+    ratings["off_weight"] = ratings["off_weight"].fillna(off_w["off_weight"].median()).clip(0.0, 1.0)
+    w = blend_weight(ratings["new_minute_share"])         # defensive weight: roster turnover
+    wo = ratings["off_weight"]                            # offensive weight: prior top-scorer share
+    ratings["agg_off_used"] = (1 - wo) * ratings["agg_off_box"] + wo * ratings["agg_off_rapm"]
     ratings["agg_def_used"] = (1 - w) * ratings["agg_def_box"] + w * ratings["agg_def_rapm"]
     ratings["agg_impact"] = ratings["agg_off_used"] + ratings["agg_def_used"]
     ratings["off_rating"] = off_slope * ratings["agg_off_used"] + off_int
@@ -338,6 +343,7 @@ def _assemble(season, ratings, roster, data, sigma_base, slope, intercept, rep, 
             "carryover": round(float(tr.get("carryover", 0.0)), 2),
             "sigma": round(float(tr["sigma"]), 3),
             "turnover": round(float(tr["new_minute_share"]), 3),
+            "off_weight": round(float(tr["off_weight"]), 3),
             "wins": base["mean"], "p10": base["p10"], "p25": base["p25"],
             "p75": base["p75"], "p90": base["p90"], "players": players,
         }
