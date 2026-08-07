@@ -78,27 +78,43 @@ def box_vs_rapm_by_player(impact: pd.DataFrame, rapm_dir: str | Path, *,
 
 
 def build_rapm_impact(impact: pd.DataFrame, rapm_dir: str | Path, *,
-                      alpha: int = 2000) -> pd.DataFrame:
-    """A copy of the impact table with the box-score `def_impact` replaced by box-informed
-    RAPM defense wherever a cached season estimate exists (`impact` recomputed as off + def).
+                      alpha: int = 2000, which: str = "def") -> pd.DataFrame:
+    """A copy of the impact table with box-score off_impact and/or def_impact replaced by
+    box-informed RAPM wherever a cached season estimate exists (`impact` recomputed as
+    off + def).
 
     Box-informed RAPM is anchored on the box prior, so the two are on the same scale and the
-    swap is well-posed. Players/seasons without a RAPM estimate keep their box defense. Used to
-    build the RAPM-defense arm that the projection blends toward on high-turnover rosters.
+    swap is well-posed. Players/seasons without a RAPM estimate keep their box value.
+
+    `which` selects which side(s) to swap: "def" (the shipped defensive-blend arm), "off"
+    (the offensive-blend experiment -- `off_rapm` is fit by the same estimator but was
+    previously discarded here), or "both".
     """
     out = impact.copy()
+    swap_def = which in ("def", "both")
+    swap_off = which in ("off", "both")
     new_def = out["def_impact"].to_numpy(dtype=float).copy()
+    new_off = out["off_impact"].to_numpy(dtype=float).copy()
     for s in sorted(int(x) for x in out["season_start"].unique()):
         f = Path(rapm_dir) / f"rapm_{s}_a{alpha}.parquet"
         if not f.exists():
             continue
-        rmap = pd.read_parquet(f).set_index("player_id")["def_rapm"]
+        rf = pd.read_parquet(f).set_index("player_id")
         mask = (out["season_start"] == s).to_numpy()
         rows = np.where(mask)[0]
-        mapped = out.loc[mask, "player_id"].map(rmap).to_numpy(dtype=float)
-        take = ~np.isnan(mapped)
-        new_def[rows[take]] = mapped[take]
-    out["def_impact"] = new_def
+        pids = out.loc[mask, "player_id"]
+        if swap_def and "def_rapm" in rf.columns:
+            mapped = pids.map(rf["def_rapm"]).to_numpy(dtype=float)
+            take = ~np.isnan(mapped)
+            new_def[rows[take]] = mapped[take]
+        if swap_off and "off_rapm" in rf.columns:
+            mapped = pids.map(rf["off_rapm"]).to_numpy(dtype=float)
+            take = ~np.isnan(mapped)
+            new_off[rows[take]] = mapped[take]
+    if swap_def:
+        out["def_impact"] = new_def
+    if swap_off:
+        out["off_impact"] = new_off
     out["impact"] = out["off_impact"] + out["def_impact"]
     return out
 

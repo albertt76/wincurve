@@ -261,6 +261,14 @@
 
   <div class="controls">
     <div class="grp"><span class="lbl">Season</span><div class="pills" id="seasons"></div></div>
+    <div class="grp" title="Which measurement drives every number in the table: Blended (shipped default — box score and play-by-play RAPM combined by roster turnover), Box only (the classic box-score-only method), or RAPM only (play-by-play regularized adjusted plus/minus only). Impact/Off/Def/&asymp;Wins all recompute.">
+      <span class="lbl">Method</span>
+      <div class="pills" id="method">
+        <button class="pill on" data-method="blended">Blended</button>
+        <button class="pill" data-method="box">Box</button>
+        <button class="pill" data-method="rapm">RAPM</button>
+      </div>
+    </div>
     <div class="grp">
       <span class="lbl">Team</span>
       <select class="teamsel" id="team" title="Filter by team"></select>
@@ -311,6 +319,7 @@ const state = {
   team: "all",
   pos: "all",
   q: "",
+  method: "blended",                  // Blended (shipped default) / Box / RAPM -- see #method pills
   sort: { key: "impact", dir: -1 },   // default: Impact descending
 };
 
@@ -320,6 +329,10 @@ const cls = x => x > 0.0001 ? "pos" : x < -0.0001 ? "neg" : "zero";
 const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 // primary position group: "F-G" -> "F", "G-F" -> "G", "" -> "" (blank shows only under "All")
 const grp = pos => (pos ? pos.split("-")[0] : "");
+// Resolve a base field name ("impact"/"off"/"def"/"wins"/"winsOff"/"winsDef") to its
+// method-suffixed key: unsuffixed = Blended (the shipped default), "_box"/"_rapm" for the
+// other two -- see scripts/build_nba_players_ui.py's METHODS/season_players for the producer.
+const mkey = base => state.method === "blended" ? base : `${base}_${state.method}`;
 
 /* ---- column definitions ---- */
 const COLS = [
@@ -346,9 +359,11 @@ function rows() {
   if (key === "name") {
     r.sort((a, b) => a.name.localeCompare(b.name) * dir);
   } else {
-    // numeric sort; missing values (age can be null) always sink to the bottom regardless of dir
+    // numeric sort; missing values (age can be null) always sink to the bottom regardless of dir.
+    // impact/off/def/wins resolve through the active method (mpg/age are method-independent).
+    const k = ["impact", "off", "def", "wins"].includes(key) ? mkey(key) : key;
     r.sort((a, b) => {
-      const av = a[key], bv = b[key];
+      const av = a[k], bv = b[k];
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
       if (bv == null) return -1;
@@ -371,9 +386,10 @@ function render() {
   }).join("") + "</tr>";
 
   // scale for the centered bar: symmetric, per-season (over the FULL season so the scale is
-  // stable as the user filters), keyed to Impact
+  // stable as the user filters), keyed to Impact under the active method
   const r = rows();
-  const maxAbs = Math.max(0.01, ...DATA.seasons[state.season].players.map(p => Math.abs(p.impact)));
+  const impactKey = mkey("impact");
+  const maxAbs = Math.max(0.01, ...DATA.seasons[state.season].players.map(p => Math.abs(p[impactKey] ?? 0)));
 
   const tbody = document.getElementById("tbody");
   if (!r.length) {
@@ -389,22 +405,23 @@ function render() {
         return `<td class="name"><span class="nm">${esc(p.name)}</span>${link}<span class="tag">${esc(tag)}</span></td>`;
       }
       if (c.key === "_bar") {
-        const v = p.impact;
+        const v = p[impactKey] ?? 0;
         const w = Math.min(50, Math.abs(v) / maxAbs * 50);
         const bar = v >= 0 ? `<i class="p" style="width:${w}%"></i>` : `<i class="n" style="width:${w}%"></i>`;
         return `<td class="bar"><div class="barwrap">${bar}</div></td>`;
       }
       if (c.key === "wins") {
-        if (p.wins == null) return `<td class="wins zero">—</td>`;
+        const wv = p[mkey("wins")];
+        if (wv == null) return `<td class="wins zero">—</td>`;
         const sgn = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1);
-        const tot = `<span class="wtot ${cls(p.wins)}">${sgn(p.wins)}</span>`;
+        const tot = `<span class="wtot ${cls(wv)}">${sgn(wv)}</span>`;
         const split = p.winsSplit
-          ? `<span class="wsplit"><span class="${cls(p.winsOff)}">o&nbsp;${sgn(p.winsOff)}</span>` +
-            `<span class="${cls(p.winsDef)}">d&nbsp;${sgn(p.winsDef)}</span></span>`
+          ? `<span class="wsplit"><span class="${cls(p[mkey("winsOff")])}">o&nbsp;${sgn(p[mkey("winsOff")])}</span>` +
+            `<span class="${cls(p[mkey("winsDef")])}">d&nbsp;${sgn(p[mkey("winsDef")])}</span></span>`
           : "";
         return `<td class="wins">${tot}${split}</td>`;
       }
-      const v = p[c.key];
+      const v = ["impact", "off", "def"].includes(c.key) ? p[mkey(c.key)] : p[c.key];
       if (c.signed) return `<td class="${cls(v)}">${sign(v, 2)}</td>`;
       if (v == null) return `<td class="zero">—</td>`;
       if (c.dec != null) return `<td>${v.toFixed(c.dec)}</td>`;
@@ -436,6 +453,7 @@ function glossary() {
     ["MPG", "Projected <b>minutes per game</b> for the season shown (opening-day roster). For past seasons this is the walk-forward projection, not the realized minutes."],
     ["Age", "Player age for that season. Blank if unknown for that player-season."],
     ["pos · TEAM", "Listed position and current team (the tag under each name). Position groups the filter to <b>G / F / C</b> by the primary listed position; players with no listed position appear only under <b>All</b>."],
+    ["Blended / Box / RAPM (Method)", "Which measurement drives Impact/Off/Def/&asymp;Wins. <b>Blended</b> (the shipped default) combines the box score and play-by-play <b>RAPM</b> (regularized adjusted plus/minus) by each team's roster turnover. <b>Box</b> is the classic box-score-only method. <b>RAPM</b> prices offense and defense purely from play-by-play, no box score at all. Each is calibrated with its own slope, so switching is a genuine re-projection, not a relabel."],
     ["replacement level", "Roughly a minimum-salary player freely available in the off-season, sitting at <b>≈−1.1</b> on this scale — below average. A rating near <b>0 is an average rotation player</b>; the ≈Wins column in the main team app is what measures value <em>above</em> replacement."],
   ];
   document.getElementById("gloss").innerHTML = items.map(([t, d]) => `<dt>${t}</dt><dd>${d}</dd>`).join("");
@@ -466,6 +484,13 @@ document.getElementById("pos").addEventListener("click", e => {
   const b = e.target.closest("[data-pos]"); if (!b) return;
   state.pos = b.dataset.pos;
   document.querySelectorAll("#pos button").forEach(x => x.classList.toggle("on", x === b));
+  render();
+});
+document.getElementById("method").addEventListener("click", e => {
+  const b = e.target.closest("[data-method]"); if (!b) return;
+  state.method = b.dataset.method;
+  document.querySelectorAll("#method button").forEach(x => x.classList.toggle("on", x === b));
+  storeSet("wincurve-method", state.method);
   render();
 });
 document.getElementById("search").addEventListener("input", e => { state.q = e.target.value.trim(); render(); });
@@ -505,6 +530,14 @@ try {
     if (match) state.team = match;
   }
 } catch (e) { /* malformed query string — show all teams */ }
+// shared "wincurve-method" key so the Blended/Box/RAPM choice carries across pages, same
+// convention as the theme toggle.
+const savedMethod = storeGet("wincurve-method");
+if (savedMethod === "box" || savedMethod === "rapm" || savedMethod === "blended") {
+  state.method = savedMethod;
+  document.querySelectorAll("#method button").forEach(
+    x => x.classList.toggle("on", x.dataset.method === savedMethod));
+}
 seasonPills();
 teamOptions();
 glossary();

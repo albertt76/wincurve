@@ -27,10 +27,9 @@ from nbaproj.aging import (  # noqa: E402
 )
 from nbaproj.carryover import apply_carryover, fit_rho  # noqa: E402
 from nbaproj.awards import honor_lookup, load_honors  # noqa: E402
-from nbaproj.project import calibrate_projected_ratings  # noqa: E402
 from nbaproj.rapm import box_vs_rapm_by_player, build_rapm_impact  # noqa: E402
 from nbaproj.rapm_blend import (  # noqa: E402
-    backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def,
+    backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def, project_rapm_off,
 )
 from nbaproj.rosters import (  # noqa: E402
     apply_overrides, apply_return_overrides, draft_history, fit_rookie_priors,
@@ -64,6 +63,24 @@ def _grid_mean_wins(grid: list[dict], offset: float) -> float:
             f = (offset - a["offset"]) / (b["offset"] - a["offset"])
             return a["mean"] + f * (b["mean"] - a["mean"])
     return grid[len(grid) // 2]["mean"]
+
+
+def _grid_interp(grid: list[dict], offset: float) -> dict:
+    """Interpolate a full win distribution (mean + p10/p25/p75/p90) from a team's rating-offset
+    grid, for a hypothetical rating produced by any method -- e.g. the Box-only or RAPM-only
+    method-toggle arms. Mirrors _grid_mean_wins but returns every field the UI bars need, not
+    just the mean, since Box/RAPM are now primary display arms (bars + ranges), not a single
+    side-readout the way the old RAPM-only-defense arm was."""
+    keys = ("mean", "p10", "p25", "p75", "p90")
+    if offset <= grid[0]["offset"]:
+        return {k: grid[0][k] for k in keys}
+    if offset >= grid[-1]["offset"]:
+        return {k: grid[-1][k] for k in keys}
+    for a, b in zip(grid, grid[1:]):
+        if a["offset"] <= offset <= b["offset"]:
+            f = (offset - a["offset"]) / (b["offset"] - a["offset"])
+            return {k: round(a[k] + f * (b[k] - a[k]), 1) for k in keys}
+    return {k: grid[len(grid) // 2][k] for k in keys}
 
 
 def main() -> int:
@@ -125,6 +142,14 @@ def main() -> int:
     proj_def_rapm = project_rapm_def(
         rapm_imp[~injured_season_mask(rapm_imp, returns_recent)], TARGET)
     rep_def_rapm = replacement_level(rapm_imp, "def_impact")
+    # RAPM-offense arm (shipped 2026-08): same idea, offense. Guard gravity / shot-creation is
+    # exactly what plus-minus sees and the box score does not; blending the two offensive team
+    # aggregates by the same turnover weight improves win MAE +0.11 to +0.15 wins walk-forward
+    # across every weight formulation tried -- see scripts/gate_rapm_offense_blend.py.
+    rapm_off_imp = build_rapm_impact(imp, PROC, which="off")
+    proj_off_rapm = project_rapm_off(
+        rapm_off_imp[~injured_season_mask(rapm_off_imp, returns_recent)], TARGET)
+    rep_off_rapm = replacement_level(rapm_off_imp, "off_impact")
 
     # --- rookies: no NBA record, so priors by draft slot ---
     draft = draft_history()
@@ -189,6 +214,8 @@ def main() -> int:
                           how="left")
     roster = roster.merge(proj_def_rapm.rename("proj_def_rapm").reset_index(),
                           on="player_id", how="left")
+    roster = roster.merge(proj_off_rapm.rename("proj_off_rapm").reset_index(),
+                          on="player_id", how="left")
     roster = roster.merge(rookie_picks, on="player_id", how="left")
 
     # Rookies and other players with no projection fall back to a draft-slot prior.
@@ -207,6 +234,7 @@ def main() -> int:
     roster["proj_off_impact"] = roster["proj_off_impact"].fillna(rep_off)
     roster["proj_def_impact"] = roster["proj_def_impact"].fillna(rep_def)
     roster["proj_def_rapm"] = roster["proj_def_rapm"].fillna(roster["proj_def_impact"])
+    roster["proj_off_rapm"] = roster["proj_off_rapm"].fillna(roster["proj_off_impact"])
     roster["is_rookie"] = need & roster["pick"].notna()
 
     # --- availability, with manual overrides for known absences ---
@@ -223,29 +251,29 @@ def main() -> int:
     # Applied AFTER the absence floor so an explicit return wins for the same player.
     roster = apply_return_overrides(roster, returns)
 
-    # --- calibration and uncertainty, fitted on history. Decoupled offense/defense; the
-    #     defensive aggregate blends the box and RAPM arms by roster turnover, and the defensive
-    #     slope is calibrated on that blend (nbaproj.rapm_blend). ---
+    # --- calibration and uncertainty, fitted on history. Decoupled offense/defense; BOTH
+    #     aggregates blend the box and RAPM arms by roster turnover, and each slope is
+    #     calibrated on its own blend (nbaproj.rapm_blend). ---
     A = backtest_aggregates(imp, rapm_imp, pts, pgl, ts, ages, hist_rosters,
-                            range(2017, LAST_HISTORY + 1))
+                            range(2017, LAST_HISTORY + 1), rapm_off_imp=rapm_off_imp)
+    # Method toggle (Blended / Box / RAPM), shipped 2026-08: each method needs its own slope
+    # because the three aggregates have different scale/dispersion (calibrate_blend fits all
+    # three). Blended is the shipped default; Box and RAPM power the UI's method toggle, which
+    # replaced the old RAPM-only-defense side-readout with a full recompute (see CLAUDE.md).
     cal = calibrate_blend(A, ts, target_season=TARGET)
     off_slope, off_int = cal["off_slope"], cal["off_intercept"]
     def_slope, def_int = cal["def_slope"], cal["def_intercept"]
     slope, intercept = cal["rating_slope"], cal["rating_intercept"]
-    # A second, RAPM-ONLY defensive calibration for the display arm: the same offense, but
-    # defense priced purely from play-by-play RAPM (its own, lower slope ~3.3 since the RAPM
-    # aggregate is ~2x more dispersed). Shown beside the shipped blend so a reader can see how
-    # much the defensive-metric choice moves each team; it is DISPLAY ONLY -- re-fitting the
-    # blend toward it did not clear the gate (scripts/gate_blend_weight.py). The two arms
-    # diverge most on stable rosters, where the blend ~= box and RAPM's perimeter read differs.
-    def_slope_rapm, def_int_rapm = calibrate_projected_ratings(
-        A, ts, target_season=TARGET, target="def_rating", agg_col="agg_def_rapm")
+    off_slope_box, off_int_box = cal["off_slope_box"], cal["off_intercept_box"]
+    def_slope_box, def_int_box = cal["def_slope_box"], cal["def_intercept_box"]
+    off_slope_rapm, off_int_rapm = cal["off_slope_rapm"], cal["off_intercept_rapm"]
+    def_slope_rapm, def_int_rapm = cal["def_slope_rapm"], cal["def_intercept_rapm"]
 
     actual = ts.copy()
     actual["net_rating_dev"] = actual["net_rating"] - actual.groupby(
         "season_start")["net_rating"].transform("mean")
     scored = A.copy()
-    scored["pred_net_rating_dev"] = (off_slope * scored["agg_off"] + off_int
+    scored["pred_net_rating_dev"] = (off_slope * scored["agg_off_used"] + off_int
                                      + def_slope * scored["agg_def_used"] + def_int)
     sigma_base = fit_rating_sigma(
         scored, actual[["team_id", "season_start", "net_rating_dev"]],
@@ -254,34 +282,49 @@ def main() -> int:
     turnover = roster_turnover(pts, season_start=TARGET, roster=roster)
     hca, margin_sd = estimate_game_params(gl, before_season=TARGET)
 
-    # --- aggregate each team: offense, and defense both ways (box and RAPM). The defensive
-    #     aggregate actually used is the turnover-weighted blend -- a steady roster leans on the
-    #     box metric (which the carryover corrects), a turned-over one on RAPM whose value
-    #     follows the incoming players. off_rating + def_rating is the roster's net rating. ---
+    # --- aggregate each team: offense and defense, both ways (box and RAPM). Both aggregates
+    #     actually used are the turnover-weighted blend -- a steady roster leans on the box
+    #     metric (which the carryover corrects), a turned-over one on RAPM whose value follows
+    #     the incoming players. off_rating + def_rating is the roster's net rating. ---
     budget = 240.0 * FULL_SEASON_GAMES
     team_rows = []
     for tid, g in roster.groupby("team_id"):
         mins = (g["prior_mpg"] * g["proj_availability"] * FULL_SEASON_GAMES).to_numpy()
         off_vals = g["proj_off_impact"].to_numpy(dtype=float)
         def_vals = g["proj_def_impact"].to_numpy(dtype=float)
+        off_rapm_vals = g["proj_off_rapm"].to_numpy(dtype=float)
         def_rapm_vals = g["proj_def_rapm"].to_numpy(dtype=float)
         used = mins.sum()
         if used > budget:
             mins = mins * budget / used
             used = budget
         leftover = max(budget - used, 0.0)
-        agg_off = (float(np.sum(mins * off_vals)) + leftover * rep_off) / budget
+        agg_off_box = (float(np.sum(mins * off_vals)) + leftover * rep_off) / budget
         agg_def_box = (float(np.sum(mins * def_vals)) + leftover * rep_def) / budget
+        agg_off_rapm = (float(np.sum(mins * off_rapm_vals)) + leftover * rep_off_rapm) / budget
         agg_def_rapm = (float(np.sum(mins * def_rapm_vals)) + leftover * rep_def_rapm) / budget
-        team_rows.append({"team_id": tid, "agg_off": agg_off, "agg_def_box": agg_def_box,
-                          "agg_def_rapm": agg_def_rapm, "leftover_share": leftover / budget})
+        team_rows.append({"team_id": tid, "agg_off_box": agg_off_box, "agg_def_box": agg_def_box,
+                          "agg_off_rapm": agg_off_rapm, "agg_def_rapm": agg_def_rapm,
+                          "leftover_share": leftover / budget})
     teams = pd.DataFrame(team_rows).merge(turnover, on="team_id", how="left")
     w = blend_weight(teams["new_minute_share"])
+    teams["agg_off_used"] = (1 - w) * teams["agg_off_box"] + w * teams["agg_off_rapm"]
     teams["agg_def_used"] = (1 - w) * teams["agg_def_box"] + w * teams["agg_def_rapm"]
-    teams["agg_impact"] = teams["agg_off"] + teams["agg_def_used"]
-    teams["off_rating"] = off_slope * teams["agg_off"] + off_int
+    teams["agg_impact"] = teams["agg_off_used"] + teams["agg_def_used"]
+    teams["off_rating"] = off_slope * teams["agg_off_used"] + off_int
     teams["def_rating"] = def_slope * teams["agg_def_used"] + def_int
     teams["pred_net_rating_dev"] = teams["off_rating"] + teams["def_rating"]
+
+    # Box-only and RAPM-only method-toggle arms, priced with their OWN slopes (never the blended
+    # slope applied to an unblended aggregate -- that mismatch is exactly what this project's own
+    # calibration lessons warn against). Carryover is a fixed team-level offset from last season's
+    # residual, computed once below on the blended model and added identically to all three
+    # methods (matches the precedent already set by the old RAPM-only-defense arm: "same offense
+    # + carryover, defense priced purely from RAPM").
+    teams["off_rating_box"] = off_slope_box * teams["agg_off_box"] + off_int_box
+    teams["def_rating_box"] = def_slope_box * teams["agg_def_box"] + def_int_box
+    teams["off_rating_rapm"] = off_slope_rapm * teams["agg_off_rapm"] + off_int_rapm
+    teams["def_rating_rapm"] = def_slope_rapm * teams["agg_def_rapm"] + def_int_rapm
 
     # One-year residual carryover: the model's error on a team persists ~one season, so
     # add rho * last season's residual. rho is fitted on prior residual pairs only, and
@@ -291,10 +334,10 @@ def main() -> int:
     teams = apply_carryover(teams, scored, ts, target_season=TARGET)
     rho_used = fit_rho(scored, ts, before_season=TARGET)
 
-    # RAPM-only display arm: same offense and same carryover, defense from pure RAPM. Isolating
-    # the defensive-metric choice, so rating_rapm - rating is exactly the (RAPM - blend) defense.
-    teams["def_rating_rapm"] = def_slope_rapm * teams["agg_def_rapm"] + def_int_rapm
-    teams["rating_rapm"] = (teams["off_rating"] + teams["def_rating_rapm"]
+    # Same carryover scalar added to the box-only and RAPM-only totals (see note above).
+    teams["rating_box"] = (teams["off_rating_box"] + teams["def_rating_box"]
+                           + teams["carryover"])
+    teams["rating_rapm"] = (teams["off_rating_rapm"] + teams["def_rating_rapm"]
                             + teams["carryover"])
 
     teams["sigma"] = sigma_base * teams["new_minute_share"].map(
@@ -368,18 +411,25 @@ def main() -> int:
             "off_intercept": round(off_int, 4),
             "def_slope": round(def_slope, 4),
             "def_intercept": round(def_int, 4),
+            "off_slope_box": round(off_slope_box, 4),
+            "off_intercept_box": round(off_int_box, 4),
+            "def_slope_box": round(def_slope_box, 4),
+            "def_intercept_box": round(def_int_box, 4),
+            "off_slope_rapm": round(off_slope_rapm, 4),
+            "off_intercept_rapm": round(off_int_rapm, 4),
             "def_slope_rapm": round(def_slope_rapm, 4),
             "def_intercept_rapm": round(def_int_rapm, 4),
             "sigma_base": round(sigma_base, 3),
             "replacement_impact": round(rep, 3),
             "replacement_off": round(rep_off, 4),
             "replacement_def": round(rep_def, 4),
+            "replacement_off_rapm": round(rep_off_rapm, 4),
             "replacement_def_rapm": round(rep_def_rapm, 4),
             "minutes_budget": budget,
             "full_season_games": FULL_SEASON_GAMES,
             "wins_per_rating_point": 2.38,
             "rho_carryover": round(rho_used, 3),
-            "backtest_mae": 7.58,
+            "backtest_mae": 7.40,
             "market_mae": 6.88,
         },
         "teams": [],
@@ -400,6 +450,7 @@ def main() -> int:
                 "impact": round(float(p["proj_impact"]), 5),
                 "off": round(float(p["proj_off_impact"]), 5),
                 "def": round(float(p["proj_def_impact"]), 5),
+                "offr": round(float(p["proj_off_rapm"]), 5),
                 "defr": round(float(p["proj_def_rapm"]), 5),
                 "mpg": round(float(p["prior_mpg"]), 4),
                 "avail": round(float(p["proj_availability"]), 5),
@@ -437,21 +488,35 @@ def main() -> int:
         players = [_player(p) for _, p in g.iterrows()]
 
         base = grid_out[tid][len(RATING_GRID) // 2]
+        pred = float(tr["pred_net_rating_dev"])
+        rating_box = float(tr["rating_box"])
         rating_rapm = float(tr["rating_rapm"])
+        # Box-only and RAPM-only method-toggle arms: interpolated on the SAME per-team grid
+        # (built once, around the blended rating) rather than a new simulation -- see CLAUDE.md
+        # "method toggle" for why this partial-equilibrium approximation (every other team held
+        # at its blended rating) is an accepted, precedented simplification.
+        wb = _grid_interp(grid_out[tid], rating_box - pred)
+        wr = _grid_interp(grid_out[tid], rating_rapm - pred)
         out["teams"].append({
             "id": tid,
             "abbr": abbr_map.get(tid, name_map.get(tid, {}).get("team", "?")),
             "name": name_map.get(tid, {}).get("team_name", "?"),
             "coach": coach_map.get(tid, "unknown"),
             "agg_impact": round(float(tr["agg_impact"]), 4),
-            "rating": round(float(tr["pred_net_rating_dev"]), 2),
+            "rating": round(pred, 2),
             "off_rating": round(float(tr["off_rating"]), 2),
             "def_rating": round(float(tr["def_rating"]), 2),
-            # RAPM-only display arm (defense from pure RAPM, same offense + carryover).
+            # Method-toggle arms (Box only / RAPM only), full recompute via the shared grid.
+            "rating_box": round(rating_box, 2),
+            "off_rating_box": round(float(tr["off_rating_box"]), 2),
+            "def_rating_box": round(float(tr["def_rating_box"]), 2),
+            "wins_box": wb["mean"], "p10_box": wb["p10"], "p25_box": wb["p25"],
+            "p75_box": wb["p75"], "p90_box": wb["p90"],
             "rating_rapm": round(rating_rapm, 2),
+            "off_rating_rapm": round(float(tr["off_rating_rapm"]), 2),
             "def_rating_rapm": round(float(tr["def_rating_rapm"]), 2),
-            "wins_rapm": round(_grid_mean_wins(
-                grid_out[tid], rating_rapm - float(tr["pred_net_rating_dev"])), 1),
+            "wins_rapm": wr["mean"], "p10_rapm": wr["p10"], "p25_rapm": wr["p25"],
+            "p75_rapm": wr["p75"], "p90_rapm": wr["p90"],
             "carryover": round(float(tr.get("carryover", 0.0)), 2),
             "sigma": round(float(tr["sigma"]), 3),
             "turnover": round(float(tr["new_minute_share"]), 3),
@@ -471,8 +536,15 @@ def main() -> int:
     for t in out["teams"]:
         print(f"{t['abbr']:<5} {t['wins']:>5.1f} {t['p10']:>5.1f}-{t['p90']:<6.1f} "
               f"{t['turnover']:>9.2f} {t['sigma']:>6.2f} {t['coach']}")
-    print(f"\nsum of projected wins = {sum(t['wins'] for t in out['teams']):.0f} "
-          f"(should be ~1230)")
+    for lbl, key in [("blended", "wins"), ("box", "wins_box"), ("rapm", "wins_rapm")]:
+        total = sum(t[key] for t in out["teams"])
+        print(f"sum of {lbl} wins = {total:.0f} (should be ~1230)")
+    max_off = max(abs(t["rating_box"] - t["rating"]) for t in out["teams"])
+    max_off_r = max(abs(t["rating_rapm"] - t["rating"]) for t in out["teams"])
+    grid_span = RATING_GRID[-1]
+    flag = " <-- EXCEEDS GRID, WIDEN RATING_GRID" if max(max_off, max_off_r) > grid_span else ""
+    print(f"max |rating_box - rating| = {max_off:.2f}, max |rating_rapm - rating| = "
+          f"{max_off_r:.2f}  (grid spans +/-{grid_span:.0f}){flag}")
     print(f"wrote {path}")
     return 0
 

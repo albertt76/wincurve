@@ -393,3 +393,47 @@ def apply_return_overrides(projected: pd.DataFrame,
     out["has_return_override"] = pid.isin(ids)
     out["return_reason"] = pid.map(reason).fillna("")
     return out
+
+
+# --- Injury-recovery drag (added 2026-08) --------------------------------------
+#
+# apply_return_overrides restores a returning star straight to his pre-injury level, with no
+# discount for the well-documented first-season-back dip -- flagged by an external model review.
+# Fitted from scripts/precheck_injury_recovery.py's clean cohort (n=155: players who missed
+# >50% of a season, had a healthy >=MIN_HEALTHY_MINUTES season on record exactly one season
+# before that, and are observed the very next season -- the classic "one bad year, then back"
+# case, isolated from the chronic-decline/journeyman contamination that the raw unrestricted
+# cohort mixed in). A FLAT, offense-only haircut is what the data actually supports: neither
+# share-of-season-missed nor age showed a statistically distinguishable SLOPE within this cohort
+# (|t| < 1.5 both, consistent with this project's repeated finding that a second free parameter
+# is unidentifiable at this sample size -- see the carryover-turnover rejection), only the pooled
+# mean is robust (delta_off -0.36 +/- 0.09 SE, t ~= -4.0). Defense showed no drag (+0.04 +/- 0.07,
+# not applied).
+RECOVERY_OFFENSE_DISCOUNT = -0.36
+
+
+def apply_recovery_discount(projected: pd.DataFrame, resolved: pd.DataFrame,
+                            *, target_season: int) -> pd.DataFrame:
+    """Apply the flat offensive recovery-season discount to proj_off_impact.
+
+    A DEFAULT, not a replacement for injury_returns.json's manual judgment: it only fills in
+    the statistical expectation the override previously left out (full restoration, no recovery
+    discount), and fires only for the immediate return season (target_season == basis_season +
+    2, i.e. exactly one missed-heavy season between the healthy basis and the projection) -- the
+    one case the fitted cohort actually covers. Older returns keep the plain restored value;
+    this project's own pre-check found the raw data's apparent "worse at longer gaps" pattern was
+    chronic-decline contamination, not a real multi-year recovery curve to extrapolate. Call
+    AFTER apply_return_overrides, since it needs proj_off_impact already restored to basis level.
+    """
+    out = projected.copy()
+    out["recovery_discount_applied"] = False
+    if resolved.empty or projected.empty:
+        return out
+    immediate = resolved[resolved["basis_season"] == target_season - 2]
+    if immediate.empty:
+        return out
+    ids = set(immediate["player_id"].astype("int64"))
+    hit = out["player_id"].astype("int64").isin(ids)
+    out.loc[hit, "proj_off_impact"] = out.loc[hit, "proj_off_impact"] + RECOVERY_OFFENSE_DISCOUNT
+    out["recovery_discount_applied"] = hit
+    return out

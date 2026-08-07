@@ -93,10 +93,12 @@ the market on this team, and here is the structural reason why."
 
 Current projection target: **2026-27 season**. Shipped backtest MAE (roster mode + carryover +
 RAPM defensive blend + rim/hustle tracking defense + position-relative rebounding + BPM position
-fallback + RAPM prior re-anchored on the current box defense): **7.58 wins** vs market 6.88 (7.95
-before the RAPM def-blend; 7.77 before tracking defense; 7.74 before the position-relative-rebounding
-fix — a real +0.11, both more accurate AND fairer to guards; 7.62 before the position-fallback fix
-that extends it to the 8 seasons with no listed positions, +0.01; 7.61 before re-anchoring the RAPM
+fallback + RAPM prior re-anchored on the current box defense + position-relative offensive
+standardization + RAPM offensive blend): **7.40 wins** vs market 6.88 (7.58 before the two
+2026-08 offense fixes below, prompted by an independent talent-evaluator review; 7.95 before the
+RAPM def-blend; 7.77 before tracking defense; 7.74 before the position-relative-rebounding fix —
+a real +0.11, both more accurate AND fairer to guards; 7.62 before the position-fallback fix that
+extends it to the 8 seasons with no listed positions, +0.01; 7.61 before re-anchoring the RAPM
 prior on the current box defense, a further +0.03).
 
 See [DESIGN.md](DESIGN.md) for full architecture, statistical traps, and staged plan.
@@ -204,7 +206,9 @@ Walk-forward means: to predict season N, train only on seasons before N. All err
 | Model / baseline | MAE | Notes |
 |---|---|---|
 | Market (preseason win totals) | **6.88** | the yardstick; we do not beat it |
-| **wincurve — + RAPM prior re-anchored on current box defense** | **7.58** | shipped; +0.036 (7.628 → 7.591 paired-seed, ±0.017 SE, 5/6 folds) — the RAPM prior was stale (pre position/tracking fixes) |
+| **wincurve — + RAPM offensive blend** | **7.40** | shipped; +0.11 to +0.15 (7.52 → 7.39–7.40 paired-seed, ±0.11–0.17 SE, 5-7/9 folds, every weight variant tried improved) — extends the shipped defensive RAPM blend to offense; guard gravity/creation is what plus-minus sees and the box does not |
+| wincurve — + position-relative offensive standardization | 7.58 | prior; +0.06 (ts_pct alone, ±0.065 SE, 3/6 folds, weaker/noisier than the analogous defensive fix) but nearly eliminates the center/guard off_impact gap (1.12 → 0.34) — shipped for player-level credibility, the same precedent as the tracking-defense features below |
+| wincurve — + RAPM prior re-anchored on current box defense | 7.58 | prior; +0.036 (7.628 → 7.591 paired-seed, ±0.017 SE, 5/6 folds) — the RAPM prior was stale (pre position/tracking fixes) |
 | wincurve — + BPM position fallback (pre-2013-14) | 7.61 | prior; +0.011 (7.622 → 7.612, ±0.0039 SE, 5/6 folds) — fixes position-relative rebounding's silent no-op on 8 of 21 backbone seasons |
 | wincurve — + position-relative defensive rebounding | 7.62 | prior; +0.11 (7.74 → 7.62, ±0.055 SE, 6/9 folds) — first defensive change to help accuracy AND credibility |
 | wincurve — + RAPM def-blend + rim/hustle tracking def | 7.74 | prior; tracking step within noise (7.77 → 7.74) — kept for per-player credibility |
@@ -509,19 +513,53 @@ per-team `off_rating`/`def_rating`, per-player `off`/`def`, and each player's mo
 `box_def`/`rapm_def` (via `nbaproj.rapm.box_vs_rapm_by_player`, walk-forward). The client
 recompute is decoupled too, so a roster edit reprices offense and defense independently.
 
-**RAPM-only defensive display arm (added 2026-07).** Beside the shipped projection, every team
-carries a **second win projection with defense priced purely from play-by-play RAPM** instead of
-the box+RAPM turnover blend (same offense, same carryover). It shows as a rose ▼ marker on the
-bar and a **`rapm N · ±diff`** readout (diff = RAPM-only − blend; the panel header shows
-`RAPM-only D ±y → N wins`). The gap isolates the defensive-metric choice and is a
-defensive-uncertainty signal: it is largest on **low-turnover** teams — where the blend leans on
-the box metric that misses perimeter defense — and near-zero on high-turnover ones (where the
-blend already leans on RAPM). Poster child: **New York** (10% turnover, blend 44 → RAPM-only 51,
-+6.9), a roster of perimeter defenders the box underrates. Emitted per-team as `rating_rapm` /
-`def_rating_rapm` / `wins_rapm` with meta `def_slope_rapm`/`def_intercept_rapm` (RAPM's own,
-lower ~3.3 defensive slope, calibrated walk-forward on `agg_def_rapm`); the client recomputes it
-live under roster edits (`computeRating` returns `ratingRapm`). **Display only, never an input** —
-re-weighting the blend toward RAPM did not clear the gate (`scripts/gate_blend_weight.py`).
+**Method toggle: Blended / Box / RAPM (shipped 2026-08-06, replaces the old RAPM-only-defense
+side readout).** A 3-way switch in the header of both the Records page and the Players
+leaderboard controls **which measurement drives every number on the page**: team ratings, win
+totals, bars, and rankings on Records; Impact/Off/Def/≈Wins on Players. **Blended** (the shipped
+default) is the turnover-weighted box+RAPM blend on both sides. **Box** is the classic
+box-score-only method. **RAPM** prices both offense and defense purely from play-by-play, no box
+score at all — the natural generalization of the old defense-only RAPM arm, now covering offense
+too and selectable rather than always-on. Each method is calibrated with its **own slope**
+(`nbaproj.rapm_blend.calibrate_blend` returns all three: `off_slope`/`def_slope` for Blended,
+`off_slope_box`/`def_slope_box`, `off_slope_rapm`/`def_slope_rapm`) — reusing the blended slope on
+an unblended aggregate would repeat the exact mismatch this project's calibration lessons warn
+against.
+
+No new Monte Carlo simulation needed: every team already carries a precomputed rating-offset grid
+(`RATING_GRID`, ±12 in 1.5 steps) built by resimulating that team's own uncertainty around its
+Blended rating; a Box or RAPM rating is computed with its own slope and **interpolated on that
+same grid** (`_grid_interp` server-side, `winsAt` client-side) — exactly how the old RAPM-only
+arm got `wins_rapm` with no extra simulation, now extended to give full win distributions (not
+just a mean) for both new arms. **Known approximation, kept deliberately**: every other team is
+held at its Blended rating while you look at one method (a partial-equilibrium view, not a full
+league resimulation) — the same simplification the old single-arm readout always used, now
+carrying more weight since it's the primary number for all 30 teams instead of one side stat.
+Carryover and sigma are also shared unchanged across all three methods, matching that same
+precedent. Confirmed empirically after shipping: max rating offset from Blended is ~2-3 points
+(current season), well inside the ±12 grid, and each method's win total sums to roughly (not
+exactly) 1230 across the league — box and RAPM were never checked for that zero-centering
+property the way the shipped blend implicitly has been by living in production, so a per-method
+sum-of-wins sanity print runs on every rebuild.
+
+Emitted per-team with a flat suffix convention (unsuffixed = Blended, `_box`, `_rapm`):
+`rating`/`off_rating`/`def_rating`/`wins`/`p10`.../ and their `_box`/`_rapm` twins. Emitted
+per-player on the Players leaderboard the same way (`scripts/build_nba_players_ui.py`
+`win_parts(..., method=)`): **this changed what unsuffixed `off`/`def`/`impact` mean** on that
+page — before the toggle they were pure box; now unsuffixed = Blended (a derived rating,
+replacement + the same off_dev/def_dev the wins calc uses), `_box` = the old meaning, `_rapm` =
+raw RAPM. Client-side (`ui/template.html`'s `computeRating`/`winParts`, `ui/nba_players/
+template.html`'s `mkey` field-resolution) mirrors the Python bit-for-bit, verified by direct
+comparison. **Display only, never an input** — re-weighting the shipped blend toward RAPM did not
+clear the gate (`scripts/gate_blend_weight.py`); this toggle is for inspection, not a model change.
+
+Non-obvious finding surfaced while building this: whether RAPM-only helps or hurts a team's
+*offense* wins tracks roster **turnover**, not the size of the player's box-vs-RAPM gap — a
+stable-roster star (Curry, 4% turnover, box off +2.80 vs RAPM off +7.05, the biggest gap in the
+league) barely moves toward his own higher RAPM number and can net *lower* under the blend once
+the league-wide slope recalibration is accounted for, while a churned-roster player with a smaller
+gap can net higher. See the CLAUDE.md "Open items" entry for the follow-up (re-checking
+`top_scorer_share_weight` specifically for this player group).
 
 
 `ui/template.html` + `ui/build.py` -> `ui/projections.html` (self-contained, data inlined).
@@ -553,17 +591,24 @@ to serve **only `ui/`** (Vercel *Root Directory* = `ui`), so `data/`, `nbaproj/`
 `/`; `ui/.vercelignore` keeps `build.py`/`template.html` out. Full steps in
 [ui/DEPLOY.md](ui/DEPLOY.md).
 
-**Freemium gate (shipped 2026-08-02).** `ui/build.py` splits the bundle into a **public** payload
-(inlined in `projections.html`: bars, ranges, off/def + RAPM-arm readouts, market comparison,
-Track-record + Drift views, glossary) and a **premium** payload (each team's `players` + what-if
-`grid` — the expanded detail panels: per-player Off/Def and ≈Wins, RAPM flags, disagreement +
-conviction, trade-undo, live editor). Premium is embedded in the serverless function
-`ui/api/premium.js` and returned only when the request's `x-unlock-password` matches the
-`PREMIUM_PASSWORD` env var — Vercel runs `api/*.js` as functions, so the source (and its embedded
-data) is never served as a static asset. The client (`teamView`/`lockedPanel`/`doUnlock` in
-`template.html`) shows the public bars to anyone; "Unlock details" fetches the premium payload,
-caches it in `sessionStorage`, and re-renders with full panels. Real server-enforced gating; still
-one **shared** password (no accounts). Next step for real subscriptions: per-user auth
+**Freemium gate (shipped 2026-08-02; unlock UI switched off 2026-08-06).** `ui/build.py` splits
+the bundle into a **public** payload (inlined in `projections.html`: bars, ranges, off/def +
+method-toggle readouts, market comparison, Track-record + Drift views, glossary) and a **premium**
+payload (each team's `players` + what-if `grid` — the expanded detail panels: per-player Off/Def
+and ≈Wins, RAPM flags, disagreement + conviction, trade-undo, live editor). Premium is embedded in
+the serverless function `ui/api/premium.js` and returned only when the request's
+`x-unlock-password` matches the `PREMIUM_PASSWORD` env var — Vercel runs `api/*.js` as functions,
+so the source (and its embedded data) is never served as a static asset. **The "Unlock details"
+button and its `doUnlock`/`syncUnlockBtn` client code are removed for now** (user request — "let's
+gate it for now, might bring it back later"); every team panel shows `lockedPanel()`'s plain
+"details aren't shown here right now" message with no CTA, and there is no client code path left
+that can ever call `/api/premium` or populate `sessionStorage`'s `wc_premium` cache. The
+`teamView`/`loadSeason` merge machinery that *consumes* an unlocked payload is deliberately left in
+place (dead until reactivated) so the feature is a small, self-contained re-add rather than a
+rebuild: re-introduce a button that calls `fetch('/api/premium', ...)`, sets `PREMIUM`/`unlocked`,
+and re-renders. The backend (`ui/api/premium.js`, `ui/build.py`'s public/premium split,
+`PREMIUM_PASSWORD`) is untouched and still built on every rebuild — only the front-end entry point
+is gone. Next step for real subscriptions, whenever the gate reopens: per-user auth
 (Clerk/Supabase) + Stripe — the serverless function is the seam to add it (see the auth roadmap item).
 
 **✅ League-wide player-impact leaderboard (shipped 2026-08-04, `ui/nba_players/`).** A standalone,
@@ -1079,6 +1124,114 @@ measurement (recorded in `gate_defense_prior.py`). **Going forward, a box-metric
 regenerate `player_impact.parquet` → re-run `build_rapm.py` → rebuild bundles**, so the prior
 never silently goes stale again.
 
+### ✅ SHIPPED: position-relative offensive standardization + RAPM offensive blend (2026-08-06)
+
+An independent NBA talent-evaluator review of the methodology + the full player export (see
+`docs/nba_impact_methodology.md`) verified every data claim against the live export (exact match
+to the decimal on position splits, individual player ranks, age buckets) and most code-structural
+claims. Two of its three priority recommendations were genuinely novel — not already tried and
+rejected per the extensive history below — cheap-to-moderate to build, and shipped. (The third,
+swapping the defensive feature-acceptance gate to player-level RAPM/stability, turned out to
+already be effectively in place as a pre-check, and the containment features that pre-check
+rejected failed on measurement noise, not statistical power — see the matchup-data and shot-
+defense rejections below. Not re-attempted.)
+
+**Position-relative offensive standardization (`POSITION_RELATIVE_FEATURES`, now `["dreb_p100",
+"ts_pct"]`).** The exact offensive mirror of the shipped defensive rebounding fix: `ts_pct` (true
+shooting percentage) is now standardized within (season, position group) instead of league-wide,
+so a center's efficiency is measured against other centers. Diagnosis matched the review exactly:
+low-usage centers were getting near-star offensive credit for near-100% efficiency on assisted
+rim finishes — Walker Kessler projected 8th league-wide by wins (ahead of Anthony Edwards, Kevin
+Durant), with Jalen Duren/Daniel Gafford/Ryan Kalkbrenner/Neemias Queta similarly inflated.
+League-wide the center/guard `off_impact` gap was **+0.55 / −0.57 (1.12 spread)**; `ts_pct` alone
+shrinks it to **−0.04 / −0.38 (0.34)**. A second variant (`ts_pct` + `oreb_p100`) was tested and
+**rejected**: it posted a bigger win-MAE number but *overcorrected* — centers rated *below*
+guards (−0.45 vs −0.23), the opposite bias. `fg3m_p100`/`fg3_rate` were deliberately never tried:
+centers rarely attempt 3s, so there's no positional inflation to remove, and standardizing a
+near-empty reference group risks erasing genuinely earned skill (stretch-5 shooting) rather than
+correcting a confound. `pts_p100`/`fga_p100`/`tov_p100` are usage-driven (a role choice, not
+anatomy — Jokić/Embiid prove high usage is available to centers) and stay league-wide; `ast_p100`
+was left untested (a passing big's assists are real rare skill, not an opportunity artifact —
+position-relative treatment could amplify rather than remove signal, a candidate for a future
+pass). Gate (`scripts/gate_position_relative_offense.py`, 5000 sims, paired seeds, 2017-2025):
+win MAE **7.595 → 7.537 excl-short, +0.058 ±0.065 SE, only 3/6 folds** — weaker and noisier than
+the analogous defensive fix. **Shipped anyway, for player-level credibility** (the win-MAE case
+alone is not decisive) — the same precedent as `TRACKING_DEFENSE_FEATURES`, which shipped despite
+a within-noise aggregate gain because it fixed specific, named player-level over-credits.
+Remaining open item, per the user: try `fta_p100` and other narrower variants for a possible
+cleaner win.
+
+**RAPM offensive blend (`nbaproj.rapm_blend`, `nbaproj.rapm.build_rapm_impact(..., which=...)`).**
+The shipped defensive RAPM blend never touched offense, and even the defensive blend was
+comparison-only at the player level (a real code-verified gap the review flagged). The estimator
+already computed `off_rapm` per player-season (same ridge as `def_rapm`) — it was simply discarded
+downstream. `build_rapm_impact` now takes `which={"def","off","both"}`; `nbaproj.rapm_blend`
+builds a third projection arm on the off-swapped table and blends `agg_off_used = (1-w)*agg_off_box
++ w*agg_off_rapm`, mirroring the defensive formula exactly with the **same turnover weight**
+(`blend_weight(new_minute_share)`) — chosen over two candidate usage-based weights
+(`top_scorer_share_weight`, a team's top scorer's point share, built free from data already on
+disk; `USG_PCT`, sitting unextracted in the already-cached `player_advanced` pull) because the
+turnover weight tied every variant's fold-improvement count or beat it. Gate
+(`scripts/gate_rapm_offense_blend.py`, 5000 sims, paired seeds, defense held fixed at the shipped
+turnover blend so only the offense change is measured): **every weight variant tried improved win
+MAE** (turnover +0.11 to +0.15, `top_scorer_share` +0.10 to +0.12, majority of 9 folds each) —
+pure RAPM offense alone barely moved it (+0.02 to −0.02), reproducing the defensive blend's own
+signature (the blend beats both pure box and pure RAPM). That triangulation across independently-
+built weight formulations, not any single variant's paired SE (~0.11–0.17, genuinely wide), is
+what makes this a confident ship. Live wiring (`scripts/project_current.py`,
+`scripts/build_snapshots.py`) mirrors the defensive arm exactly — `proj_off_rapm`/`rep_off_rapm`
+alongside the existing `proj_def_rapm`/`rep_def_rapm`, an `offr` field in the per-player bundle
+next to `defr` — and the client-side recompute (`ui/template.html`'s `computeRating`/`winParts`,
+verified against the Python port in `scripts/build_nba_players_ui.py`) blends offense the same
+way, so roster edits stay exact.
+
+**Combined effect, both shipped**: win MAE **7.595 → 7.404 excl-short** (measured end-to-end in
+the RAPM-blend gate's re-verification run, i.e. the offensive standardization fix already baked
+into the baseline). Official-seed headline **7.58 → 7.40**. Player-level check, confirming both
+fixes work as the review's mechanism predicted: Kessler's offensive ≈Wins dropped 4.05 → 1.26 (def
+unchanged, 3.12 → 3.11 — the fix is offense-isolated, as designed); his RAPM offense (`offr`) is
+*negative* (−0.95) against his positive box offense (+0.58), exactly the "box overrates a
+low-usage rim-runner, RAPM is skeptical" pattern the review predicted. Brunson's RAPM offense
+(+2.90) is far above his box offense (+1.68) — the "RAPM sees creator gravity the box misses" side
+of the same mechanism — but his *displayed* ≈Wins did not move up on this spot-check (4.86 → 4.37,
+driven down by the population-wide off_slope/replacement recalibration outweighing his own
+personal RAPM boost, since NYK's turnover weight is only 0.11). Recorded here in full rather than
+cherry-picked: the aggregate gate result is real and majority-fold, but a system-wide
+recalibration can still move any *individual* named player either direction — exactly why every
+change in this project ships on the aggregate gate, not on whether a poster-child example moved
+the "expected" way.
+
+#### ⚠️ Injury-recovery offensive discount gated and REJECTED (2026-08-06) — real per-player, dies at team-win level
+
+The review's third recommendation: `data/overrides/injury_returns.json` restores a returning star
+straight to full pre-injury form, with no discount for the well-documented first-season-back dip.
+**Pre-check** (`scripts/precheck_injury_recovery.py`, purely descriptive, no gate): a natural-
+experiment scan of `player_impact.parquet` (games < 50% of that season's team-game count, a
+healthy ≥`MIN_HEALTHY_MINUTES` season on record, and a next season observed) found a real signal
+once properly isolated. The raw/unrestricted cohort (n=304) was contaminated by chronic-decline
+and journeyman cases (a stale multi-year-old "healthy" basis, not a clean single-injury return) —
+restricting to the classic immediate-return case (`seasons_since_basis == 2`, n=155) removed that
+confound: **delta_impact −0.32 ±0.12 SE, offense-specific (delta_off −0.36 ±0.09 SE, ~4 SE from
+zero; defense +0.04 ±0.07, no drag)**. A follow-up regression, though, found neither share-of-
+season-missed nor age explains a significant SLOPE within that clean cohort (both |t| < 1.5,
+r² ≈ 0.01) — consistent with this project's repeated finding that a second free parameter is
+unidentifiable at this sample size (see the carryover-turnover rejection). So the model shipped to
+gate was deliberately the simplest one the data supports: a **flat** `RECOVERY_OFFENSE_DISCOUNT =
+-0.36` points/100, applied only to `proj_off_impact` for the immediate return season
+(`target_season == basis_season + 2`), as a **default** for `injury_returns.json` entries (never
+replacing the file's manual, forward-looking judgment) — `nbaproj.rosters.apply_recovery_discount`.
+
+**Gate (`scripts/gate_injury_recovery.py`, 5000 sims, walk-forward 2017-2025, restricted to the
+~76 team-seasons actually containing a qualifying returning player, since the discount cannot move
+MAE for a team with none): decisively not helpful — delta −0.018 ±0.026 SE on affected teams
+(−0.024 ±0.016 SE league-wide), only 1/6 folds improved.** Same shape as this project's other
+"real at the player level, dies at the team-win number" rejections (the RAPM defensive swap, the
+shrinkage-constant refit, the player-level RAPM blend family): a small, real per-player effect
+spread over too few team-seasons (~8-17/season) to move an aggregate built from 30 teams'
+worth of noise. Code kept (`apply_recovery_discount`, `RECOVERY_OFFENSE_DISCOUNT`,
+`scripts/gate_injury_recovery.py`) but **not wired into the live pipeline** — the manual
+`injury_returns.json` override stays exactly as it was (restores to basis level, no discount).
+
 #### ⚠️ Per-feature shrinkage/recency constants gated and REJECTED (2026-07-31)
 
 The other half of the same deep dive (DARKO/EPM's per-stat stabilization constants): does
@@ -1200,6 +1353,7 @@ is not repeated.
 | **Multi-season decayed RAPM** (`precheck_multiseason_rapm.py`) | Pool 2-3yr of stints with decay for a stabler RAPM. Killed at the pre-check: multi-season is ≤ single-season on the next-season team-defense predictive test in **all 6 variant-transitions** (box-informed & pure, two decays), and the box metric now out-predicts every RAPM variant (0.611 box vs 0.591 single vs 0.583 multi). At alpha=2000 single-season regulars already have ample possessions, so pooling injects staleness, not stability. Corroborates pure-RAPM 7.83 > pure-box 7.77 at the win level after this cycle's box fixes. |
 | **nba_api matchup data for perimeter containment** (`precheck_matchup_defense.py`) | `MatchupsRollup` (who guarded whom, points/FG% allowed as primary defender). Feasibility is a clean positive (1 call/season, ToS-safe) so the pull is **wired and the data kept** (`nbaproj.ingest.matchups`, `data/processed/matchups.parquet`, 2017-18+). But the containment feature `m_fgpct` fails YoY stability even multi-season-pooled (r²≈0.05→0.08, well below usable) — DRAYMOND redux, because nearest-defender labels lack arm position/facing. The one stable feature (`m_tovp100`) restates steals; the other (`m_ptsp100`) is assignment-endogenous (hides weak defenders on weak scorers → Trae Young rates "elite"). No feature worth a gate. |
 | **In-season model v2 — per-player talent update** (`gate_inseason_v2.py`) | Added a player-updated team arm to v1's rest-of-season blend (`a·SRS + b·player_updated + (1−a−b)·prior`): each player's through-N box production, scored with build_impact's own coefficients, k-blended into his preseason projection and re-aggregated by through-N minutes. Walk-forward fit drove **b→0** — N=25 b=0.00 (v2≡v1, 0/6), N=50 b=0.03 (−0.012, 0/6), churn subgroup no benefit. The team SRS already saturates the rest-of-season signal; the box-only player arm is defense-thin (compresses stars); and the through-N roster can't see a deadline acquisition, so v2's one theorized use case (post-deadline trades) isn't even reachable as built. Real at the player level, dies at the team-win number — same as the RAPM-blend and defensive negatives. Machinery + gate kept for the one untested redemption path (post-deadline current-roster snapshot). |
+| **Injury-recovery offensive discount** (`gate_injury_recovery.py`) | An external review's third recommendation: a flat first-season-back offensive haircut, restricted to the immediate-return case (fitted on a clean n=155 cohort, delta_off −0.36 ±0.09 SE, real and offense-specific). Gated end-to-end, restricted to the ~76 team-seasons with a qualifying returning player: **decisively not helpful — delta −0.018 ±0.026 SE on affected teams, only 1/6 folds**. Same shape as the RAPM-swap / shrinkage-constant / in-season-v2 negatives: real at the player level, too few affected team-seasons per fold to move an aggregate built from 30 teams' worth of noise. Code kept (`nbaproj.rosters.apply_recovery_discount`), **not wired into the live pipeline** — `injury_returns.json` still restores to full basis level, no discount. |
 
 **On the roster-"bloat" hypothesis (investigated, rejected).** The live July roster snapshot
 carries 20–24 players and >290 mpg of prior-team minutes for ~8 teams (ATL 465 raw / 353
@@ -1420,6 +1574,31 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
 
 ### Open items
 
+- ⬜ **Test narrower position-relative-offense variants.** The shipped fix
+  (`POSITION_RELATIVE_FEATURES = ["dreb_p100", "ts_pct"]`, 2026-08-06) cleared its own bar on
+  credibility but was weak/noisy on win MAE (+0.058 ±0.065 SE, only 3/6 folds). Try `fta_p100`
+  alone or in combination (flagged as a plausible candidate — rim-runner contact-finishing — but
+  untested) via `scripts/gate_position_relative_offense.py`, looking for a cleaner win than
+  `ts_pct` alone gave. See the "position-relative offensive standardization" write-up above for
+  the full candidate-feature reasoning (why `fg3m_p100`/`fg3_rate`/`pts_p100`/`ast_p100` were
+  deliberately left out of the first pass).
+- ⬜ **Re-examine the RAPM offensive blend weight for high-usage/low-turnover stars.** Spot-check
+  (2026-08-06) of the review's flagged high-usage guards after the shipped turnover-weighted
+  blend: Trae Young (18% turnover) and Ja Morant (24%) gained offensive wins as intended
+  (+0.13, +0.23) — the blend gives their much-higher RAPM offense real weight. But
+  Brunson (11% turnover), Stephen Curry (4%), and Shai Gilgeous-Alexander (13%) all LOST
+  offensive wins (−0.93, −0.87, −1.23) despite equally large or larger box-vs-RAPM gaps (Curry
+  +2.80 box vs +7.05 RAPM, the biggest gap of the group) — their stable rosters mean the blend
+  barely touches their own number, so the league-wide off_slope recalibration (6.81 → 5.28)
+  dominates instead. Roster turnover is a good proxy for "can we trust this team's box defense"
+  but has nothing to do with "is this player a high-usage shot-creator" — exactly the mismatch
+  the review's completeness audit flagged when it noted the shipped mechanism isn't literally
+  "weighted heaviest for high-usage creators." The untested alternative
+  (`top_scorer_share_weight` in `nbaproj/rapm_blend.py`, already built and gated but not
+  shipped — it placed close behind turnover on fold-count in
+  `scripts/gate_rapm_offense_blend.py`) would key the weight to usage instead of continuity;
+  worth a targeted re-check specifically on this flagged player group, not just the aggregate
+  MAE the original gate judged it on.
 - ⬜ Historical **injury reasons** still unsourced (Pro Sports Transactions needs a UA;
   otherwise only games-missed is available)
 - ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). bbref Vegas
