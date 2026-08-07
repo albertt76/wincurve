@@ -1128,10 +1128,20 @@ function computeRating(team) {
   const carry = team.carryover || 0;
 
   if (DATA.off_slope != null) {
-    const aggOff = (roster.reduce((a, p, i) => a + mins[i] * p.off, 0)
+    const aggOffBox = (roster.reduce((a, p, i) => a + mins[i] * p.off, 0)
                     + leftover * DATA.replacement_off) / budget;
     const aggDefBox = (roster.reduce((a, p, i) => a + mins[i] * p.def, 0)
                        + leftover * DATA.replacement_def) / budget;
+    // Blend box offense with play-by-play RAPM by the team's roster turnover, the same way
+    // defense already does. Older snapshots without the RAPM split (replacement_off_rapm
+    // absent) fall back to pure box offense.
+    let aggOff = aggOffBox;
+    if (DATA.replacement_off_rapm != null) {
+      const aggOffRapm = (roster.reduce((a, p, i) => a + mins[i] * (p.offr != null ? p.offr : p.off), 0)
+                          + leftover * DATA.replacement_off_rapm) / budget;
+      const w = Math.min(Math.max(team.turnover || 0, 0), 1);
+      aggOff = (1 - w) * aggOffBox + w * aggOffRapm;
+    }
     // Blend box defense with play-by-play RAPM by the team's roster turnover. Older snapshots
     // without the RAPM split (replacement_def_rapm absent) fall back to pure box defense.
     let aggDef = aggDefBox;
@@ -1314,14 +1324,19 @@ function teamCapFactor(team) {
 function winParts(p, team) {
   const minshare = p.mpg * p.avail / MPG_BUDGET * teamCapFactor(team);
   if (DATA.off_slope != null) {
+    const w = Math.min(Math.max(team.turnover || 0, 0), 1);
+    let offDev = p.off - DATA.replacement_off;
+    if (DATA.replacement_off_rapm != null) {
+      offDev = (1 - w) * (p.off - DATA.replacement_off)
+             + w * ((p.offr != null ? p.offr : p.off) - DATA.replacement_off_rapm);
+    }
     let defDev = p.def - DATA.replacement_def;
     if (DATA.replacement_def_rapm != null) {
-      const w = Math.min(Math.max(team.turnover || 0, 0), 1);
       defDev = (1 - w) * (p.def - DATA.replacement_def)
              + w * ((p.defr != null ? p.defr : p.def) - DATA.replacement_def_rapm);
     }
     const k = GMETA.wins_per_rating_point * minshare;
-    const off = k * DATA.off_slope * (p.off - DATA.replacement_off);
+    const off = k * DATA.off_slope * offDev;
     const def = k * DATA.def_slope * defDev;
     return { off, def, total: off + def, split: true };
   }

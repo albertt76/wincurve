@@ -30,7 +30,7 @@ from nbaproj.awards import honor_lookup, load_honors  # noqa: E402
 from nbaproj.project import calibrate_projected_ratings  # noqa: E402
 from nbaproj.rapm import box_vs_rapm_by_player, build_rapm_impact  # noqa: E402
 from nbaproj.rapm_blend import (  # noqa: E402
-    backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def,
+    backtest_aggregates, blend_weight, calibrate_blend, project_rapm_def, project_rapm_off,
 )
 from nbaproj.rosters import (  # noqa: E402
     apply_overrides, apply_return_overrides, draft_history, fit_rookie_priors,
@@ -125,6 +125,14 @@ def main() -> int:
     proj_def_rapm = project_rapm_def(
         rapm_imp[~injured_season_mask(rapm_imp, returns_recent)], TARGET)
     rep_def_rapm = replacement_level(rapm_imp, "def_impact")
+    # RAPM-offense arm (shipped 2026-08): same idea, offense. Guard gravity / shot-creation is
+    # exactly what plus-minus sees and the box score does not; blending the two offensive team
+    # aggregates by the same turnover weight improves win MAE +0.11 to +0.15 wins walk-forward
+    # across every weight formulation tried -- see scripts/gate_rapm_offense_blend.py.
+    rapm_off_imp = build_rapm_impact(imp, PROC, which="off")
+    proj_off_rapm = project_rapm_off(
+        rapm_off_imp[~injured_season_mask(rapm_off_imp, returns_recent)], TARGET)
+    rep_off_rapm = replacement_level(rapm_off_imp, "off_impact")
 
     # --- rookies: no NBA record, so priors by draft slot ---
     draft = draft_history()
@@ -189,6 +197,8 @@ def main() -> int:
                           how="left")
     roster = roster.merge(proj_def_rapm.rename("proj_def_rapm").reset_index(),
                           on="player_id", how="left")
+    roster = roster.merge(proj_off_rapm.rename("proj_off_rapm").reset_index(),
+                          on="player_id", how="left")
     roster = roster.merge(rookie_picks, on="player_id", how="left")
 
     # Rookies and other players with no projection fall back to a draft-slot prior.
@@ -207,6 +217,7 @@ def main() -> int:
     roster["proj_off_impact"] = roster["proj_off_impact"].fillna(rep_off)
     roster["proj_def_impact"] = roster["proj_def_impact"].fillna(rep_def)
     roster["proj_def_rapm"] = roster["proj_def_rapm"].fillna(roster["proj_def_impact"])
+    roster["proj_off_rapm"] = roster["proj_off_rapm"].fillna(roster["proj_off_impact"])
     roster["is_rookie"] = need & roster["pick"].notna()
 
     # --- availability, with manual overrides for known absences ---
@@ -223,11 +234,11 @@ def main() -> int:
     # Applied AFTER the absence floor so an explicit return wins for the same player.
     roster = apply_return_overrides(roster, returns)
 
-    # --- calibration and uncertainty, fitted on history. Decoupled offense/defense; the
-    #     defensive aggregate blends the box and RAPM arms by roster turnover, and the defensive
-    #     slope is calibrated on that blend (nbaproj.rapm_blend). ---
+    # --- calibration and uncertainty, fitted on history. Decoupled offense/defense; BOTH
+    #     aggregates blend the box and RAPM arms by roster turnover, and each slope is
+    #     calibrated on its own blend (nbaproj.rapm_blend). ---
     A = backtest_aggregates(imp, rapm_imp, pts, pgl, ts, ages, hist_rosters,
-                            range(2017, LAST_HISTORY + 1))
+                            range(2017, LAST_HISTORY + 1), rapm_off_imp=rapm_off_imp)
     cal = calibrate_blend(A, ts, target_season=TARGET)
     off_slope, off_int = cal["off_slope"], cal["off_intercept"]
     def_slope, def_int = cal["def_slope"], cal["def_intercept"]
@@ -245,7 +256,7 @@ def main() -> int:
     actual["net_rating_dev"] = actual["net_rating"] - actual.groupby(
         "season_start")["net_rating"].transform("mean")
     scored = A.copy()
-    scored["pred_net_rating_dev"] = (off_slope * scored["agg_off"] + off_int
+    scored["pred_net_rating_dev"] = (off_slope * scored["agg_off_used"] + off_int
                                      + def_slope * scored["agg_def_used"] + def_int)
     sigma_base = fit_rating_sigma(
         scored, actual[["team_id", "season_start", "net_rating_dev"]],
@@ -254,32 +265,36 @@ def main() -> int:
     turnover = roster_turnover(pts, season_start=TARGET, roster=roster)
     hca, margin_sd = estimate_game_params(gl, before_season=TARGET)
 
-    # --- aggregate each team: offense, and defense both ways (box and RAPM). The defensive
-    #     aggregate actually used is the turnover-weighted blend -- a steady roster leans on the
-    #     box metric (which the carryover corrects), a turned-over one on RAPM whose value
-    #     follows the incoming players. off_rating + def_rating is the roster's net rating. ---
+    # --- aggregate each team: offense and defense, both ways (box and RAPM). Both aggregates
+    #     actually used are the turnover-weighted blend -- a steady roster leans on the box
+    #     metric (which the carryover corrects), a turned-over one on RAPM whose value follows
+    #     the incoming players. off_rating + def_rating is the roster's net rating. ---
     budget = 240.0 * FULL_SEASON_GAMES
     team_rows = []
     for tid, g in roster.groupby("team_id"):
         mins = (g["prior_mpg"] * g["proj_availability"] * FULL_SEASON_GAMES).to_numpy()
         off_vals = g["proj_off_impact"].to_numpy(dtype=float)
         def_vals = g["proj_def_impact"].to_numpy(dtype=float)
+        off_rapm_vals = g["proj_off_rapm"].to_numpy(dtype=float)
         def_rapm_vals = g["proj_def_rapm"].to_numpy(dtype=float)
         used = mins.sum()
         if used > budget:
             mins = mins * budget / used
             used = budget
         leftover = max(budget - used, 0.0)
-        agg_off = (float(np.sum(mins * off_vals)) + leftover * rep_off) / budget
+        agg_off_box = (float(np.sum(mins * off_vals)) + leftover * rep_off) / budget
         agg_def_box = (float(np.sum(mins * def_vals)) + leftover * rep_def) / budget
+        agg_off_rapm = (float(np.sum(mins * off_rapm_vals)) + leftover * rep_off_rapm) / budget
         agg_def_rapm = (float(np.sum(mins * def_rapm_vals)) + leftover * rep_def_rapm) / budget
-        team_rows.append({"team_id": tid, "agg_off": agg_off, "agg_def_box": agg_def_box,
-                          "agg_def_rapm": agg_def_rapm, "leftover_share": leftover / budget})
+        team_rows.append({"team_id": tid, "agg_off_box": agg_off_box, "agg_def_box": agg_def_box,
+                          "agg_off_rapm": agg_off_rapm, "agg_def_rapm": agg_def_rapm,
+                          "leftover_share": leftover / budget})
     teams = pd.DataFrame(team_rows).merge(turnover, on="team_id", how="left")
     w = blend_weight(teams["new_minute_share"])
+    teams["agg_off_used"] = (1 - w) * teams["agg_off_box"] + w * teams["agg_off_rapm"]
     teams["agg_def_used"] = (1 - w) * teams["agg_def_box"] + w * teams["agg_def_rapm"]
-    teams["agg_impact"] = teams["agg_off"] + teams["agg_def_used"]
-    teams["off_rating"] = off_slope * teams["agg_off"] + off_int
+    teams["agg_impact"] = teams["agg_off_used"] + teams["agg_def_used"]
+    teams["off_rating"] = off_slope * teams["agg_off_used"] + off_int
     teams["def_rating"] = def_slope * teams["agg_def_used"] + def_int
     teams["pred_net_rating_dev"] = teams["off_rating"] + teams["def_rating"]
 
@@ -374,6 +389,7 @@ def main() -> int:
             "replacement_impact": round(rep, 3),
             "replacement_off": round(rep_off, 4),
             "replacement_def": round(rep_def, 4),
+            "replacement_off_rapm": round(rep_off_rapm, 4),
             "replacement_def_rapm": round(rep_def_rapm, 4),
             "minutes_budget": budget,
             "full_season_games": FULL_SEASON_GAMES,
@@ -400,6 +416,7 @@ def main() -> int:
                 "impact": round(float(p["proj_impact"]), 5),
                 "off": round(float(p["proj_off_impact"]), 5),
                 "def": round(float(p["proj_def_impact"]), 5),
+                "offr": round(float(p["proj_off_rapm"]), 5),
                 "defr": round(float(p["proj_def_rapm"]), 5),
                 "mpg": round(float(p["prior_mpg"]), 4),
                 "avail": round(float(p["proj_availability"]), 5),

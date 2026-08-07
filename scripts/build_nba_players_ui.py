@@ -94,15 +94,21 @@ def win_parts(p: dict, team: dict, season_meta: dict, gmeta: dict) -> tuple[floa
     minshare = (p.get("mpg") or 0) * (p.get("avail") or 0) / mpg_budget * cap
     off_slope = season_meta.get("off_slope")
     if off_slope is not None:
+        w = min(max(team.get("turnover") or 0, 0), 1)
+        off_dev = (p.get("off") or 0) - season_meta["replacement_off"]
+        rep_off_rapm = season_meta.get("replacement_off_rapm")
+        if rep_off_rapm is not None:
+            offr = p["offr"] if p.get("offr") is not None else p.get("off")
+            off_dev = (1 - w) * ((p.get("off") or 0) - season_meta["replacement_off"]) \
+                + w * ((offr or 0) - rep_off_rapm)
         def_dev = (p.get("def") or 0) - season_meta["replacement_def"]
         rep_def_rapm = season_meta.get("replacement_def_rapm")
         if rep_def_rapm is not None:
-            w = min(max(team.get("turnover") or 0, 0), 1)
             defr = p["defr"] if p.get("defr") is not None else p.get("def")
             def_dev = (1 - w) * ((p.get("def") or 0) - season_meta["replacement_def"]) \
                 + w * ((defr or 0) - rep_def_rapm)
         k = gmeta["wins_per_rating_point"] * minshare
-        off = k * off_slope * ((p.get("off") or 0) - season_meta["replacement_off"])
+        off = k * off_slope * off_dev
         deff = k * season_meta["def_slope"] * def_dev
         return off, deff, True
     total = gmeta["wins_per_rating_point"] * season_meta["rating_slope"] \
