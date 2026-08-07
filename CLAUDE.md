@@ -381,10 +381,9 @@ implementation, and every league follows the pattern:
   param falls back to showing all.
 - **Source** (NBA projections, `ui/template.html`): `teamPlayersLink(t)` emits a small
   `<a class="teamlink" href="/players?team=${t.abbr}">ABBR players on the leaderboard →</a>` at the top
-  of each team's expanded panel, styled with shared tokens. It is prepended in `renderPanel` for
-  **both** the locked and unlocked branches, so every visitor can drill through (the `abbr` is public
-  data). It is a plain anchor — it uses only the public `abbr` and does **not** touch the premium
-  gating (`ui/api/premium.js`); premium still gates the roster/what-if body below it.
+  of each team's expanded panel, styled with shared tokens. It is prepended in `renderPanel` (the
+  panel body below it — roster, per-player Off/Def/≈Wins, what-if editor — is now public too; see
+  "Team detail is PUBLIC" below).
 
 A future league page that wants a per-team drill-down uses the same contract: its target page reads
 `?team=`, its source page links with it.
@@ -594,25 +593,29 @@ to serve **only `ui/`** (Vercel *Root Directory* = `ui`), so `data/`, `nbaproj/`
 `/`; `ui/.vercelignore` keeps `build.py`/`template.html` out. Full steps in
 [ui/DEPLOY.md](ui/DEPLOY.md).
 
-**Freemium gate (shipped 2026-08-02; unlock UI switched off 2026-08-06).** `ui/build.py` splits
-the bundle into a **public** payload (inlined in `projections.html`: bars, ranges, off/def +
-method-toggle readouts, market comparison, Track-record + Drift views, glossary) and a **premium**
-payload (each team's `players` + what-if `grid` — the expanded detail panels: per-player Off/Def
-and ≈Wins, RAPM flags, disagreement + conviction, trade-undo, live editor). Premium is embedded in
-the serverless function `ui/api/premium.js` and returned only when the request's
-`x-unlock-password` matches the `PREMIUM_PASSWORD` env var — Vercel runs `api/*.js` as functions,
-so the source (and its embedded data) is never served as a static asset. **The "Unlock details"
-button and its `doUnlock`/`syncUnlockBtn` client code are removed for now** (user request — "let's
-gate it for now, might bring it back later"); every team panel shows `lockedPanel()`'s plain
-"details aren't shown here right now" message with no CTA, and there is no client code path left
-that can ever call `/api/premium` or populate `sessionStorage`'s `wc_premium` cache. The
-`teamView`/`loadSeason` merge machinery that *consumes* an unlocked payload is deliberately left in
-place (dead until reactivated) so the feature is a small, self-contained re-add rather than a
-rebuild: re-introduce a button that calls `fetch('/api/premium', ...)`, sets `PREMIUM`/`unlocked`,
-and re-renders. The backend (`ui/api/premium.js`, `ui/build.py`'s public/premium split,
-`PREMIUM_PASSWORD`) is untouched and still built on every rebuild — only the front-end entry point
-is gone. Next step for real subscriptions, whenever the gate reopens: per-user auth
-(Clerk/Supabase) + Stripe — the serverless function is the seam to add it (see the auth roadmap item).
+**Team detail is PUBLIC — no gate (2026-08-07).** Every team's expanded detail panel (per-player
+Off/Def and ≈Wins, RAPM `D↑/D↓` flags + All-NBA/All-Def badges, the disagreement + conviction
+block, the offseason-move trade-undo, and the live what-if editor) renders for **everyone, no
+login**. `ui/build.py` inlines the **full** payload — including each team's `players` array and the
+what-if `grid` — directly into the self-contained `projections.html`, the same way the standalone
+player leaderboard (`ui/nba_players`) already ships its per-player numbers. The client's `unlocked`
+flag is now simply *"does the loaded payload carry that detail"* (`loadSeason` sets it from the
+presence of `DATA.grid` + `t.players`); `renderPanel`/`teamView` render the full panel whenever it
+is true. `lockedPanel()` remains only as a defensive fallback for a payload that somehow lacks
+detail (it should never fire in the shipped build).
+
+**Implication (accepted, owner's call):** the per-player Off/Def/≈Wins that were behind the old
+password gate are now in page source — the same numbers the leaderboard already exposes publicly,
+so this is consistent, not a new disclosure. `sessionStorage`'s `wc_premium` cache path is gone.
+
+*History / how to re-gate:* the detail was briefly split into a public payload + a password-gated
+serverless payload (`ui/api/premium.js`, `PREMIUM_PASSWORD`, `x-unlock-password`); the "Unlock
+details" button (`doUnlock`/`syncUnlockBtn`) was removed 2026-08-06 and the whole gate removed
+2026-08-07 (`ui/api/premium.js` deleted; `ui/build.py` no longer splits the payload). To re-gate
+later, restore the public/premium split + the serverless function from git history and re-add an
+unlock button that `fetch`es `/api/premium`, sets `unlocked`, and re-renders. For real
+subscriptions that would still be the seam: per-user auth (Clerk/Supabase) + Stripe (see the auth
+roadmap item).
 
 **✅ League-wide player-impact leaderboard (shipped 2026-08-04, `ui/nba_players/`).** A standalone,
 self-contained companion view — one sortable / searchable / team- and position-filterable table of
@@ -642,13 +645,13 @@ small `o / d` split line beneath (`.wtot`/`.wsplit`), mirroring the main app's r
 python scripts/build_nba_players_ui.py
 ```
 
-**Public/premium decision (owner, 2026-08-04): this leaderboard is PUBLIC.** It exposes the same
-per-player Off/Def/Impact numbers that stay **premium-gated inside the team detail panels**
-(`ui/api/premium.js` / the `ui/build.py` public-vs-premium split) — that team-panel gating is
-**unchanged**. Only this standalone page is public: it ships with data inlined and its own Vercel route
-`/players → /nba_players/players` (`ui/vercel.json`), no serverless gating. `ui/.vercelignore`'s
-directory-agnostic `template.html`/`build.py` patterns already keep the build inputs out of the deploy;
-`scripts/` is outside the `ui` root dir so the build script is never uploaded.
+**Public decision (owner, 2026-08-04): this leaderboard is PUBLIC.** It exposes per-player
+Off/Def/Impact numbers with data inlined and its own Vercel route `/players → /nba_players/players`
+(`ui/vercel.json`), no serverless gating. (As of 2026-08-07 the **team detail panels are public
+too** — see "Team detail is PUBLIC" above — so the same numbers now appear in both places, no
+longer a leaderboard-only exposure.) `ui/.vercelignore`'s directory-agnostic
+`template.html`/`build.py` patterns already keep the build inputs out of the deploy; `scripts/` is
+outside the `ui` root dir so the build script is never uploaded.
 
 ## Layout
 
@@ -1804,24 +1807,20 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
      neutralize the confound damage (the league-wide version was −0.054; this is −0.025, within
      noise) but yields no net gain — redundant with the shipped rim tracking
      (`scripts/gate_shot_defense_posrel.py`).
-- ✅ **Auth / freemium access — SHIPPED as serverless + shared password (2026-08-02).** Chosen from
-  four options (soft reveal / static-encrypted / **serverless+password** / managed-auth+Stripe); the
-  user picked serverless+password for real gating with the cleanest runway to per-user auth. The
-  bundle is split (`ui/build.py`) into a **public** inlined payload (bars, ranges, readouts, Track
-  record, Drift, glossary) and a **premium** payload (each team's `players` + what-if `grid` → the
-  expanded detail panels) embedded in the Vercel serverless function `ui/api/premium.js`, returned
-  only when `x-unlock-password` matches the `PREMIUM_PASSWORD` env var. Vercel runs `api/*.js` as
-  functions, so the source + embedded data are never served statically — real server-enforced gating
-  (unlike inlining, which view-source exposes). Client: `teamView`/`lockedPanel`/`doUnlock` in
-  `template.html` — public bars for anyone; "Unlock details" fetches + caches (`sessionStorage`) +
-  re-renders full panels. Verified end-to-end (locked path: bars render, panels locked; unlock:
-  premium merges, 19-row rosters + moves + disagreement + live recompute). Set-up in
-  [ui/DEPLOY.md](ui/DEPLOY.md).
-  ⬜ **Next for real subscriptions** (the shared password is one-for-all, no accounts): swap the
-  password check in `ui/api/premium.js` for **per-user auth** (Clerk / Supabase / Auth0 — verify a
-  session token instead of a shared password) and add **Stripe** billing to gate on subscription
-  status. The serverless function is the seam. **Payment/Stripe must be wired by the user** —
-  handling payment credentials is out of scope for the assistant.
+- ✅ **Auth / freemium access — built (2026-08-02), then REMOVED: team detail is PUBLIC (2026-08-07).**
+  History: the detail was briefly gated by a Vercel serverless function + shared password
+  (`ui/api/premium.js`, `PREMIUM_PASSWORD`, `x-unlock-password`) — chosen from four options (soft
+  reveal / static-encrypted / **serverless+password** / managed-auth+Stripe) for real
+  server-enforced gating with a clean runway to per-user auth. The "Unlock details" button was
+  switched off 2026-08-06, then on **2026-08-07** the user asked to show details without login, so
+  the gate was removed entirely: `ui/build.py` now inlines the full payload (players + what-if grid)
+  publicly and `ui/api/premium.js` was deleted. See "Team detail is PUBLIC" in the UI section for
+  the current state and how to re-gate.
+  ⬜ **If a paid tier is ever wanted** (would require re-introducing a gate): restore the
+  public/premium split + serverless function from git history, then swap the shared-password check
+  for **per-user auth** (Clerk / Supabase / Auth0 — a session token) + **Stripe** billing. The
+  serverless function is the seam. **Payment/Stripe must be wired by the user** — handling payment
+  credentials is out of scope for the assistant.
 
 ---
 
