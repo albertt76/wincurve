@@ -872,7 +872,7 @@ let METHOD = "blended";
 
 const AX_LO = 12, AX_HI = 70;            // win axis bounds
 const pct = w => ((Math.min(Math.max(w, AX_LO), AX_HI) - AX_LO) / (AX_HI - AX_LO)) * 100;
-const CURRENT_MAE = 7.40;               // shipped MAE (+ position-relative offense + RAPM offense blend, 2026-08-06; 7.58 before those two)
+const CURRENT_MAE = 7.39;               // shipped MAE (position-relative oreb offense + usage-weighted RAPM offense blend, 2026-08-07; 7.40 before)
 
 // Season-dependent globals, (re)built by loadSeason().
 let DATA, state, byId, allPlayers;
@@ -1098,8 +1098,9 @@ function redistributeFrom(roster, ownFreed, removed, games) {
    240-per-game budget charged at replacement level. Offense and defense are aggregated
    separately (decoupled) and each mapped with its own calibrated slope, so the row can show
    where a team's rating comes from -- and an edit reprices offense and defense independently.
-   Defense is the turnover-weighted blend of the box metric and play-by-play RAPM: a steady
-   roster leans on the box metric (which the carryover corrects), a turned-over one on RAPM. */
+   Defense blends the box metric and play-by-play RAPM by roster turnover (a steady roster leans
+   on the box metric the carryover corrects, a turned-over one on RAPM); offense blends by the
+   team's prior top-scorer share (off_weight) -- usage, not continuity, says trust RAPM here. */
 function computeRating(team) {
   const st = state.get(team.id);
   const edited = st.off.size > 0 || st.added.length > 0;
@@ -1145,8 +1146,9 @@ function computeRating(team) {
       aggDefRapm = (roster.reduce((a, p, i) => a + mins[i] * (p.defr != null ? p.defr : p.def), 0)
                     + leftover * DATA.replacement_def_rapm) / budget;
     }
-    const w = Math.min(Math.max(team.turnover || 0, 0), 1);
-    const aggOffBlend = aggOffRapm != null ? (1 - w) * aggOffBox + w * aggOffRapm : aggOffBox;
+    const w = Math.min(Math.max(team.turnover || 0, 0), 1);   // defense weight: roster turnover
+    const wo = Math.min(Math.max((team.off_weight != null ? team.off_weight : team.turnover) || 0, 0), 1);  // offense weight: prior top-scorer share
+    const aggOffBlend = aggOffRapm != null ? (1 - wo) * aggOffBox + wo * aggOffRapm : aggOffBox;
     const aggDefBlend = aggDefRapm != null ? (1 - w) * aggDefBox + w * aggDefRapm : aggDefBox;
 
     // One arm per method -- each priced with its OWN slope (never the blended slope applied to
@@ -1302,10 +1304,11 @@ function disagreementBlock(t, w, cr, wRapm) {
 // replacement-level player taking his minutes -- the WAR-like ("wins above replacement")
 // translation of his impact, scaled by minute share and the impact -> rating -> wins
 // conversion. It decomposes the SAME model the team rating uses: offense and defense priced by
-// their own slopes (defense's is lower, since defense is less predictive), and defense is the
-// turnover-weighted blend of the box metric and RAPM -- so a rebounding centre whose box
-// defense the metric inflates is discounted, and a scoring guard is not double-penalised for a
-// weak box-defense estimate. Older snapshots without the split fall back to combined impact.
+// their own slopes (defense's is lower, since defense is less predictive); defense blends the box
+// metric and RAPM by roster turnover and offense by prior top-scorer share -- so a rebounding
+// centre whose box defense the metric inflates is discounted, and a scoring guard is not
+// double-penalised for a weak box-defense estimate. Older snapshots without the split fall back
+// to combined impact.
 const MPG_BUDGET = GMETA.minutes_budget / GMETA.full_season_games;   // 240 player-min/game
 // The team aggregation caps total minutes at the 240/game budget before minute-weighting, so an
 // over-budget roster (summer camp invites, just-acquired players still carrying their old team's
@@ -1320,8 +1323,9 @@ function teamCapFactor(team) {
 }
 // Offense/defense deviation-from-replacement for one player under `method`
 // ('blended'/'box'/'rapm'). 'box' and 'rapm' branch directly to the pure aggregate (no
-// (1-w)*box + w*rapm indirection with w forced to 0/1); 'blended' uses the team's turnover
-// weight, exactly like the shipped team rating. Mirrors scripts/build_nba_players_ui.py's
+// (1-w)*box + w*rapm indirection with w forced to 0/1); 'blended' weights defense by roster
+// turnover and offense by prior top-scorer share (off_weight), like the shipped team rating.
+// Mirrors scripts/build_nba_players_ui.py's
 // _method_devs bit-for-bit.
 function methodDevs(p, team, method) {
   const boxOff = p.off, boxDef = p.def;
@@ -1337,10 +1341,11 @@ function methodDevs(p, team, method) {
       ? rapmDef - DATA.replacement_def_rapm : boxDef - DATA.replacement_def;
     return [offDev, defDev];
   }
-  const w = Math.min(Math.max(team.turnover || 0, 0), 1);
+  const w = Math.min(Math.max(team.turnover || 0, 0), 1);   // defense weight: roster turnover
+  const wo = Math.min(Math.max((team.off_weight != null ? team.off_weight : team.turnover) || 0, 0), 1);  // offense weight: prior top-scorer share
   let offDev = boxOff - DATA.replacement_off;
   if (DATA.replacement_off_rapm != null) {
-    offDev = (1 - w) * (boxOff - DATA.replacement_off) + w * (rapmOff - DATA.replacement_off_rapm);
+    offDev = (1 - wo) * (boxOff - DATA.replacement_off) + wo * (rapmOff - DATA.replacement_off_rapm);
   }
   let defDev = boxDef - DATA.replacement_def;
   if (DATA.replacement_def_rapm != null) {

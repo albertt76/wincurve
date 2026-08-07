@@ -93,13 +93,15 @@ the market on this team, and here is the structural reason why."
 
 Current projection target: **2026-27 season**. Shipped backtest MAE (roster mode + carryover +
 RAPM defensive blend + rim/hustle tracking defense + position-relative rebounding + BPM position
-fallback + RAPM prior re-anchored on the current box defense + position-relative offensive
-standardization + RAPM offensive blend): **7.40 wins** vs market 6.88 (7.58 before the two
-2026-08 offense fixes below, prompted by an independent talent-evaluator review; 7.95 before the
-RAPM def-blend; 7.77 before tracking defense; 7.74 before the position-relative-rebounding fix —
-a real +0.11, both more accurate AND fairer to guards; 7.62 before the position-fallback fix that
-extends it to the 8 seasons with no listed positions, +0.01; 7.61 before re-anchoring the RAPM
-prior on the current box defense, a further +0.03).
+fallback + RAPM prior re-anchored on the current box defense + **position-relative *offensive*
+rebounding** + **usage-weighted RAPM offensive blend**): **7.39 wins** vs market 6.88 (within noise
+of 7.40 the prior day; the net of oreb's +0.05 and the offense-weight switch's aggregate-neutrality
+— see the two 2026-08-07 fixes below). Earlier rungs: 7.58 before the 2026-08-06 offense fixes,
+prompted by an independent talent-evaluator review; 7.95 before the RAPM def-blend; 7.77 before
+tracking defense; 7.74 before the position-relative-rebounding fix — a real +0.11, both more
+accurate AND fairer to guards; 7.62 before the position-fallback fix that extends it to the 8
+seasons with no listed positions, +0.01; 7.61 before re-anchoring the RAPM prior on the current box
+defense, a further +0.03.
 
 See [DESIGN.md](DESIGN.md) for full architecture, statistical traps, and staged plan.
 
@@ -206,8 +208,9 @@ Walk-forward means: to predict season N, train only on seasons before N. All err
 | Model / baseline | MAE | Notes |
 |---|---|---|
 | Market (preseason win totals) | **6.88** | the yardstick; we do not beat it |
-| **wincurve — + RAPM offensive blend** | **7.40** | shipped; +0.11 to +0.15 (7.52 → 7.39–7.40 paired-seed, ±0.11–0.17 SE, 5-7/9 folds, every weight variant tried improved) — extends the shipped defensive RAPM blend to offense; guard gravity/creation is what plus-minus sees and the box does not |
-| wincurve — + position-relative offensive standardization | 7.58 | prior; +0.06 (ts_pct alone, ±0.065 SE, 3/6 folds, weaker/noisier than the analogous defensive fix) but nearly eliminates the center/guard off_impact gap (1.12 → 0.34) — shipped for player-level credibility, the same precedent as the tracking-defense features below |
+| **wincurve — + position-rel *oreb* offense + usage-weighted RAPM offense** | **7.39** | shipped 2026-08-07; two changes: (1) `oreb_p100` REPLACES `ts_pct` in the position-relative offense set (+0.05 full-pipeline, 6/6 folds — the offensive twin of the shipped defensive `dreb_p100`, where `ts_pct` had become a null once the RAPM offense blend shipped); (2) the RAPM offense blend weight switches turnover → prior top-scorer share (aggregate-neutral, restores stable-roster stars). Net within noise of 7.40, driven by oreb |
+| wincurve — + RAPM offensive blend (turnover weight) | 7.40 | prior (2026-08-06); +0.11 to +0.15 (7.52 → 7.39–7.40 paired-seed, ±0.11–0.17 SE, 5-7/9 folds, every weight variant improved) — extends the defensive RAPM blend to offense; guard gravity/creation is what plus-minus sees and the box does not |
+| wincurve — + position-relative offensive standardization (ts_pct) | 7.58 | prior (2026-08-06), SUPERSEDED by oreb; +0.06 pure-box (ts_pct alone, ±0.065 SE, 3/6 folds) but a null in the full pipeline (the RAPM offense blend already corrects its efficiency confound) — replaced by oreb, which removes the orthogonal rebounding-role confound |
 | wincurve — + RAPM prior re-anchored on current box defense | 7.58 | prior; +0.036 (7.628 → 7.591 paired-seed, ±0.017 SE, 5/6 folds) — the RAPM prior was stale (pre position/tracking fixes) |
 | wincurve — + BPM position fallback (pre-2013-14) | 7.61 | prior; +0.011 (7.622 → 7.612, ±0.0039 SE, 5/6 folds) — fixes position-relative rebounding's silent no-op on 8 of 21 backbone seasons |
 | wincurve — + position-relative defensive rebounding | 7.62 | prior; +0.11 (7.74 → 7.62, ±0.055 SE, 6/9 folds) — first defensive change to help accuracy AND credibility |
@@ -1124,7 +1127,62 @@ measurement (recorded in `gate_defense_prior.py`). **Going forward, a box-metric
 regenerate `player_impact.parquet` → re-run `build_rapm.py` → rebuild bundles**, so the prior
 never silently goes stale again.
 
+### ✅ SHIPPED: oreb offense + usage-weighted RAPM offense blend (2026-08-07)
+
+The two Open items the 2026-08-06 offense work (below) left behind, both resolved as SHIPS. Both
+change the deployed projection; the client-side recompute was re-verified bit-for-bit after both
+(`winParts` JS vs the Python port: max |Δ| **5e-7** over 52 players on NYK/GSW/OKC; `computeRating`
+reproduces every team's emitted rating within rounding), so roster edits stay exact. Combined
+shipped MAE **≈ 7.39 excl-short** (within noise of the prior 7.40 — oreb's +0.05 net of the weight
+switch's aggregate-neutrality).
+
+**(1) `oreb_p100` REPLACES `ts_pct` in `POSITION_RELATIVE_FEATURES` (now `["dreb_p100",
+"oreb_p100"]`).** The Open item asked whether a narrower feature (`fta_p100` etc.) beats the
+weak/noisy `ts_pct` fix. The answer turned out to be `oreb_p100` — the exact offensive twin of the
+shipped defensive `dreb_p100`, by identical logic: offensive rebounding is heavily positional ROLE
+(a center crashes the glass), so league-wide it inflated centers' offense the way defensive
+rebounding inflated their defense. Standardizing it within (season, pos_group) narrows the
+center/guard `off_impact` gap **1.12 → 0.62 WITHOUT overcorrecting** (centers stay slightly above
+guards), de-inflates pure offensive-rebounding specialists (Steven Adams −1.06 → −1.61, Gobert
+1.13 → 0.74) and PRESERVES genuine offensive-center stars (Jokić stays 3.11, vs 2.70 under ts_pct).
+It wins the gate cleanly: pure-box **+0.132 (6/6 folds, stable across 4 seeds)** vs ts_pct's +0.064
+(3/6); and in the FULL shipped pipeline (offensive RAPM blend on) **+0.051 (6/6)** — exactly where
+`ts_pct` collapses to a **null (−0.003, 2/6)**, because the offensive RAPM blend (shipped the same
+day, 08-06) already corrects `ts_pct`'s efficiency confound but NOT `oreb`'s orthogonal
+rebounding-role confound. So `ts_pct` was redundant in the shipped config and `oreb` carries the
+real signal. Rejected alternatives: `fta_p100` (rim-runner contact-finishing) is a near-no-op
+(+0.005, barely moves the gap); `ts_pct + oreb` OVERcorrects (centers drop BELOW guards, only 2 in
+the top-30 offensive board) — matches the earlier `ts_pct + oreb` rejection.
+`scripts/gate_position_relative_offense.py` (docstring + `main()`) now reproduces this. Protocol
+followed: regenerated `player_impact.parquet` → re-ran `build_rapm.py --refresh` (the off_rapm
+prior re-anchors on the new box offense; def unchanged — oreb is offensive) → rebuilt bundles + UI.
+
+**(2) RAPM OFFENSE blend weight switches turnover → prior-season top-scorer share
+(`nbaproj.rapm_blend.offense_blend_weight`).** The 08-06 blend used the same turnover weight for
+offense as defense — a conceptual mismatch the review's completeness audit flagged: roster
+continuity has nothing to do with whether a player is a high-usage creator, so on STABLE rosters
+the turnover weight left stars at their box value while the league-wide off_slope recalibration
+docked them ~1 offensive win each (Brunson/Curry/SGA all LOST vs the box method). Whether to trust
+a team's box OFFENSE against RAPM is a question of shot-creation *concentration*, so the offense
+weight now keys to the team's **prior-season top-scorer point share**; DEFENSE stays on turnover.
+This roughly doubles the blend weight for stable star-led teams (Brunson 0.11 → 0.20, Curry
+0.045 → 0.12, SGA 0.13 → 0.22), restoring each to ~box-level offense (the ~1-win loss erased:
+tss−box ≈ 0). It is **aggregate-neutral** vs turnover (7.422 vs 7.436, −0.015 within noise; honest
+prior-season ≈ contemporaneous, so no material leakage; tss on 5/6 folds vs 4/6) — the same "ship
+on player-credibility at ~zero aggregate cost" shape as `ts_pct`/tracking-defense. Prior-season
+(not contemporaneous) keeps it point-in-time-safe and knowable for the live projection. Wired
+through the whole pipeline: `backtest_aggregates` (the calibration source), `project_current.py`,
+`build_snapshots.py` all blend offense by `off_weight` and emit it per team; the two UI clients
+(`ui/template.html`, `scripts/build_nba_players_ui.py`) blend offense by `team.off_weight` (falling
+back to turnover for older bundles) with defense still on turnover. The original
+`scripts/gate_rapm_offense_blend.py` sweep already showed turnover and top-scorer-share are
+aggregate-neutral to each other; this re-check (the second Open item) judged them at the PLAYER
+level, where top-scorer share wins.
+
 ### ✅ SHIPPED: position-relative offensive standardization + RAPM offensive blend (2026-08-06)
+### ⚠️ NOTE: parts of this section were SUPERSEDED on 2026-08-07 (see the section above) — the
+### `ts_pct` position-relative feature was replaced by `oreb_p100`, and the RAPM offense blend's
+### turnover weight was replaced by prior-season top-scorer share. Kept for the historical record.
 
 An independent NBA talent-evaluator review of the methodology + the full player export (see
 `docs/nba_impact_methodology.md`) verified every data claim against the live export (exact match
@@ -1340,6 +1398,7 @@ is not repeated.
 | Tanking adjustment from lottery reform | 2019 reform *tripled* tanking, not reduced it |
 | Trimming "bloated" current rosters before aggregation | Fails the gate: any roster cap raises MAE (7.95 → 8.04 at cap-18); the minute-weighted mean already down-weights camp bodies, and the tail carries real signal |
 | **Offensive-creation features** (potential/secondary assists, points created, screen assists) | Offense is already saturated: out-of-sample team-offense corr flat 0.930 → 0.930 (calibrated err 0.870 → 0.879, *worse*); win gate +0.018 (noise). Box assists + usage + efficiency already encode creation, so these are collinear refinements — Brunson barely moves (+2.09 → +2.21). Passing data pulled and kept (`player_passing`), features not added. |
+| **`fta_p100` (and `ts_pct`) as the position-relative offense feature** (`gate_position_relative_offense.py`) | The Open item's named candidate `fta_p100` (rim-runner contact-finishing) is a near-**no-op** made position-relative (+0.005, positional gap 1.12 → 1.04). `ts_pct` (shipped 2026-08-06) works pure-box (+0.064) but is a **null in the full shipped pipeline** (−0.003) — the offensive RAPM blend already corrects its efficiency confound. **Both superseded by `oreb_p100`** (the offensive twin of the defensive `dreb_p100`, +0.051 full-pipeline 6/6), which removes the orthogonal rebounding-role confound. `ts_pct + oreb` OVERcorrects (centers below guards). Offense position-relative family = `oreb` only; do not re-add `ts_pct`/`fta_p100`. |
 | Prior-year **All-Defense** correction to `def_impact` | Out-of-line bump of under-rated honorees toward an honor floor **fails the win gate at every setting** (−0.007 to −0.029, monotone with strength; `alldef_wingate`). As a plain team feature it also worsens out-of-sample team-defense (corr 0.733 → 0.726). Redundant at the team level — a team's defense is already the sum of its players' countable events. Kept as a display **badge**, not a projection input. |
 | **All-NBA** as a star impact bump | Mechanically wrong, so not gated: All-NBA is largely an OFFENSIVE / reputational honor. The metric's low ratings of All-NBA guards are defense-driven and correct — Brunson is +2.09 off / −2.01 def, a real two-way wash — so bumping impact toward the honor would credit defense he doesn't play (or double-count offense, already R²=0.82). Display **badge** only. |
 | **Re-fitting the box-vs-RAPM blend WEIGHT** (flat constants or walk-forward flat weight) | Rating-space proxy said flat ~0.5 wins +0.13/6-of-9; the real 5000-sim gate (`gate_blend_weight.py`) says otherwise — best candidates +0.02–0.03 wins, paired SE ~0.05–0.09 (noise), everything `w ≥ 0.5` worse, pure RAPM worst. The proxy sign-flipped (nonlinearity). 3-lens adversarial audit: negative-result-trustworthy. Box-metric fixes shrank RAPM's edge (pure RAPM 7.83 > pure box 7.77). **Flat-weight family closed.** |
@@ -1574,31 +1633,24 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
 
 ### Open items
 
-- ⬜ **Test narrower position-relative-offense variants.** The shipped fix
-  (`POSITION_RELATIVE_FEATURES = ["dreb_p100", "ts_pct"]`, 2026-08-06) cleared its own bar on
-  credibility but was weak/noisy on win MAE (+0.058 ±0.065 SE, only 3/6 folds). Try `fta_p100`
-  alone or in combination (flagged as a plausible candidate — rim-runner contact-finishing — but
-  untested) via `scripts/gate_position_relative_offense.py`, looking for a cleaner win than
-  `ts_pct` alone gave. See the "position-relative offensive standardization" write-up above for
-  the full candidate-feature reasoning (why `fg3m_p100`/`fg3_rate`/`pts_p100`/`ast_p100` were
-  deliberately left out of the first pass).
-- ⬜ **Re-examine the RAPM offensive blend weight for high-usage/low-turnover stars.** Spot-check
-  (2026-08-06) of the review's flagged high-usage guards after the shipped turnover-weighted
-  blend: Trae Young (18% turnover) and Ja Morant (24%) gained offensive wins as intended
-  (+0.13, +0.23) — the blend gives their much-higher RAPM offense real weight. But
-  Brunson (11% turnover), Stephen Curry (4%), and Shai Gilgeous-Alexander (13%) all LOST
-  offensive wins (−0.93, −0.87, −1.23) despite equally large or larger box-vs-RAPM gaps (Curry
-  +2.80 box vs +7.05 RAPM, the biggest gap of the group) — their stable rosters mean the blend
-  barely touches their own number, so the league-wide off_slope recalibration (6.81 → 5.28)
-  dominates instead. Roster turnover is a good proxy for "can we trust this team's box defense"
-  but has nothing to do with "is this player a high-usage shot-creator" — exactly the mismatch
-  the review's completeness audit flagged when it noted the shipped mechanism isn't literally
-  "weighted heaviest for high-usage creators." The untested alternative
-  (`top_scorer_share_weight` in `nbaproj/rapm_blend.py`, already built and gated but not
-  shipped — it placed close behind turnover on fold-count in
-  `scripts/gate_rapm_offense_blend.py`) would key the weight to usage instead of continuity;
-  worth a targeted re-check specifically on this flagged player group, not just the aggregate
-  MAE the original gate judged it on.
+- ✅ **Test narrower position-relative-offense variants — RESOLVED, SHIPPED `oreb_p100` (2026-08-07).**
+  The answer was not `fta_p100` (a near-no-op, +0.005) but `oreb_p100` — the offensive twin of the
+  shipped defensive `dreb_p100`, which beats `ts_pct` cleanly (pure-box +0.132/6-6 all seeds vs
+  +0.064/3-6; full-pipeline +0.051/6-6 where `ts_pct` is a null) and narrows the center/guard gap
+  without overcorrecting while preserving Jokić-type stars. `ts_pct` was superseded (redundant with
+  the RAPM offense blend). See the "oreb offense + usage-weighted RAPM offense blend (2026-08-07)"
+  write-up above; the follow-up (`fta_p100` and other narrow variants) is closed.
+- ✅ **Re-examine the RAPM offensive blend weight for high-usage/low-turnover stars — RESOLVED,
+  SWITCHED to top-scorer share (2026-08-07).** The re-check confirmed the mechanism: keying the
+  OFFENSE weight to prior-season top-scorer share (usage) instead of roster turnover (continuity)
+  roughly doubles the blend weight for stable star-led teams (Brunson 0.11 → 0.20, Curry
+  0.045 → 0.12, SGA 0.13 → 0.22) and restores each to ~box-level offense (erasing the ~1-win loss
+  the turnover weight imposed), at ~zero aggregate cost (turnover 7.422 vs tss 7.436, within noise;
+  honest prior-season ≈ contemporaneous). Shipped as `nbaproj.rapm_blend.offense_blend_weight`
+  (defense stays on turnover). See the 2026-08-07 write-up above. Historical spot-check that
+  motivated it: the flagged guards Trae Young (18% turnover) and Ja Morant (24%) gained offensive
+  wins under the old turnover blend (+0.13, +0.23) while Brunson/Curry/SGA LOST (−0.93/−0.87/−1.23)
+  despite equal-or-larger box-vs-RAPM gaps — exactly the usage-vs-continuity mismatch now fixed.
 - ⬜ Historical **injury reasons** still unsourced (Pro Sports Transactions needs a UA;
   otherwise only games-missed is available)
 - ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). bbref Vegas

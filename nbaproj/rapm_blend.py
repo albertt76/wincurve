@@ -72,6 +72,36 @@ def top_scorer_share_weight(pts: pd.DataFrame, seasons) -> pd.DataFrame:
     return out
 
 
+def offense_blend_weight(pts: pd.DataFrame, seasons) -> pd.DataFrame:
+    """Point-in-time-safe OFFENSIVE blend weight: each team-season's weight on the RAPM offense
+    aggregate is that team's PRIOR-season top-scorer point share (``top_scorer_share_weight``
+    shifted forward one season), clipped to [0, 1].
+
+    The DEFENSIVE blend keys on roster turnover -- "can we trust this team's box defense?" is a
+    question of roster churn (a stable roster's defense the carryover already corrects). But
+    whether to trust a team's box OFFENSE against RAPM is a question of shot-creation
+    *concentration*: a team that runs everything through one high-usage creator is exactly where
+    the box score misses gravity/creation and plus-minus sees it. Keying the offense weight to
+    top-scorer share (not turnover) restores high-usage stars on STABLE rosters (Brunson, Curry,
+    Shai Gilgeous-Alexander), whom the turnover weight barely touched -- their low churn left the
+    blend at their box value while the league-wide off_slope recalibration docked them ~1 win each.
+    Aggregate-neutral vs the turnover weight (walk-forward win MAE within noise) but materially
+    fairer to those players -- see scripts/gate_rapm_offense_blend.py and the CLAUDE.md write-up.
+
+    Prior-season (not contemporaneous) so the weight is knowable before the season starts -- the
+    same information set a live projection has; the two are ~identical empirically (top-scorer
+    share is stable year to year), so this costs nothing in accuracy while removing the leak.
+    Returns team_id, season_start, off_weight.
+    """
+    all_seasons = sorted(int(s) for s in pts["season_start"].unique())
+    prior = top_scorer_share_weight(pts, all_seasons).copy()
+    prior["season_start"] = prior["season_start"] + 1
+    prior = prior.rename(columns={"top_scorer_share": "off_weight"})
+    prior["off_weight"] = prior["off_weight"].clip(0.0, 1.0)
+    want = {int(s) for s in seasons}
+    return prior[prior["season_start"].isin(want)][["team_id", "season_start", "off_weight"]]
+
+
 def backtest_aggregates(imp: pd.DataFrame, rapm_imp: pd.DataFrame, pts: pd.DataFrame,
                         pgl: pd.DataFrame, ts: pd.DataFrame, ages: pd.DataFrame,
                         rosters: pd.DataFrame, seasons, *,
@@ -85,13 +115,17 @@ def backtest_aggregates(imp: pd.DataFrame, rapm_imp: pd.DataFrame, pts: pd.DataF
 
     If `rapm_off_imp` is given (an impact table with off_impact swapped to off_rapm, see
     `nbaproj.rapm.build_rapm_impact(..., which="off")`), a third arm is run and its aggregate is
-    returned as `agg_off_rapm`, plus the turnover-blended `agg_off_used` -- the SAME weighting
-    formula as the defensive blend (`blend_weight(new_minute_share)`), decided and shipped
-    2026-08 after scripts/gate_rapm_offense_blend.py showed every weight variant tried improved
-    win MAE (+0.11 to +0.15 wins, majority of folds), including one built from a completely
-    different signal (top-scorer's point share) -- that triangulation, not any single variant's
-    SE, is what makes this a confident ship. `agg_off` (pure box) is always present and
-    unchanged, so existing def-only callers are unaffected.
+    returned as `agg_off_rapm`, plus the blended `agg_off_used` and the per-team `off_weight`.
+    The offensive blend is weighted by `offense_blend_weight` -- the team's PRIOR-season top-scorer
+    point share -- NOT the turnover weight the defensive blend uses. Both weights were gated in
+    scripts/gate_rapm_offense_blend.py: every variant improved win MAE over pure box (+0.10 to
+    +0.15 wins), and turnover vs top-scorer-share are aggregate-neutral to each other (within
+    noise). Top-scorer share was chosen (2026-08-06) because it fixes a player-level mismatch the
+    turnover weight has -- roster continuity has nothing to do with whether a player is a
+    high-usage creator, so the turnover weight left stable-roster stars (Brunson/Curry/SGA) at
+    their box value and the off_slope recalibration docked them ~1 win each; keying offense to
+    usage restores them at ~zero aggregate cost (see offense_blend_weight). `agg_off` (pure box)
+    is always present and unchanged, so existing def-only callers are unaffected.
     """
     def arm(impact):
         out = []
@@ -118,7 +152,11 @@ def backtest_aggregates(imp: pd.DataFrame, rapm_imp: pd.DataFrame, pts: pd.DataF
         rapm_off = arm(rapm_off_imp)[["team_id", "season_start", "agg_off"]].rename(
             columns={"agg_off": "agg_off_rapm"})
         A = A.merge(rapm_off, on=["team_id", "season_start"])
-        A["agg_off_used"] = (1 - w) * A["agg_off"] + w * A["agg_off_rapm"]
+        ow = offense_blend_weight(pts, seasons)
+        A = A.merge(ow, on=["team_id", "season_start"], how="left")
+        A["off_weight"] = A["off_weight"].fillna(A["off_weight"].median()).clip(0.0, 1.0)
+        wo = A["off_weight"]
+        A["agg_off_used"] = (1 - wo) * A["agg_off"] + wo * A["agg_off_rapm"]
     return A
 
 

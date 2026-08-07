@@ -89,8 +89,9 @@ def _method_devs(p: dict, team: dict, season_meta: dict, method: str) -> tuple[f
     """Offense/defense deviation-from-replacement for one player under `method`
     ('blended'/'box'/'rapm'). 'box' and 'rapm' branch directly to the pure aggregate (no
     (1-w)*box + w*rapm indirection with w forced to 0/1 -- simpler, matches how the shipped
-    RAPM-only-defense arm already worked before the method toggle); 'blended' uses the team's
-    turnover weight, exactly like the shipped team rating (nbaproj.rapm_blend.blend_weight)."""
+    RAPM-only-defense arm already worked before the method toggle); 'blended' weights DEFENSE by
+    the team's roster turnover and OFFENSE by the team's prior top-scorer share (off_weight),
+    exactly like the shipped team rating (nbaproj.rapm_blend)."""
     box_off = p.get("off") or 0
     box_def = p.get("def") or 0
     rep_off, rep_def = season_meta["replacement_off"], season_meta["replacement_def"]
@@ -104,10 +105,12 @@ def _method_devs(p: dict, team: dict, season_meta: dict, method: str) -> tuple[f
         off_dev = (rapm_off - rep_off_rapm) if rep_off_rapm is not None else (box_off - rep_off)
         def_dev = (rapm_def - rep_def_rapm) if rep_def_rapm is not None else (box_def - rep_def)
         return off_dev, def_dev
-    w = min(max(team.get("turnover") or 0, 0), 1)
+    w = min(max(team.get("turnover") or 0, 0), 1)                       # defense: roster turnover
+    ow = team.get("off_weight")
+    wo = min(max((ow if ow is not None else team.get("turnover")) or 0, 0), 1)  # offense: top-scorer share
     off_dev = box_off - rep_off
     if rep_off_rapm is not None:
-        off_dev = (1 - w) * (box_off - rep_off) + w * (rapm_off - rep_off_rapm)
+        off_dev = (1 - wo) * (box_off - rep_off) + wo * (rapm_off - rep_off_rapm)
     def_dev = box_def - rep_def
     if rep_def_rapm is not None:
         def_dev = (1 - w) * (box_def - rep_def) + w * (rapm_def - rep_def_rapm)
