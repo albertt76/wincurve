@@ -1541,6 +1541,23 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   `ts_pct` alone gave. See the "position-relative offensive standardization" write-up above for
   the full candidate-feature reasoning (why `fg3m_p100`/`fg3_rate`/`pts_p100`/`ast_p100` were
   deliberately left out of the first pass).
+- ⬜ **Re-examine the RAPM offensive blend weight for high-usage/low-turnover stars.** Spot-check
+  (2026-08-06) of the review's flagged high-usage guards after the shipped turnover-weighted
+  blend: Trae Young (18% turnover) and Ja Morant (24%) gained offensive wins as intended
+  (+0.13, +0.23) — the blend gives their much-higher RAPM offense real weight. But
+  Brunson (11% turnover), Stephen Curry (4%), and Shai Gilgeous-Alexander (13%) all LOST
+  offensive wins (−0.93, −0.87, −1.23) despite equally large or larger box-vs-RAPM gaps (Curry
+  +2.80 box vs +7.05 RAPM, the biggest gap of the group) — their stable rosters mean the blend
+  barely touches their own number, so the league-wide off_slope recalibration (6.81 → 5.28)
+  dominates instead. Roster turnover is a good proxy for "can we trust this team's box defense"
+  but has nothing to do with "is this player a high-usage shot-creator" — exactly the mismatch
+  the review's completeness audit flagged when it noted the shipped mechanism isn't literally
+  "weighted heaviest for high-usage creators." The untested alternative
+  (`top_scorer_share_weight` in `nbaproj/rapm_blend.py`, already built and gated but not
+  shipped — it placed close behind turnover on fold-count in
+  `scripts/gate_rapm_offense_blend.py`) would key the weight to usage instead of continuity;
+  worth a targeted re-check specifically on this flagged player group, not just the aggregate
+  MAE the original gate judged it on.
 - ⬜ Historical **injury reasons** still unsourced (Pro Sports Transactions needs a UA;
   otherwise only games-missed is available)
 - ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). bbref Vegas
