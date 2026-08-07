@@ -6,7 +6,8 @@
     { "source": "/", "destination": "/projections" },
     { "source": "/nhl", "destination": "/nhl/impact" },
     { "source": "/nhl/records", "destination": "/nhl_records/records" },
-    { "source": "/players", "destination": "/nba_players/players" }
+    { "source": "/players", "destination": "/nba_players/players" },
+    { "source": "/performance", "destination": "/performance/performance" }
   ],
   "headers": [
     {
@@ -29,6 +30,12 @@
     },
     {
       "source": "/nba_players/players",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/performance/performance",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
       ]

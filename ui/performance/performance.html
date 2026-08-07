@@ -1,0 +1,464 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wincurve — NBA Model Performance</title>
+
+<style>
+  /* ---- tokens: slate-cool neutrals, uncertainty carried in hue ---- */
+  :root {
+    --ground: #f5f6f9;
+    --surface: #ffffff;
+    --surface-2: #eef0f5;
+    --line: #dfe3ec;
+    --line-soft: #e9ecf3;
+    --ink: #111725;
+    --ink-2: #47506510;
+    --muted: #5d6779;
+    --faint: #8b94a6;
+
+    --tight: #0f766e;      /* low uncertainty */
+    --tight-fill: #0f766e26;
+    --wide: #b45309;       /* high uncertainty */
+    --wide-fill: #b4530926;
+    --pos: #15803d;
+    --neg: #b91c1c;
+    --edit: #6d28d9;
+    --mkt: #1d4ed8;         /* prediction-market comparison accent */
+    --mkt-soft: #1d4ed822;
+    --rapm: #be185d;        /* RAPM-only defensive arm accent */
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+    --r: 5px;
+    --shadow: 0 1px 2px #0b112008, 0 4px 16px #0b112008;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0e1218; --surface: #151a22; --surface-2: #1b212b;
+      --line: #262d3a; --line-soft: #1f2530;
+      --ink: #e7ecf5; --muted: #98a2b6; --faint: #6b7688;
+      --tight: #2dd4bf; --tight-fill: #2dd4bf24;
+      --wide: #f59e0b; --wide-fill: #f59e0b24;
+      --pos: #4ade80; --neg: #f87171; --edit: #a78bfa;
+      --mkt: #60a5fa; --mkt-soft: #60a5fa2e; --rapm: #f472b6;
+      --shadow: 0 1px 2px #0006, 0 6px 20px #0004;
+    }
+  }
+  /* viewer toggle must beat the media query in both directions */
+  :root[data-theme="dark"] {
+    --ground: #0e1218; --surface: #151a22; --surface-2: #1b212b;
+    --line: #262d3a; --line-soft: #1f2530;
+    --ink: #e7ecf5; --muted: #98a2b6; --faint: #6b7688;
+    --tight: #2dd4bf; --tight-fill: #2dd4bf24;
+    --wide: #f59e0b; --wide-fill: #f59e0b24;
+    --pos: #4ade80; --neg: #f87171; --edit: #a78bfa;
+    --mkt: #60a5fa; --mkt-soft: #60a5fa2e; --rapm: #f472b6;
+    --shadow: 0 1px 2px #0006, 0 6px 20px #0004;
+  }
+  :root[data-theme="light"] {
+    --ground: #f5f6f9; --surface: #ffffff; --surface-2: #eef0f5;
+    --line: #dfe3ec; --line-soft: #e9ecf3;
+    --ink: #111725; --muted: #5d6779; --faint: #8b94a6;
+    --tight: #0f766e; --tight-fill: #0f766e26;
+    --wide: #b45309; --wide-fill: #b4530926;
+    --pos: #15803d; --neg: #b91c1c; --edit: #6d28d9;
+    --mkt: #1d4ed8; --mkt-soft: #1d4ed822; --rapm: #be185d;
+    --shadow: 0 1px 2px #0b112008, 0 4px 16px #0b112008;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 20px 80px; }
+  header { margin-bottom: 20px; }
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+  h1 { font-size: clamp(24px, 4vw, 34px); line-height: 1.1; margin: 0 0 10px; letter-spacing: -.02em; font-weight: 650; text-wrap: balance; }
+  .sub { color: var(--muted); max-width: 78ch; margin: 0; font-size: 14.5px; }
+  .sub b { color: var(--ink); font-weight: 600; }
+  .title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .title-row > div:first-child { flex: 1 1 320px; min-width: 0; }
+  .theme-btn { font: inherit; font-size: 12px; cursor: pointer; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 11px; white-space: nowrap; }
+  .theme-btn:hover { border-color: var(--faint); color: var(--ink); }
+  code { font-family: var(--mono); font-size: 11.5px; background: var(--surface-2); padding: 1px 4px; border-radius: 3px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  /* ---- view toggle (Projections / Track record) ---- */
+  .view-toggle { display: inline-flex; gap: 2px; margin: 4px 0 20px; padding: 3px;
+    background: var(--surface-2); border-radius: 8px; }
+  .vt-btn { font: inherit; font-size: 13px; font-weight: 600; letter-spacing: -.01em;
+    color: var(--muted); background: transparent; border: 0; border-radius: 6px;
+    padding: 6px 14px; cursor: pointer; transition: background .15s, color .15s; }
+  .vt-btn:hover { color: var(--ink); }
+  .vt-btn.active { color: var(--ink); background: var(--surface);
+    box-shadow: 0 1px 2px #0b112012; }
+  .vt-btn:focus-visible { outline: 2px solid var(--tight); outline-offset: 1px; }
+
+  /* ---- track-record view ---- */
+  #view-track { margin-top: 4px; }
+  .tr-h { font-size: 22px; font-weight: 650; letter-spacing: -.02em; margin: 0 0 6px; }
+  .tr-lead { color: var(--muted); max-width: 74ch; margin: 0 0 22px; font-size: 14.5px; }
+  .tr-lead b { color: var(--ink); }
+  .tr-seasons { display: flex; flex-direction: column; gap: 0; margin-bottom: 30px; }
+  .tr-row { display: grid; grid-template-columns: 82px 1fr 118px; align-items: center;
+    gap: 14px; padding: 11px 0; border-top: 1px solid var(--line-soft); }
+  .tr-row:last-child { border-bottom: 1px solid var(--line-soft); }
+  .tr-row.tr-agg { border-top: 2px solid var(--line); font-weight: 650; }
+  .tr-season { font-family: var(--mono); font-weight: 650; font-size: 13.5px; }
+  .tr-bars { display: flex; flex-direction: column; gap: 5px; }
+  .tr-bar { position: relative; height: 15px; display: flex; align-items: center; }
+  .tr-bar .fill { height: 15px; border-radius: 3px; min-width: 2px; }
+  .tr-bar.ours .fill { background: var(--tight); }
+  .tr-bar.mkt .fill { background: var(--mkt); }
+  .tr-bar .lbl { position: absolute; left: 8px; font-family: var(--mono); font-size: 10.5px;
+    color: #fff; font-weight: 600; white-space: nowrap; }
+  .tr-bar .cap { font-family: var(--mono); font-size: 11px; color: var(--muted);
+    margin-left: 7px; }
+  .tr-base { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--faint);
+    opacity: .55; }
+  .tr-winner { font-size: 12px; text-align: right; font-weight: 600; }
+  .tr-winner.model { color: var(--tight); } .tr-winner.mkt { color: var(--mkt); }
+  .tr-winner.tie { color: var(--faint); }
+  .tr-legend { display: flex; gap: 16px; margin: -12px 0 22px; font-size: 12px;
+    color: var(--muted); font-family: var(--mono); }
+  .tr-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .tr-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+  /* ---- drift view: small-multiple sparklines of projected wins over run dates ---- */
+  .drift-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px 18px; margin-bottom: 26px; }
+  .drift-cell { border: 1px solid var(--line-soft); border-radius: 7px; padding: 8px 10px 6px; }
+  .drift-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .drift-abbr { font-family: var(--mono); font-weight: 650; font-size: 13px; }
+  .drift-now { font-family: var(--mono); font-size: 13px; font-weight: 650; }
+  .drift-delta { font-family: var(--mono); font-size: 10px; margin-left: 4px; }
+  .drift-delta.p { color: var(--pos); } .drift-delta.n { color: var(--neg); }
+  .drift-cell svg { display: block; width: 100%; height: 34px; margin-top: 3px; overflow: visible; }
+  .drift-spark { fill: none; stroke: var(--tight); stroke-width: 1.6; }
+  .drift-dot { fill: var(--tight); }
+  .drift-single { font-size: 10px; color: var(--faint); font-family: var(--mono); margin-top: 4px; }
+  .tr-legend i.ours { background: var(--tight); } .tr-legend i.mkt { background: var(--mkt); }
+  .tr-calls { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-bottom: 26px; }
+  .tr-sub { font-size: 14px; font-weight: 650; margin: 0 0 4px; }
+  .tr-note { font-weight: 400; color: var(--faint); font-size: 12px; }
+  .tr-call { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; align-items: baseline;
+    padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+  .tr-call .cteam { font-family: var(--mono); font-weight: 650; }
+  .tr-call .cyr { font-family: var(--mono); color: var(--faint); font-size: 11px; }
+  .tr-call .cdesc { color: var(--muted); }
+  .tr-call .cdesc b { color: var(--ink); font-weight: 600; }
+  .tr-call .cedge { font-family: var(--mono); font-weight: 650; white-space: nowrap; }
+  .tr-call .cedge.model { color: var(--tight); } .tr-call .cedge.mkt { color: var(--mkt); }
+  .tr-foot { color: var(--muted); font-size: 12.5px; max-width: 78ch; line-height: 1.5;
+    border-top: 1px solid var(--line-soft); padding-top: 14px; }
+  .tr-foot b { color: var(--ink); }
+  @media (max-width: 640px) {
+    .tr-calls { grid-template-columns: 1fr; gap: 18px; }
+    .tr-row { grid-template-columns: 66px 1fr 78px; gap: 8px; }
+  }
+
+  /* shared cross-league top nav (see root CLAUDE.md "UI conventions"). NOTE: this Performance
+     page is intentionally NOT linked from any nav group — it is reachable by direct URL only. */
+  .topnav { position: sticky; top: 0; z-index: 50; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .topnav-in { max-width: 1080px; margin: 0 auto; padding: 9px 20px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .topnav .brand { font-family: var(--mono); font-weight: 650; font-size: 14px; color: var(--ink); text-decoration: none; letter-spacing: -.01em; }
+  .topnav .nl { font-size: 13px; color: var(--muted); text-decoration: none; padding: 3px 1px; border-bottom: 2px solid transparent; }
+  .topnav .nl:hover { color: var(--ink); }
+  .topnav .nl.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+  .topnav .nl-group { display: inline-flex; align-items: baseline; gap: 9px; }
+  .topnav .nl-league { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+  .topnav .nl-league::after { content: "\25B8"; margin-left: 5px; color: var(--line); }
+  .topnav .nl-sep { color: var(--line); font-size: 12px; }
+</style>
+
+<nav class="topnav"><div class="topnav-in">
+  <a class="brand" href="/">wincurve</a>
+  <span class="nl-group">
+    <span class="nl-league">NBA</span>
+    <a class="nl" href="/">Records</a>
+    <span class="nl-sep">|</span>
+    <a class="nl" href="/players">Players</a>
+  </span>
+  <span class="nl-group">
+    <span class="nl-league">NHL</span>
+    <a class="nl" href="/nhl/records">Records</a>
+    <span class="nl-sep">|</span>
+    <a class="nl" href="/nhl">Players</a>
+  </span>
+</div></nav>
+
+<div class="wrap">
+  <header>
+    <div class="title-row">
+      <div>
+        <div class="eyebrow">wincurve &middot; nba &middot; performance</div>
+        <h1>Model performance</h1>
+        <p class="sub">
+          A running scorecard for the NBA win-projection model: its season-by-season accuracy
+          against the market and a .500 baseline (<b>Track record</b>), and how each team's projected
+          wins have shifted across logged runs (<b>Drift</b>). Built from the same walk-forward
+          projections shown on the Records page &mdash; the market is comparison-only, never an input.
+          Other leagues will appear here over time.
+        </p>
+      </div>
+      <button class="theme-btn" id="theme" type="button" title="Toggle light / dark">◐ theme</button>
+    </div>
+  </header>
+
+  <nav class="view-toggle" role="tablist" aria-label="View">
+    <button id="tab-track" class="vt-btn active" role="tab" aria-selected="true">Track record</button>
+    <button id="tab-drift" class="vt-btn" role="tab" aria-selected="false">Drift</button>
+  </nav>
+
+  <section id="view-track" style="display:none" aria-label="Track record">
+    <h2 class="tr-h">How the model has done &mdash; against the market, and against reality</h2>
+    <p class="tr-lead" id="tr-lead"></p>
+    <div class="tr-seasons" id="tr-seasons"></div>
+    <div class="tr-calls">
+      <div class="tr-col">
+        <h3 class="tr-sub">Model's best calls <span class="tr-note">(we disagreed with Vegas and were closer to what happened)</span></h3>
+        <div id="tr-wins"></div>
+      </div>
+      <div class="tr-col">
+        <h3 class="tr-sub">Where the market won <span class="tr-note">(Vegas was closer than our projection)</span></h3>
+        <div id="tr-losses"></div>
+      </div>
+    </div>
+    <p class="tr-foot">
+      Error is <b>MAE</b> (mean absolute error &mdash; the average miss in wins, ignoring
+      direction). Lower is better. &ldquo;.500 baseline&rdquo; projects every team to 41 wins;
+      both the model and the market clear it comfortably. Historical market is the
+      <b>preseason Vegas over/under</b> (bbref) &mdash; the only market with a multi-season
+      history. All figures are 82-game-equivalent and exclude no completed season shown.
+      The market is never an input to the model.
+    </p>
+  </section>
+
+  <section id="view-drift" style="display:none" aria-label="Projection drift">
+    <h2 class="tr-h">Projection drift over time</h2>
+    <p class="tr-lead" id="drift-lead"></p>
+    <div id="drift-grid" class="drift-grid"></div>
+    <p class="tr-foot" id="drift-foot"></p>
+  </section>
+</div>
+
+<script>
+const SNAP = {"meta":{"seasons":["2017-18","2018-19","2021-22","2022-23","2023-24","2024-25","2025-26","2026-27"]},"projection_history":[{"run_date":"2026-08-02","model":"preseason","season":"2026-27","snapshot_date":"2026-08-02","teams":[{"abbr":"BOS","wins":62.1,"rating":10.57,"off_rating":4.12,"def_rating":5.35,"turnover":0.298},{"abbr":"OKC","wins":59.6,"rating":9.45,"off_rating":2.41,"def_rating":5.42,"turnover":0.132},{"abbr":"SAS","wins":53.7,"rating":6.52,"off_rating":2.6,"def_rating":1.85,"turnover":0.168},{"abbr":"DET","wins":50.7,"rating":4.76,"off_rating":-0.11,"def_rating":2.19,"turnover":0.337},{"abbr":"CHA","wins":50.6,"rating":4.61,"off_rating":0.62,"def_rating":1.16,"turnover":0.385},{"abbr":"CLE","wins":50.0,"rating":4.47,"off_rating":3.21,"def_rating":1.3,"turnover":0.049},{"abbr":"LAL","wins":48.8,"rating":4.03,"off_rating":3.09,"def_rating":0.54,"turnover":0.582},{"abbr":"HOU","wins":47.6,"rating":3.34,"off_rating":-0.35,"def_rating":3.34,"turnover":0.256},{"abbr":"TOR","wins":45.5,"rating":2.51,"off_rating":-0.21,"def_rating":0.81,"turnover":0.138},{"abbr":"MIN","wins":45.2,"rating":2.31,"off_rating":2.07,"def_rating":0.2,"turnover":0.227},{"abbr":"NYK","wins":43.6,"rating":1.65,"off_rating":0.43,"def_rating":-0.59,"turnover":0.105},{"abbr":"DEN","wins":43.5,"rating":1.51,"off_rating":1.59,"def_rating":-1.1,"turnover":0.115},{"abbr":"GSW","wins":43.3,"rating":1.54,"off_rating":1.24,"def_rating":1.47,"turnover":0.045},{"abbr":"LAC","wins":42.0,"rating":0.78,"off_rating":0.61,"def_rating":0.35,"turnover":0.181},{"abbr":"MIA","wins":42.0,"rating":0.95,"off_rating":0.37,"def_rating":0.05,"turnover":0.33},{"abbr":"ORL","wins":41.7,"rating":0.72,"off_rating":0.16,"def_rating":0.31,"turnover":0.105},{"abbr":"POR","wins":41.7,"rating":0.7,"off_rating":0.42,"def_rating":-0.53,"turnover":0.22},{"abbr":"PHX","wins":40.6,"rating":0.56,"off_rating":-0.7,"def_rating":0.39,"turnover":0.213},{"abbr":"PHI","wins":39.8,"rating":-0.06,"off_rating":0.9,"def_rating":-0.66,"turnover":0.438},{"abbr":"DAL","wins":35.5,"rating":-2.12,"off_rating":1.05,"def_rating":-1.03,"turnover":0.315},{"abbr":"IND","wins":34.5,"rating":-2.31,"off_rating":0.16,"def_rating":-0.65,"turnover":0.157},{"abbr":"ATL","wins":33.5,"rating":-2.8,"off_rating":-2.78,"def_rating":-0.56,"turnover":0.273},{"abbr":"CHI","wins":32.6,"rating":-3.45,"off_rating":-1.48,"def_rating":-1.4,"turnover":0.3},{"abbr":"MIL","wins":31.5,"rating":-3.89,"off_rating":-0.25,"def_rating":-1.68,"turnover":0.388},{"abbr":"NOP","wins":30.7,"rating":-4.22,"off_rating":-1.92,"def_rating":-1.56,"turnover":0.073},{"abbr":"MEM","wins":30.1,"rating":-4.66,"off_rating":-1.25,"def_rating":-1.64,"turnover":0.345},{"abbr":"BKN","wins":27.8,"rating":-5.74,"off_rating":-2.15,"def_rating":-1.56,"turnover":0.218},{"abbr":"SAC","wins":27.6,"rating":-5.65,"off_rating":-2.05,"def_rating":-1.31,"turnover":0.098},{"abbr":"UTA","wins":27.4,"rating":-5.76,"off_rating":-1.49,"def_rating":-3.0,"turnover":0.146},{"abbr":"WAS","wins":27.3,"rating":-6.03,"off_rating":-2.1,"def_rating":-1.77,"turnover":0.179}]},{"run_date":"2026-08-07","model":"preseason","season":"2026-27","snapshot_date":"2026-08-07","teams":[{"abbr":"BOS","wins":60.7,"rating":9.92,"off_rating":3.3,"def_rating":5.35,"turnover":0.298},{"abbr":"OKC","wins":59.9,"rating":9.74,"off_rating":2.9,"def_rating":5.42,"turnover":0.132},{"abbr":"SAS","wins":53.9,"rating":6.8,"off_rating":2.73,"def_rating":1.85,"turnover":0.168},{"abbr":"DET","wins":51.5,"rating":5.2,"off_rating":0.32,"def_rating":2.19,"turnover":0.337},{"abbr":"CHA","wins":50.4,"rating":4.62,"off_rating":0.66,"def_rating":1.18,"turnover":0.348},{"abbr":"CLE","wins":50.1,"rating":4.61,"off_rating":3.12,"def_rating":1.31,"turnover":0.074},{"abbr":"HOU","wins":48.2,"rating":3.74,"off_rating":0.13,"def_rating":3.41,"turnover":0.261},{"abbr":"LAL","wins":47.9,"rating":3.74,"off_rating":2.65,"def_rating":0.54,"turnover":0.582},{"abbr":"MIN","wins":45.5,"rating":2.62,"off_rating":2.01,"def_rating":0.2,"turnover":0.227},{"abbr":"NYK","wins":44.7,"rating":2.25,"off_rating":0.87,"def_rating":-0.44,"turnover":0.11},{"abbr":"TOR","wins":44.0,"rating":1.97,"off_rating":-0.58,"def_rating":0.73,"turnover":0.177},{"abbr":"DEN","wins":43.8,"rating":1.78,"off_rating":1.81,"def_rating":-1.11,"turnover":0.115},{"abbr":"GSW","wins":43.2,"rating":1.62,"off_rating":1.42,"def_rating":1.46,"turnover":0.045},{"abbr":"MIA","wins":42.5,"rating":1.28,"off_rating":0.45,"def_rating":0.05,"turnover":0.33},{"abbr":"LAC","wins":42.4,"rating":1.1,"off_rating":0.79,"def_rating":0.35,"turnover":0.181},{"abbr":"PHX","wins":41.3,"rating":1.04,"off_rating":-0.38,"def_rating":0.39,"turnover":0.213},{"abbr":"POR","wins":41.2,"rating":0.66,"off_rating":0.47,"def_rating":-0.5,"turnover":0.244},{"abbr":"ORL","wins":40.8,"rating":0.53,"off_rating":-0.36,"def_rating":0.42,"turnover":0.109},{"abbr":"PHI","wins":38.8,"rating":-0.39,"off_rating":0.43,"def_rating":-0.57,"turnover":0.466},{"abbr":"ATL","wins":34.8,"rating":-2.08,"off_rating":-1.82,"def_rating":-0.55,"turnover":0.273},{"abbr":"DAL","wins":34.8,"rating":-2.27,"off_rating":0.84,"def_rating":-1.03,"turnover":0.315},{"abbr":"IND","wins":34.4,"rating":-2.23,"off_rating":0.52,"def_rating":-0.65,"turnover":0.157},{"abbr":"CHI","wins":32.6,"rating":-3.31,"off_rating":-1.18,"def_rating":-1.4,"turnover":0.3},{"abbr":"NOP","wins":32.3,"rating":-3.3,"off_rating":-1.03,"def_rating":-1.65,"turnover":0.089},{"abbr":"MIL","wins":31.9,"rating":-3.64,"off_rating":0.03,"def_rating":-1.71,"turnover":0.396},{"abbr":"MEM","wins":29.9,"rating":-4.64,"off_rating":-1.16,"def_rating":-1.64,"turnover":0.345},{"abbr":"BKN","wins":27.8,"rating":-5.62,"off_rating":-2.79,"def_rating":-0.98,"turnover":0.264},{"abbr":"UTA","wins":27.5,"rating":-5.57,"off_rating":-1.39,"def_rating":-3.0,"turnover":0.146},{"abbr":"WAS","wins":27.0,"rating":-6.04,"off_rating":-1.97,"def_rating":-1.78,"turnover":0.179},{"abbr":"SAC","wins":26.8,"rating":-5.87,"off_rating":-2.2,"def_rating":-1.32,"turnover":0.098}]}],"snapshots":{"2017-18":{"season":"2017-18","season_start":2017,"is_current":false,"teams":[{"abbr":"GSW","wins":57.9,"actual":58.0,"mkt_wins":67.5},{"abbr":"LAC","wins":49.2,"actual":42.0,"mkt_wins":43.5},{"abbr":"OKC","wins":48.5,"actual":48.0,"mkt_wins":53.5},{"abbr":"TOR","wins":48.2,"actual":59.0,"mkt_wins":48.5},{"abbr":"CLE","wins":48.1,"actual":50.0,"mkt_wins":53.5},{"abbr":"SAS","wins":47.1,"actual":47.0,"mkt_wins":55.0},{"abbr":"HOU","wins":46.6,"actual":65.0,"mkt_wins":55.5},{"abbr":"CHA","wins":45.4,"actual":36.0,"mkt_wins":42.5},{"abbr":"UTA","wins":45.1,"actual":48.0,"mkt_wins":40.5},{"abbr":"PHI","wins":43.9,"actual":52.0,"mkt_wins":39.5},{"abbr":"MIN","wins":43.6,"actual":47.0,"mkt_wins":48.5},{"abbr":"DEN","wins":43.1,"actual":46.0,"mkt_wins":45.5},{"abbr":"POR","wins":41.1,"actual":49.0,"mkt_wins":42.5},{"abbr":"MIL","wins":40.5,"actual":44.0,"mkt_wins":47.5},{"abbr":"WAS","wins":40.5,"actual":43.0,"mkt_wins":48.5},{"abbr":"MIA","wins":40.3,"actual":44.0,"mkt_wins":43.5},{"abbr":"DET","wins":40.1,"actual":39.0,"mkt_wins":38.5},{"abbr":"BOS","wins":39.6,"actual":55.0,"mkt_wins":53.5},{"abbr":"MEM","wins":39.6,"actual":22.0,"mkt_wins":37.5},{"abbr":"NOP","wins":39.4,"actual":48.0,"mkt_wins":39.5},{"abbr":"IND","wins":38.2,"actual":48.0,"mkt_wins":31.5},{"abbr":"DAL","wins":36.4,"actual":24.0,"mkt_wins":35.5},{"abbr":"NYK","wins":35.6,"actual":29.0,"mkt_wins":30.5},{"abbr":"SAC","wins":35.3,"actual":27.0,"mkt_wins":27.5},{"abbr":"BKN","wins":34.0,"actual":28.0,"mkt_wins":27.5},{"abbr":"CHI","wins":33.7,"actual":27.0,"mkt_wins":22.0},{"abbr":"PHX","wins":33.6,"actual":21.0,"mkt_wins":28.5},{"abbr":"ATL","wins":33.3,"actual":24.0,"mkt_wins":25.5},{"abbr":"ORL","wins":32.5,"actual":25.0,"mkt_wins":33.5},{"abbr":"LAL","wins":29.9,"actual":35.0,"mkt_wins":33.5}]},"2018-19":{"season":"2018-19","season_start":2018,"is_current":false,"teams":[{"abbr":"GSW","wins":60.2,"actual":57.0,"mkt_wins":62.5},{"abbr":"TOR","wins":53.2,"actual":58.0,"mkt_wins":55.5},{"abbr":"HOU","wins":46.9,"actual":53.0,"mkt_wins":56.5},{"abbr":"PHI","wins":46.9,"actual":51.0,"mkt_wins":53.5},{"abbr":"MIL","wins":46.8,"actual":60.0,"mkt_wins":48.0},{"abbr":"DEN","wins":46.2,"actual":54.0,"mkt_wins":47.5},{"abbr":"OKC","wins":45.4,"actual":49.0,"mkt_wins":48.5},{"abbr":"UTA","wins":45.1,"actual":50.0,"mkt_wins":49.5},{"abbr":"SAS","wins":44.6,"actual":48.0,"mkt_wins":43.5},{"abbr":"IND","wins":43.8,"actual":48.0,"mkt_wins":47.5},{"abbr":"DAL","wins":43.4,"actual":33.0,"mkt_wins":35.5},{"abbr":"MIN","wins":43.2,"actual":36.0,"mkt_wins":41.5},{"abbr":"WAS","wins":43.2,"actual":32.0,"mkt_wins":45.5},{"abbr":"NOP","wins":42.8,"actual":33.0,"mkt_wins":45.5},{"abbr":"BKN","wins":41.3,"actual":42.0,"mkt_wins":32.0},{"abbr":"MEM","wins":41.1,"actual":33.0,"mkt_wins":34.5},{"abbr":"BOS","wins":40.9,"actual":49.0,"mkt_wins":59.0},{"abbr":"MIA","wins":40.2,"actual":39.0,"mkt_wins":43.0},{"abbr":"LAL","wins":40.1,"actual":37.0,"mkt_wins":48.5},{"abbr":"POR","wins":38.9,"actual":53.0,"mkt_wins":42.0},{"abbr":"CHA","wins":38.3,"actual":39.0,"mkt_wins":35.5},{"abbr":"DET","wins":37.8,"actual":41.0,"mkt_wins":38.5},{"abbr":"ATL","wins":37.2,"actual":29.0,"mkt_wins":23.5},{"abbr":"LAC","wins":36.1,"actual":48.0,"mkt_wins":37.0},{"abbr":"CLE","wins":34.8,"actual":19.0,"mkt_wins":30.5},{"abbr":"ORL","wins":32.5,"actual":42.0,"mkt_wins":31.0},{"abbr":"NYK","wins":31.2,"actual":17.0,"mkt_wins":28.5},{"abbr":"SAC","wins":31.2,"actual":39.0,"mkt_wins":26.0},{"abbr":"CHI","wins":31.1,"actual":22.0,"mkt_wins":30.0},{"abbr":"PHX","wins":26.1,"actual":19.0,"mkt_wins":29.0}]},"2021-22":{"season":"2021-22","season_start":2021,"is_current":false,"teams":[{"abbr":"BKN","wins":53.3,"actual":44.0,"mkt_wins":56.5},{"abbr":"MIL","wins":51.0,"actual":51.0,"mkt_wins":54.5},{"abbr":"UTA","wins":50.6,"actual":49.0,"mkt_wins":52.5},{"abbr":"LAC","wins":49.5,"actual":42.0,"mkt_wins":45.5},{"abbr":"DEN","wins":45.5,"actual":48.0,"mkt_wins":47.5},{"abbr":"PHI","wins":45.2,"actual":51.0,"mkt_wins":50.5},{"abbr":"DAL","wins":45.0,"actual":52.0,"mkt_wins":48.5},{"abbr":"NYK","wins":44.4,"actual":37.0,"mkt_wins":41.5},{"abbr":"POR","wins":44.3,"actual":27.0,"mkt_wins":44.5},{"abbr":"MIN","wins":43.8,"actual":46.0,"mkt_wins":35.5},{"abbr":"NOP","wins":43.1,"actual":36.0,"mkt_wins":39.5},{"abbr":"GSW","wins":42.9,"actual":53.0,"mkt_wins":48.5},{"abbr":"CHI","wins":42.0,"actual":46.0,"mkt_wins":42.5},{"abbr":"IND","wins":41.9,"actual":25.0,"mkt_wins":42.5},{"abbr":"BOS","wins":41.5,"actual":51.0,"mkt_wins":45.5},{"abbr":"MEM","wins":41.0,"actual":56.0,"mkt_wins":41.5},{"abbr":"WAS","wins":40.7,"actual":35.0,"mkt_wins":33.5},{"abbr":"ATL","wins":40.4,"actual":43.0,"mkt_wins":47.5},{"abbr":"TOR","wins":40.0,"actual":48.0,"mkt_wins":35.5},{"abbr":"MIA","wins":39.6,"actual":53.0,"mkt_wins":48.5},{"abbr":"SAC","wins":39.5,"actual":30.0,"mkt_wins":36.5},{"abbr":"LAL","wins":39.2,"actual":33.0,"mkt_wins":52.5},{"abbr":"PHX","wins":39.2,"actual":64.0,"mkt_wins":51.5},{"abbr":"CHA","wins":37.7,"actual":43.0,"mkt_wins":38.5},{"abbr":"SAS","wins":36.3,"actual":34.0,"mkt_wins":28.5},{"abbr":"HOU","wins":35.3,"actual":20.0,"mkt_wins":27.5},{"abbr":"DET","wins":30.9,"actual":23.0,"mkt_wins":24.5},{"abbr":"ORL","wins":30.3,"actual":22.0,"mkt_wins":22.5},{"abbr":"CLE","wins":28.9,"actual":44.0,"mkt_wins":26.5},{"abbr":"OKC","wins":27.5,"actual":24.0,"mkt_wins":23.5}]},"2022-23":{"season":"2022-23","season_start":2022,"is_current":false,"teams":[{"abbr":"BOS","wins":57.4,"actual":57.0,"mkt_wins":54.5},{"abbr":"PHX","wins":52.0,"actual":45.0,"mkt_wins":52.5},{"abbr":"MEM","wins":51.3,"actual":51.0,"mkt_wins":49.5},{"abbr":"MIN","wins":48.9,"actual":42.0,"mkt_wins":49.5},{"abbr":"PHI","wins":48.9,"actual":54.0,"mkt_wins":50.5},{"abbr":"MIL","wins":48.2,"actual":58.0,"mkt_wins":53.5},{"abbr":"GSW","wins":48.1,"actual":44.0,"mkt_wins":52.5},{"abbr":"DAL","wins":47.9,"actual":38.0,"mkt_wins":48.5},{"abbr":"DEN","wins":47.3,"actual":53.0,"mkt_wins":51.5},{"abbr":"MIA","wins":46.4,"actual":44.0,"mkt_wins":49.5},{"abbr":"ATL","wins":45.1,"actual":41.0,"mkt_wins":46.5},{"abbr":"TOR","wins":43.5,"actual":41.0,"mkt_wins":46.5},{"abbr":"CLE","wins":42.9,"actual":51.0,"mkt_wins":46.5},{"abbr":"LAC","wins":42.4,"actual":44.0,"mkt_wins":52.5},{"abbr":"BKN","wins":41.4,"actual":45.0,"mkt_wins":50.5},{"abbr":"CHI","wins":40.6,"actual":40.0,"mkt_wins":41.5},{"abbr":"CHA","wins":40.2,"actual":27.0,"mkt_wins":34.5},{"abbr":"LAL","wins":39.5,"actual":43.0,"mkt_wins":44.5},{"abbr":"UTA","wins":39.1,"actual":37.0,"mkt_wins":23.5},{"abbr":"NOP","wins":39.0,"actual":42.0,"mkt_wins":45.5},{"abbr":"NYK","wins":38.3,"actual":47.0,"mkt_wins":38.5},{"abbr":"WAS","wins":37.2,"actual":35.0,"mkt_wins":35.5},{"abbr":"SAS","wins":35.9,"actual":22.0,"mkt_wins":22.5},{"abbr":"IND","wins":35.0,"actual":35.0,"mkt_wins":24.5},{"abbr":"SAC","wins":32.0,"actual":48.0,"mkt_wins":34.5},{"abbr":"OKC","wins":31.7,"actual":40.0,"mkt_wins":23.5},{"abbr":"DET","wins":31.3,"actual":17.0,"mkt_wins":29.5},{"abbr":"POR","wins":30.3,"actual":33.0,"mkt_wins":39.5},{"abbr":"ORL","wins":25.8,"actual":34.0,"mkt_wins":26.5},{"abbr":"HOU","wins":22.7,"actual":22.0,"mkt_wins":23.5}]},"2023-24":{"season":"2023-24","season_start":2023,"is_current":false,"teams":[{"abbr":"BOS","wins":58.8,"actual":64.0,"mkt_wins":54.5},{"abbr":"MIL","wins":49.2,"actual":49.0,"mkt_wins":54.5},{"abbr":"CLE","wins":48.5,"actual":48.0,"mkt_wins":50.5},{"abbr":"NYK","wins":47.8,"actual":50.0,"mkt_wins":45.5},{"abbr":"GSW","wins":47.0,"actual":46.0,"mkt_wins":48.5},{"abbr":"PHX","wins":46.8,"actual":49.0,"mkt_wins":51.5},{"abbr":"LAL","wins":46.4,"actual":47.0,"mkt_wins":47.5},{"abbr":"DAL","wins":45.4,"actual":50.0,"mkt_wins":45.5},{"abbr":"DEN","wins":44.6,"actual":57.0,"mkt_wins":52.5},{"abbr":"LAC","wins":44.6,"actual":51.0,"mkt_wins":46.5},{"abbr":"OKC","wins":44.3,"actual":57.0,"mkt_wins":44.5},{"abbr":"MEM","wins":43.1,"actual":27.0,"mkt_wins":45.5},{"abbr":"ATL","wins":42.5,"actual":36.0,"mkt_wins":42.5},{"abbr":"PHI","wins":41.7,"actual":47.0,"mkt_wins":48.5},{"abbr":"SAC","wins":41.3,"actual":46.0,"mkt_wins":44.5},{"abbr":"MIN","wins":41.2,"actual":56.0,"mkt_wins":44.5},{"abbr":"NOP","wins":40.7,"actual":49.0,"mkt_wins":44.5},{"abbr":"MIA","wins":39.5,"actual":46.0,"mkt_wins":45.5},{"abbr":"UTA","wins":39.2,"actual":31.0,"mkt_wins":35.5},{"abbr":"POR","wins":39.0,"actual":21.0,"mkt_wins":28.5},{"abbr":"TOR","wins":38.6,"actual":25.0,"mkt_wins":36.5},{"abbr":"CHI","wins":38.5,"actual":39.0,"mkt_wins":37.5},{"abbr":"BKN","wins":38.4,"actual":32.0,"mkt_wins":37.5},{"abbr":"WAS","wins":38.4,"actual":15.0,"mkt_wins":24.5},{"abbr":"ORL","wins":37.5,"actual":47.0,"mkt_wins":37.5},{"abbr":"IND","wins":36.6,"actual":47.0,"mkt_wins":38.5},{"abbr":"HOU","wins":31.1,"actual":41.0,"mkt_wins":31.5},{"abbr":"CHA","wins":27.7,"actual":21.0,"mkt_wins":31.5},{"abbr":"DET","wins":26.3,"actual":14.0,"mkt_wins":28.5},{"abbr":"SAS","wins":25.7,"actual":22.0,"mkt_wins":28.5}]},"2024-25":{"season":"2024-25","season_start":2024,"is_current":false,"teams":[{"abbr":"BOS","wins":61.2,"actual":61.0,"mkt_wins":58.5},{"abbr":"OKC","wins":57.5,"actual":68.0,"mkt_wins":57.5},{"abbr":"DEN","wins":49.2,"actual":50.0,"mkt_wins":51.5},{"abbr":"NYK","wins":49.0,"actual":51.0,"mkt_wins":53.5},{"abbr":"DAL","wins":48.4,"actual":39.0,"mkt_wins":49.5},{"abbr":"ORL","wins":47.5,"actual":41.0,"mkt_wins":47.5},{"abbr":"MIN","wins":47.3,"actual":49.0,"mkt_wins":51.5},{"abbr":"PHI","wins":46.8,"actual":24.0,"mkt_wins":50.5},{"abbr":"IND","wins":46.7,"actual":50.0,"mkt_wins":46.5},{"abbr":"MIL","wins":46.0,"actual":48.0,"mkt_wins":49.5},{"abbr":"PHX","wins":45.8,"actual":36.0,"mkt_wins":48.5},{"abbr":"GSW","wins":45.7,"actual":48.0,"mkt_wins":43.5},{"abbr":"SAC","wins":45.3,"actual":40.0,"mkt_wins":46.5},{"abbr":"NOP","wins":44.0,"actual":21.0,"mkt_wins":46.5},{"abbr":"LAL","wins":43.8,"actual":50.0,"mkt_wins":43.5},{"abbr":"MIA","wins":43.6,"actual":37.0,"mkt_wins":44.5},{"abbr":"CLE","wins":43.1,"actual":64.0,"mkt_wins":48.5},{"abbr":"LAC","wins":42.5,"actual":50.0,"mkt_wins":35.5},{"abbr":"HOU","wins":42.2,"actual":52.0,"mkt_wins":43.5},{"abbr":"MEM","wins":39.0,"actual":48.0,"mkt_wins":47.5},{"abbr":"ATL","wins":35.4,"actual":40.0,"mkt_wins":36.5},{"abbr":"SAS","wins":33.0,"actual":34.0,"mkt_wins":35.5},{"abbr":"UTA","wins":32.1,"actual":17.0,"mkt_wins":28.5},{"abbr":"CHI","wins":31.6,"actual":39.0,"mkt_wins":28.5},{"abbr":"DET","wins":31.1,"actual":44.0,"mkt_wins":25.5},{"abbr":"TOR","wins":31.0,"actual":30.0,"mkt_wins":29.5},{"abbr":"BKN","wins":29.2,"actual":26.0,"mkt_wins":19.5},{"abbr":"CHA","wins":28.1,"actual":19.0,"mkt_wins":30.5},{"abbr":"WAS","wins":25.5,"actual":18.0,"mkt_wins":20.5},{"abbr":"POR","wins":19.3,"actual":36.0,"mkt_wins":21.5}]},"2025-26":{"season":"2025-26","season_start":2025,"is_current":false,"teams":[{"abbr":"OKC","wins":61.8,"actual":64.0,"mkt_wins":62.5},{"abbr":"CLE","wins":56.0,"actual":52.0,"mkt_wins":56.5},{"abbr":"HOU","wins":54.1,"actual":52.0,"mkt_wins":52.5},{"abbr":"BOS","wins":52.8,"actual":56.0,"mkt_wins":41.5},{"abbr":"GSW","wins":50.0,"actual":37.0,"mkt_wins":47.5},{"abbr":"MIN","wins":47.2,"actual":49.0,"mkt_wins":49.5},{"abbr":"LAC","wins":46.8,"actual":42.0,"mkt_wins":49.5},{"abbr":"DEN","wins":45.5,"actual":54.0,"mkt_wins":53.5},{"abbr":"DET","wins":44.6,"actual":60.0,"mkt_wins":46.5},{"abbr":"ATL","wins":44.5,"actual":46.0,"mkt_wins":46.5},{"abbr":"NYK","wins":44.0,"actual":53.0,"mkt_wins":53.5},{"abbr":"MEM","wins":43.8,"actual":25.0,"mkt_wins":39.5},{"abbr":"SAS","wins":43.0,"actual":62.0,"mkt_wins":44.5},{"abbr":"MIL","wins":42.7,"actual":32.0,"mkt_wins":43.5},{"abbr":"MIA","wins":41.4,"actual":43.0,"mkt_wins":37.5},{"abbr":"DAL","wins":41.2,"actual":26.0,"mkt_wins":41.5},{"abbr":"IND","wins":40.0,"actual":19.0,"mkt_wins":37.5},{"abbr":"LAL","wins":39.5,"actual":53.0,"mkt_wins":46.5},{"abbr":"ORL","wins":38.4,"actual":45.0,"mkt_wins":51.5},{"abbr":"PHI","wins":37.5,"actual":45.0,"mkt_wins":43.5},{"abbr":"POR","wins":37.0,"actual":42.0,"mkt_wins":35.5},{"abbr":"CHI","wins":36.7,"actual":31.0,"mkt_wins":33.5},{"abbr":"SAC","wins":35.1,"actual":22.0,"mkt_wins":35.5},{"abbr":"TOR","wins":33.4,"actual":46.0,"mkt_wins":39.5},{"abbr":"PHX","wins":32.8,"actual":45.0,"mkt_wins":30.5},{"abbr":"BKN","wins":30.7,"actual":20.0,"mkt_wins":19.5},{"abbr":"NOP","wins":29.2,"actual":26.0,"mkt_wins":30.5},{"abbr":"CHA","wins":28.5,"actual":44.0,"mkt_wins":27.5},{"abbr":"WAS","wins":26.4,"actual":17.0,"mkt_wins":20.5},{"abbr":"UTA","wins":25.9,"actual":22.0,"mkt_wins":18.5}]},"2026-27":{"season":"2026-27","season_start":2026,"is_current":true,"teams":[{"abbr":"BOS","wins":60.7,"actual":null,"mkt_wins":49.3},{"abbr":"OKC","wins":59.9,"actual":null,"mkt_wins":58.2},{"abbr":"SAS","wins":53.9,"actual":null,"mkt_wins":58.1},{"abbr":"DET","wins":51.5,"actual":null,"mkt_wins":48.0},{"abbr":"CHA","wins":50.4,"actual":null,"mkt_wins":38.6},{"abbr":"CLE","wins":50.1,"actual":null,"mkt_wins":45.7},{"abbr":"HOU","wins":48.2,"actual":null,"mkt_wins":47.4},{"abbr":"LAL","wins":47.9,"actual":null,"mkt_wins":46.0},{"abbr":"MIN","wins":45.5,"actual":null,"mkt_wins":47.9},{"abbr":"NYK","wins":44.7,"actual":null,"mkt_wins":51.1},{"abbr":"TOR","wins":44.0,"actual":null,"mkt_wins":44.8},{"abbr":"DEN","wins":43.8,"actual":null,"mkt_wins":47.8},{"abbr":"GSW","wins":43.2,"actual":null,"mkt_wins":40.5},{"abbr":"MIA","wins":42.5,"actual":null,"mkt_wins":45.7},{"abbr":"LAC","wins":42.4,"actual":null,"mkt_wins":33.6},{"abbr":"PHX","wins":41.3,"actual":null,"mkt_wins":39.7},{"abbr":"POR","wins":41.2,"actual":null,"mkt_wins":41.6},{"abbr":"ORL","wins":40.8,"actual":null,"mkt_wins":42.2},{"abbr":"PHI","wins":38.8,"actual":null,"mkt_wins":50.0},{"abbr":"ATL","wins":34.8,"actual":null,"mkt_wins":43.9},{"abbr":"DAL","wins":34.8,"actual":null,"mkt_wins":36.8},{"abbr":"IND","wins":34.4,"actual":null,"mkt_wins":43.8},{"abbr":"CHI","wins":32.6,"actual":null,"mkt_wins":31.0},{"abbr":"NOP","wins":32.3,"actual":null,"mkt_wins":30.6},{"abbr":"MIL","wins":31.9,"actual":null,"mkt_wins":28.2},{"abbr":"MEM","wins":29.9,"actual":null,"mkt_wins":31.0},{"abbr":"BKN","wins":27.8,"actual":null,"mkt_wins":25.1},{"abbr":"UTA","wins":27.5,"actual":null,"mkt_wins":37.5},{"abbr":"WAS","wins":27.0,"actual":null,"mkt_wins":36.0},{"abbr":"SAC","wins":26.8,"actual":null,"mkt_wins":26.1}]}}};              // slim performance payload (see ui/build.py)
+const GMETA = SNAP.meta;
+const fmt1 = x => x.toFixed(1);
+
+/* ---- theme toggle (persisted; shared "wincurve-theme" key so the theme carries across all pages) ---- */
+(function () {
+  const applyTheme = t => { if (t) document.documentElement.setAttribute("data-theme", t); };
+  const sGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const sSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* no-op */ } };
+  applyTheme(sGet("wincurve-theme"));
+  const btn = document.getElementById("theme");
+  if (btn) btn.addEventListener("click", () => {
+    const cur = document.documentElement.getAttribute("data-theme");
+    const dark = cur ? cur === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    const next = dark ? "light" : "dark";
+    applyTheme(next); sSet("wincurve-theme", next);
+  });
+})();
+
+// Kept from the Records page: a season's market MAE, needed by renderTrackRecord.
+function seasonMarketMAE(snap) {
+  const es = snap.teams.filter(t => t.mkt_wins != null && t.actual != null)
+    .map(t => Math.abs(t.mkt_wins - t.actual));
+  return es.length ? es.reduce((a, b) => a + b, 0) / es.length : null;
+}
+
+/* ===== Track record: model vs market vs actual, across completed seasons ================
+   Everything here is computed client-side from the already-inlined snapshots. A season counts
+   if its teams carry both actual results and a Vegas line. Model error uses the team's projected
+   wins (t.wins); market error uses the preseason Vegas line (t.mkt_wins); both against t.actual. */
+const BASELINE_WINS = 41;   // ".500 baseline": project every team to 41 wins
+
+function completedSeasons() {
+  return GMETA.seasons
+    .map(k => SNAP.snapshots[k])
+    .filter(s => !s.is_current && s.teams.some(t => t.actual != null && t.mkt_wins != null))
+    .sort((a, b) => a.season_start - b.season_start);
+}
+
+function seasonModelMAE(snap) {
+  const es = snap.teams.filter(t => t.actual != null).map(t => Math.abs(t.wins - t.actual));
+  return es.length ? es.reduce((a, b) => a + b, 0) / es.length : null;
+}
+function seasonBaselineMAE(snap) {
+  const es = snap.teams.filter(t => t.actual != null).map(t => Math.abs(BASELINE_WINS - t.actual));
+  return es.length ? es.reduce((a, b) => a + b, 0) / es.length : null;
+}
+
+let trackRendered = false;
+function renderTrackRecord() {
+  const seasons = completedSeasons();
+  const rows = seasons.map(s => ({
+    key: s.season, model: seasonModelMAE(s), market: seasonMarketMAE(s),
+    base: seasonBaselineMAE(s),
+  }));
+  const mAvg = rows.reduce((a, r) => a + r.model, 0) / rows.length;
+  const kAvg = rows.reduce((a, r) => a + r.market, 0) / rows.length;
+  const bAvg = rows.reduce((a, r) => a + r.base, 0) / rows.length;
+  const wins = rows.filter(r => r.model < r.market).length;
+
+  // Lower MAE = more accurate. The market being sharper (kAvg < mAvg) is the expected case.
+  const verb = kAvg < mAvg ? 'edged out' : 'trailed';
+  document.getElementById('tr-lead').innerHTML =
+    `Over the ${rows.length} completed seasons the app covers, our projection missed by `
+    + `<b>${mAvg.toFixed(2)}</b> wins on average; the preseason Vegas line missed by `
+    + `<b>${kAvg.toFixed(2)}</b> — so the market ${verb} the model on aggregate accuracy, as `
+    + `expected. The honest scoreboard: <b>the model was closer in ${wins} of ${rows.length}</b> `
+    + `seasons. Both sit far under the <b>${bAvg.toFixed(1)}</b> of a .500 baseline — projecting `
+    + `is clearly worth doing; beating a sharp market on average is not the promise. The value is `
+    + `the per-team disagreements below.`;
+
+  // shared scale for the MAE bars
+  const maxMAE = Math.max(...rows.flatMap(r => [r.model, r.market]), bAvg) * 1.08;
+  const barW = v => (v / maxMAE * 100).toFixed(1);
+  const seasonRow = (label, model, market, base, agg) => {
+    const winner = Math.abs(model - market) < 0.05 ? 'tie' : (model < market ? 'model' : 'mkt');
+    const wtxt = winner === 'tie' ? 'tie' : winner === 'model' ? 'model closer' : 'market closer';
+    const baseTick = base != null
+      ? `<span class="tr-base" style="left:${barW(base)}%" title=".500 baseline ${base.toFixed(1)}"></span>` : '';
+    return `<div class="tr-row${agg ? ' tr-agg' : ''}">
+      <span class="tr-season">${label}</span>
+      <span class="tr-bars">
+        <span class="tr-bar ours"><span class="fill" style="width:${barW(model)}%"></span>
+          <span class="lbl">${model.toFixed(2)}</span>${baseTick}<span class="cap">model</span></span>
+        <span class="tr-bar mkt"><span class="fill" style="width:${barW(market)}%"></span>
+          <span class="lbl">${market.toFixed(2)}</span>${baseTick}<span class="cap">Vegas</span></span>
+      </span>
+      <span class="tr-winner ${winner}">${wtxt}</span>
+    </div>`;
+  };
+  document.getElementById('tr-seasons').innerHTML =
+    `<div class="tr-legend"><span><i class="ours"></i>model (our projection)</span>`
+    + `<span><i class="mkt"></i>Vegas preseason line</span>`
+    + `<span>&#124; .500 baseline ${bAvg.toFixed(1)}</span></div>`
+    + rows.map(r => seasonRow(r.key, r.model, r.market, r.base, false)).join('')
+    + seasonRow(`${rows.length}-yr avg`, mAvg, kAvg, bAvg, true);
+
+  // Per-team calls: where we disagreed with Vegas most and it paid off (or didn't).
+  const calls = [];
+  for (const s of seasons) {
+    for (const t of s.teams) {
+      if (t.actual == null || t.mkt_wins == null) continue;
+      const disagree = t.wins - t.mkt_wins;
+      if (Math.abs(disagree) < 3) continue;             // only real disagreements
+      const modelErr = Math.abs(t.wins - t.actual);
+      const mktErr = Math.abs(t.mkt_wins - t.actual);
+      calls.push({ abbr: t.abbr, yr: s.season, disagree, modelErr, mktErr,
+        edge: mktErr - modelErr, ours: t.wins, vegas: t.mkt_wins, actual: t.actual });
+    }
+  }
+  const fmtSigned = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(0);
+  const callRow = (c, side) => {
+    const dir = c.ours > c.vegas ? 'higher' : 'lower';
+    return `<div class="tr-call">
+      <span><span class="cteam">${c.abbr}</span> <span class="cyr">${c.yr.slice(2)}</span></span>
+      <span class="cdesc">we said <b>${c.ours.toFixed(0)}</b> vs Vegas <b>${c.vegas.toFixed(0)}</b>
+        (${dir}); actual <b>${c.actual.toFixed(0)}</b></span>
+      <span class="cedge ${side}">${fmtSigned(c.edge)}</span>
+    </div>`;
+  };
+  const bestWins = calls.filter(c => c.edge > 0).sort((a, b) => b.edge - a.edge).slice(0, 6);
+  const bestLoss = calls.filter(c => c.edge < 0).sort((a, b) => a.edge - b.edge).slice(0, 6);
+  document.getElementById('tr-wins').innerHTML =
+    bestWins.map(c => callRow(c, 'model')).join('') || '<p class="tr-note">none</p>';
+  document.getElementById('tr-losses').innerHTML =
+    bestLoss.map(c => callRow(c, 'mkt')).join('') || '<p class="tr-note">none</p>';
+  trackRendered = true;
+}
+
+/* ===== Drift: how each team's projected wins move across logged runs ==================
+   Each run of project_current (preseason) / project_inseason (in-season) is appended to
+   projection_history.json by scripts/log_projection.py. This charts, per team, projected wins
+   over run dates for the season with the most logged runs. Client-side from the inlined history. */
+let driftRendered = false;
+function renderDrift() {
+  const hist = SNAP.projection_history || [];
+  const lead = document.getElementById('drift-lead');
+  const grid = document.getElementById('drift-grid');
+  const foot = document.getElementById('drift-foot');
+  if (!hist.length) {
+    lead.textContent = 'No projection runs have been logged yet.';
+    grid.innerHTML = '';
+    foot.innerHTML = 'Log a run with <code>python scripts/log_projection.py</code> after '
+      + '<code>project_current.py</code> (or <code>project_inseason.py --model inseason</code>), '
+      + 'then rebuild. The series fills in as you re-run on a cadence.';
+    driftRendered = true;
+    return;
+  }
+  // Pick the season with the most runs (ties -> latest season).
+  const bySeason = {};
+  hist.forEach(r => (bySeason[r.season] = bySeason[r.season] || []).push(r));
+  const season = Object.keys(bySeason).sort((a, b) =>
+    bySeason[b].length - bySeason[a].length || (a < b ? 1 : -1))[0];
+  const runs = bySeason[season].slice().sort((a, b) => a.run_date < b.run_date ? -1 : 1);
+  const models = [...new Set(runs.map(r => r.model))];
+
+  // Per-team series of {date, wins}; shared y-axis across all teams for comparability.
+  const teams = {};
+  runs.forEach(r => r.teams.forEach(t => (teams[t.abbr] = teams[t.abbr] || [])
+    .push({ date: r.run_date, wins: t.wins })));
+  const allWins = runs.flatMap(r => r.teams.map(t => t.wins));
+  const lo = Math.min(...allWins) - 1, hi = Math.max(...allWins) + 1;
+  const yfor = w => 30 - ((w - lo) / Math.max(hi - lo, 1)) * 28;   // svg 0..30, padded
+  const xfor = (i, n) => n <= 1 ? 50 : (i / (n - 1)) * 100;
+
+  const order = Object.keys(teams).sort((a, b) =>
+    teams[b][teams[b].length - 1].wins - teams[a][teams[a].length - 1].wins);
+  grid.innerHTML = order.map(abbr => {
+    const s = teams[abbr], n = s.length, now = s[n - 1].wins, first = s[0].wins;
+    const d = now - first;
+    const dChip = n > 1
+      ? `<span class="drift-delta ${d >= 0 ? 'p' : 'n'}">${d >= 0 ? '+' : '−'}${Math.abs(d).toFixed(1)}</span>`
+      : '';
+    let svg;
+    if (n === 1) {
+      svg = `<svg viewBox="0 0 100 30" preserveAspectRatio="none">`
+        + `<circle class="drift-dot" cx="50" cy="${yfor(now).toFixed(1)}" r="2"/></svg>`
+        + `<div class="drift-single">1 run logged</div>`;
+    } else {
+      const pts = s.map((p, i) => `${xfor(i, n).toFixed(1)},${yfor(p.wins).toFixed(1)}`).join(' ');
+      const dots = s.map((p, i) =>
+        `<circle class="drift-dot" cx="${xfor(i, n).toFixed(1)}" cy="${yfor(p.wins).toFixed(1)}" r="1.5"/>`).join('');
+      svg = `<svg viewBox="0 0 100 30" preserveAspectRatio="none">`
+        + `<polyline class="drift-spark" points="${pts}"/>${dots}</svg>`;
+    }
+    return `<div class="drift-cell"><div class="drift-top"><span class="drift-abbr">${abbr}</span>`
+      + `<span class="drift-now">${now.toFixed(1)}${dChip}</span></div>${svg}</div>`;
+  }).join('');
+
+  const modelNote = models.length === 1
+    ? (models[0] === 'inseason'
+        ? 'These are <b>in-season</b> runs, so the drift reflects both roster changes and <b>team form</b> (results so far).'
+        : 'These are <b>preseason-model</b> runs, so the drift is a <b>roster-composition</b> signal (trades, injuries, overrides) &mdash; not how players are performing this year (the preseason model has no in-season updating).')
+    : 'Mixed preseason and in-season runs: early points reflect roster composition, later in-season points also reflect team form.';
+  lead.innerHTML = `Season <b>${season}</b> &middot; <b>${runs.length}</b> logged run`
+    + `${runs.length > 1 ? 's' : ''} (${runs[0].run_date}${runs.length > 1 ? ' → ' + runs[runs.length - 1].run_date : ''}). `
+    + modelNote + ' Sorted by latest projected wins; the number is the latest, the chip is the change since the first run.';
+  foot.innerHTML = 'Add points by re-running the projection on a cadence '
+    + '(roughly monthly in the offseason; after ~25 and ~50 games in-season, especially post trade '
+    + 'deadline) and logging each with <code>scripts/log_projection.py</code>.';
+  driftRendered = true;
+}
+
+// view toggle (2-way: Track record / Drift). Track record is the default.
+const VIEWS = { track: 'view-track', drift: 'view-drift' };
+const tabs = { track: document.getElementById('tab-track'),
+               drift: document.getElementById('tab-drift') };
+function setView(v) {
+  for (const [k, id] of Object.entries(VIEWS)) {
+    document.getElementById(id).style.display = k === v ? '' : 'none';
+    tabs[k].classList.toggle('active', k === v);
+    tabs[k].setAttribute('aria-selected', String(k === v));
+  }
+  if (v === 'track' && !trackRendered) renderTrackRecord();
+  if (v === 'drift' && !driftRendered) renderDrift();
+}
+tabs.track.addEventListener('click', () => setView('track'));
+tabs.drift.addEventListener('click', () => setView('drift'));
+setView('track');
+</script>
