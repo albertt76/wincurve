@@ -112,25 +112,33 @@ TRACKING_DEFENSE_FEATURES = ["rim_supp", "rim_vol", "rim_val", "defl_p36", "cont
 # defenders the metric under-rated (Holiday/Anunoby/Dort flip positive) while cutting the
 # backup-center over-credit (Neemias Queta +0.24 -> −0.68), with Wembanyama still clearly #1.
 #
-# `ts_pct` (true shooting) added 2026-08 -- the offensive mirror of the same fix, prompted by an
-# external model review flagging that low-usage centers (Walker Kessler, Jalen Duren, Daniel
-# Gafford, Neemias Queta) get near-star offensive credit for near-100% efficiency on assisted
-# rim finishes/putbacks, an opportunity/role effect the same way rebounding was. League-wide, the
-# center/guard off_impact gap was +0.55/−0.57 (a 1.12 spread); standardizing ts_pct within
-# position shrinks it to −0.04/−0.38 (0.34), without the overcorrection a second feature
-# (oreb_p100 also added) produced (see scripts/gate_position_relative_offense.py, which flagged
-# that variant as flipping centers BELOW guards -- rejected for that reason). Walk-forward win
-# MAE +0.058 +/- 0.065 SE, 3/6 folds -- weaker and noisier than the defensive fix, so shipped for
-# player-level credibility (the same precedent as TRACKING_DEFENSE_FEATURES below), not because
-# the aggregate MAE case is decisive on its own. fg3m_p100/fg3_rate were deliberately NOT added:
-# centers rarely attempt 3s, so there is no positional inflation to remove, and standardizing a
-# near-empty reference group risks erasing genuinely earned skill (stretch-5 shooting) instead of
-# correcting a confound. pts_p100/fga_p100/tov_p100 are usage-driven (a role choice, not anatomy
-# -- Jokic/Embiid prove high usage is available to centers) and stay league-wide; ast_p100 was
-# left untested (a passing big's assists are real rare skill, not an opportunity artifact, so
-# position-relative treatment could amplify rather than remove signal -- a candidate for a future
-# pass, not assumed safe).
-POSITION_RELATIVE_FEATURES = ["dreb_p100", "ts_pct"]
+# `oreb_p100` (offensive rebounding) added 2026-08-06, REPLACING an earlier `ts_pct` attempt --
+# it is the offensive mirror of the defensive `dreb_p100` fix above, by the identical logic:
+# offensive rebounding is heavily positional ROLE (a center crashes the glass), not shot-making
+# skill, so league-wide it inflated centers' offense the same way defensive rebounding inflated
+# their defense. Standardizing it within position narrows the center/guard off_impact gap from
+# +0.55/−0.57 (a 1.12 spread) to +0.18/−0.44 (0.62) WITHOUT overcorrecting (centers stay slightly
+# above guards, as they should), de-inflates pure offensive-rebounding specialists (Steven Adams
+# −1.06 -> −1.61, Gobert 1.13 -> 0.74) and PRESERVES genuine offensive-center stars (Jokić stays
+# 3.11, vs 2.70 under the old ts_pct). Unlike ts_pct it is a real aggregate win, not just a
+# credibility fix: pure-box gate +0.132 wins, 6/6 folds (stable across seeds), roughly double what
+# ts_pct gave (+0.064, 3/6); and in the FULL shipped pipeline (offensive RAPM blend on) it adds
+# +0.051, 6/6 folds -- exactly where ts_pct collapses to a null (−0.003, 2/6), because the
+# offensive RAPM blend (shipped the same day) already corrects the efficiency confound ts_pct
+# targeted, but does NOT target the offensive-rebounding ROLE confound oreb removes.
+#
+# What was tried and rejected (all via scripts/gate_position_relative_offense.py): `ts_pct` (the
+# efficiency mirror -- low-usage centers over-credited for near-100% efficiency on assisted rim
+# finishes) shipped briefly but is redundant with the offensive RAPM blend, so oreb superseded it;
+# `fta_p100` (rim-runner contact-finishing) is a near-no-op (+0.005, barely moves the positional
+# gap); `ts_pct + oreb` OVERcorrects (centers drop BELOW guards, only 2 in the top-30 offensive
+# leaderboard) and is fold-noisy. fg3m_p100/fg3_rate stay league-wide (centers rarely attempt 3s,
+# so there is no positional inflation to remove, and standardizing a near-empty reference group
+# risks erasing genuinely earned stretch-5 shooting); pts_p100/fga_p100/tov_p100/fta_p100 are
+# usage-driven (a role choice, not anatomy -- Jokić/Embiid prove high usage is available to
+# centers); ast_p100 is a passing big's real rare skill, not an opportunity artifact -- all stay
+# league-wide.
+POSITION_RELATIVE_FEATURES = ["dreb_p100", "oreb_p100"]
 ALL_FEATURES = list(dict.fromkeys(OFFENSE_FEATURES + DEFENSE_FEATURES))
 
 # Chosen by DOWNSTREAM projection accuracy, which is the only criterion that matters.

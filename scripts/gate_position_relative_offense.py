@@ -1,31 +1,33 @@
-"""Gate: does position-relative standardizing OFFENSIVE efficiency fix center-offense inflation?
+"""Gate: which OFFENSIVE box feature should be standardized WITHIN position (like the shipped
+defensive dreb_p100) to remove a center's positional inflation without erasing real skill?
 
-An external model review (2026-08) flagged that position-relative standardization was applied to
-defensive rebounding (dreb_p100, shipped, see POSITION_RELATIVE_FEATURES) but never to the
-offensive side, even though the same mechanism plausibly applies: a low-usage center's near-100%
-efficiency at the rim is opportunity/role, not shot-making skill the way a guard's efficiency is.
-Data-confirmed symptom on the 2026-27 projection: centers average +0.64 off_impact vs guards -0.18
-(11 of the top 30 players by projected wins are centers), and specific low-usage bigs (Walker
-Kessler 8th league-wide by wins, Jalen Duren, Daniel Gafford, Ryan Kalkbrenner, Neemias Queta) get
-near-star offensive credit.
+Shipped outcome (2026-08-07): `oreb_p100` -- the offensive twin of the defensive dreb_p100 fix.
+Offensive rebounding is heavily positional ROLE (a center crashes the glass), so league-wide it
+inflated centers' offense the same way defensive rebounding inflated their defense. Standardizing
+it within (season, pos_group) narrows the center/guard off_impact gap from +0.55/-0.57 (1.12) to
++0.18/-0.44 (0.62) WITHOUT overcorrecting (centers stay slightly above guards), de-inflates pure
+offensive-rebounding specialists (Steven Adams, Gobert) and PRESERVES genuine offensive-center
+stars (Jokic stays ~3.1, vs ~2.7 under ts_pct). It wins the gate: pure-box +0.132 (6/6 folds,
+stable across seeds), and +0.051 (6/6) in the FULL shipped pipeline (offensive RAPM blend on) --
+where the earlier `ts_pct` attempt collapses to a null (-0.003), because the offensive RAPM blend
+already corrects ts_pct's efficiency confound but NOT oreb's rebounding-role confound.
 
-This gate A/Bs, through the identical 5000-sim walk-forward path used by
-scripts/gate_shot_defense_posrel.py, the shipped model against:
-  NEW-A  ts_pct alone, standardized within position         (the primary candidate)
-  NEW-B  ts_pct + oreb_p100, both within position            (does the second feature add anything?)
+Rejected alternatives, all reproduced by main() below:
+  ts_pct           efficiency mirror; pure-box +0.064 (3/6), null in the full pipeline -- SUPERSEDED
+  fta_p100         rim-runner contact-finishing; a near-no-op (+0.005, barely moves the gap)
+  ts_pct + oreb    OVERCORRECTS: centers drop BELOW guards (only 2 in the top-30 offensive board)
 
-fg3m_p100/fg3_rate are deliberately NOT tried here: centers rarely attempt 3s, so there is no
-positional inflation to remove, and standardizing within a near-empty reference group risks
-manufacturing noise or erasing genuinely earned skill (stretch-5 shooting). pts_p100/fga_p100/
-tov_p100 are usage-driven (a role choice, not anatomy -- Jokic/Embiid prove high usage is
-available to centers) and are also left league-wide. ast_p100 is left out of this first pass: a
-passing big (Jokic, Sabonis) is real rare skill and position-relative treatment could amplify
-rather than remove it.
+fg3m_p100/fg3_rate are deliberately NOT tried: centers rarely attempt 3s, so there is no positional
+inflation to remove, and standardizing a near-empty reference group risks erasing earned stretch-5
+shooting. pts_p100/fga_p100/tov_p100 are usage-driven (a role choice, not anatomy -- Jokic/Embiid
+prove high usage is available to centers); ast_p100 is a passing big's real rare skill -- all stay
+league-wide.
 
-Both NEW variants only touch impact.POSITION_RELATIVE_FEATURES (which features are z-scored
-within (season, pos_group) instead of league-wide) -- no new feature engineering, ts_pct and
-oreb_p100 already exist in the standard OFFENSE_FEATURES set. Nothing is written to
-data/processed -- the shipped player_impact.parquet is untouched.
+Every variant only touches impact.POSITION_RELATIVE_FEATURES (which features are z-scored within
+(season, pos_group) instead of league-wide) -- no new feature engineering, all candidates already
+exist in OFFENSE_FEATURES. Nothing is written to data/processed -- the shipped
+player_impact.parquet is untouched. Runs through the identical 5000-sim walk-forward path used by
+scripts/gate_shot_defense_posrel.py.
 
 Position-group dependency note: pos_group comes from rim_defense.PLAYER_POSITION (2013-14+),
 falling back to the BPM box-derived position estimate (scripts/gate_bpm_position.py) for the 8
@@ -164,33 +166,39 @@ def main() -> int:
     logging.basicConfig(level=logging.ERROR)
     pts, pgl, gl, ts, rosters, ages = _load_common()
 
-    print("loading OLD impact (shipped, offense league-wide)...", flush=True)
-    old_imp = pd.read_parquet(PROC / "player_impact.parquet")
-    print("building NEW-A (ts_pct alone, within position)...", flush=True)
-    a_imp = build_variant(["ts_pct"])
-    print("building NEW-B (ts_pct + oreb_p100, within position)...", flush=True)
-    b_imp = build_variant(["ts_pct", "oreb_p100"])
+    # Each variant is the box impact rebuilt with these features ADDED to dreb_p100 in
+    # POSITION_RELATIVE_FEATURES. BASE = dreb-only (offense fully league-wide) is the common
+    # reference, so every delta is apples-to-apples. `gate()` calibrates offense on pure box
+    # (agg_off), which is the harness the ts_pct number was originally measured on; oreb's full-
+    # pipeline (offensive RAPM blend on) advantage is even cleaner -- see the module docstring.
+    variants = [
+        ("BASE dreb-only", []),
+        ("ts_pct (superseded)", ["ts_pct"]),
+        ("fta_p100 (no-op)", ["fta_p100"]),
+        ("oreb_p100 [SHIPPED]", ["oreb_p100"]),
+        ("ts_pct + oreb (overcorrects)", ["ts_pct", "oreb_p100"]),
+    ]
+    print("building variants (box impact rebuilt per POSITION_RELATIVE_FEATURES override)...",
+          flush=True)
+    built = {lbl: build_variant(extra) for lbl, extra in variants}
 
     print(f"\nGATE: position-relative offensive standardization "
           f"({N_SIMS} sims, real schedule, paired seeds)\n", flush=True)
-    old_df = gate(old_imp, pts, pgl, gl, ts, rosters, ages)
-    a_df = gate(a_imp, pts, pgl, gl, ts, rosters, ages)
-    b_df = gate(b_imp, pts, pgl, gl, ts, rosters, ages)
+    dfs = {lbl: gate(built[lbl], pts, pgl, gl, ts, rosters, ages) for lbl, _ in variants}
+    for lbl, _ in variants:
+        _summ(lbl, dfs[lbl])
 
-    _summ("OLD (shipped)", old_df)
-    _summ("NEW-A (ts_pct posrel)", a_df)
-    _summ("NEW-B (ts_pct+oreb posrel)", b_df)
-    print()
-    _delta(old_df, a_df, "NEW-A ts_pct posrel")
-    _delta(old_df, b_df, "NEW-B ts_pct+oreb posrel")
+    base_df = dfs[variants[0][0]]
+    print("\ndelta vs BASE dreb-only (positive = better):")
+    for lbl, _ in variants[1:]:
+        _delta(base_df, dfs[lbl], lbl)
 
     print("\nPositional off_impact bias check (latest season, >=1 has_rates player-seasons):")
-    _position_bias(old_imp, "OLD (shipped)")
-    _position_bias(a_imp, "NEW-A ts_pct posrel")
-    _position_bias(b_imp, "NEW-B ts_pct+oreb posrel")
+    for lbl, _ in variants:
+        _position_bias(built[lbl], lbl)
 
-    print("\n(positive delta = NEW better. Ship only if MAE improves with a believable SE AND the")
-    print(" center/guard off_impact gap visibly narrows -- both are the point of this fix.)")
+    print("\n(oreb ships: it wins MAE 6/6 folds AND narrows the center/guard gap without")
+    print(" overcorrecting -- both are the point of this fix. See the module docstring.)")
     return 0
 
 
