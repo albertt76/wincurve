@@ -1533,6 +1533,14 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
 
 ### Open items
 
+- ⬜ **Test narrower position-relative-offense variants.** The shipped fix
+  (`POSITION_RELATIVE_FEATURES = ["dreb_p100", "ts_pct"]`, 2026-08-06) cleared its own bar on
+  credibility but was weak/noisy on win MAE (+0.058 ±0.065 SE, only 3/6 folds). Try `fta_p100`
+  alone or in combination (flagged as a plausible candidate — rim-runner contact-finishing — but
+  untested) via `scripts/gate_position_relative_offense.py`, looking for a cleaner win than
+  `ts_pct` alone gave. See the "position-relative offensive standardization" write-up above for
+  the full candidate-feature reasoning (why `fg3m_p100`/`fg3_rate`/`pts_p100`/`ast_p100` were
+  deliberately left out of the first pass).
 - ⬜ Historical **injury reasons** still unsourced (Pro Sports Transactions needs a UA;
   otherwise only games-missed is available)
 - ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). bbref Vegas
