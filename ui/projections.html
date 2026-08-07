@@ -101,15 +101,6 @@
   .season-pick {
     display: flex; align-items: center; gap: 8px; padding-bottom: 4px;
   }
-  /* premium unlock button (header) + locked-panel prompt */
-  .unlock-btn {
-    font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
-    color: var(--edit); background: var(--surface); border: 1px solid var(--edit);
-    border-radius: var(--r); padding: 6px 13px; white-space: nowrap;
-  }
-  .unlock-btn:hover { background: var(--edit); color: #fff; }
-  .unlock-btn.on { color: var(--pos); border-color: var(--pos); cursor: default; }
-  .unlock-btn.on:hover { background: var(--surface); color: var(--pos); }
   /* theme toggle -- same control as the players + NHL pages, for a consistent shell */
   .theme-btn {
     font: inherit; font-size: 12px; cursor: pointer; color: var(--muted);
@@ -117,11 +108,9 @@
     border-radius: var(--r); padding: 6px 11px; white-space: nowrap;
   }
   .theme-btn:hover { border-color: var(--faint); color: var(--ink); }
-  #unlock-top { margin-left: auto; }
   .locked { padding: 22px; text-align: center; }
   .locked p { max-width: 60ch; margin: 0 auto 14px; color: var(--muted); font-size: 14px; }
   .locked p b { color: var(--ink); }
-  .locked .unlock-btn { font-size: 13.5px; padding: 8px 18px; }
   .season-pick span {
     font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em;
     text-transform: uppercase; color: var(--faint);
@@ -470,7 +459,7 @@
   .view-toggle { display: inline-flex; gap: 2px; margin: 4px 0 20px; padding: 3px;
     background: var(--surface-2); border-radius: 8px; }
   /* inline instance in the header (the Blended/Box/RAPM method toggle) needs no bottom margin */
-  .title-row .method-toggle { margin: 0; }
+  .title-row .method-toggle { margin: 0 0 0 auto; }
   .title-row .method-toggle .vt-btn { padding: 6px 11px; }
   .vt-btn { font: inherit; font-size: 13px; font-weight: 600; letter-spacing: -.01em;
     color: var(--muted); background: transparent; border: 0; border-radius: 6px;
@@ -581,7 +570,6 @@
         <span>Season</span>
         <select id="season-select" aria-label="Select season"></select>
       </label>
-      <button id="unlock-top" class="unlock-btn" type="button">Unlock details</button>
       <nav class="view-toggle method-toggle" role="tablist" aria-label="Method"
            title="Which measurement drives every number below: Blended (shipped default — box score and play-by-play RAPM combined by roster turnover), Box only (the classic box-score-only method), or RAPM only (play-by-play regularized adjusted plus/minus only). Team win totals, bars, and player Off/Def/Impact/&asymp;Wins all recompute. Every other team is held at its Blended rating while you look at one method — not a full league resimulation.">
         <button id="method-blended" class="vt-btn active" role="tab" aria-selected="true">Blended</button>
@@ -889,28 +877,11 @@ const CURRENT_MAE = 7.40;               // shipped MAE (+ position-relative offe
 // Season-dependent globals, (re)built by loadSeason().
 let DATA, state, byId, allPlayers;
 
-// --- premium gate: rosters + what-if grids live behind a shared password (serverless function).
-// The public payload carries no players/grid, so the expanded panels are locked until unlocked. ---
+// --- premium gate: rosters + what-if grids live behind a shared password (serverless function,
+// ui/api/premium.js). The unlock UI is gated off for now (no button reaches doUnlock's old
+// path) -- the public payload carries no players/grid, so panels stay locked. The merge/render
+// machinery below is kept so the feature can be re-enabled later without rebuilding it. ---
 let PREMIUM = null, unlocked = false;
-try { const c = sessionStorage.getItem('wc_premium'); if (c) { PREMIUM = JSON.parse(c); unlocked = true; } } catch (e) {}
-
-async function doUnlock() {
-  const pw = prompt('Enter the access password to unlock the team detail panels:');
-  if (!pw) return;
-  try {
-    const r = await fetch('/api/premium', { method: 'POST', headers: { 'x-unlock-password': pw } });
-    if (!r.ok) { alert(r.status === 401 ? 'Wrong password.' : 'Unlock unavailable (status ' + r.status + ').'); return; }
-    PREMIUM = await r.json(); unlocked = true;
-    try { sessionStorage.setItem('wc_premium', JSON.stringify(PREMIUM)); } catch (e) {}
-    loadSeason(sel.value); syncUnlockBtn();
-  } catch (e) { alert('Unlock failed (network error).'); }
-}
-document.addEventListener('click', e => { if (e.target.closest('.unlock-btn')) doUnlock(); });
-function syncUnlockBtn() {
-  const b = document.getElementById('unlock-top'); if (!b) return;
-  b.textContent = unlocked ? '✓ Details unlocked' : 'Unlock details';
-  b.classList.toggle('on', unlocked);
-}
 
 // Team display: recompute live from the roster when unlocked; else use the stored precomputed
 // values (the public payload carries no players/grid, so the base projection is read directly).
@@ -933,10 +904,10 @@ function teamView(t) {
 
 function lockedPanel() {
   return `<div class="locked">
-    <p><b>Team details are premium.</b> Unlock to see each roster with per-player Off/Def and
-      &asymp;&nbsp;Wins, the play-by-play RAPM defensive read, the <b>disagreement + conviction</b>
-      reasons behind the projection, the offseason-move (trade) undo, and the live what-if editor.</p>
-    <button class="act unlock-btn">Unlock details</button>
+    <p><b>Team details aren't shown here right now.</b> That includes each roster with per-player
+      Off/Def and &asymp;&nbsp;Wins, the play-by-play RAPM defensive read, the
+      <b>disagreement + conviction</b> reasons behind the projection, the offseason-move (trade)
+      undo, and the live what-if editor.</p>
   </div>`;
 }
 
@@ -1910,5 +1881,4 @@ tabs.drift.addEventListener('click', () => setView('drift'));
 
 // default to the upcoming season (last in the sorted list)
 loadSeason(GMETA.seasons[GMETA.seasons.length - 1]);
-syncUnlockBtn();
 </script>
