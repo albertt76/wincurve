@@ -513,19 +513,53 @@ per-team `off_rating`/`def_rating`, per-player `off`/`def`, and each player's mo
 `box_def`/`rapm_def` (via `nbaproj.rapm.box_vs_rapm_by_player`, walk-forward). The client
 recompute is decoupled too, so a roster edit reprices offense and defense independently.
 
-**RAPM-only defensive display arm (added 2026-07).** Beside the shipped projection, every team
-carries a **second win projection with defense priced purely from play-by-play RAPM** instead of
-the box+RAPM turnover blend (same offense, same carryover). It shows as a rose ▼ marker on the
-bar and a **`rapm N · ±diff`** readout (diff = RAPM-only − blend; the panel header shows
-`RAPM-only D ±y → N wins`). The gap isolates the defensive-metric choice and is a
-defensive-uncertainty signal: it is largest on **low-turnover** teams — where the blend leans on
-the box metric that misses perimeter defense — and near-zero on high-turnover ones (where the
-blend already leans on RAPM). Poster child: **New York** (10% turnover, blend 44 → RAPM-only 51,
-+6.9), a roster of perimeter defenders the box underrates. Emitted per-team as `rating_rapm` /
-`def_rating_rapm` / `wins_rapm` with meta `def_slope_rapm`/`def_intercept_rapm` (RAPM's own,
-lower ~3.3 defensive slope, calibrated walk-forward on `agg_def_rapm`); the client recomputes it
-live under roster edits (`computeRating` returns `ratingRapm`). **Display only, never an input** —
-re-weighting the blend toward RAPM did not clear the gate (`scripts/gate_blend_weight.py`).
+**Method toggle: Blended / Box / RAPM (shipped 2026-08-06, replaces the old RAPM-only-defense
+side readout).** A 3-way switch in the header of both the Records page and the Players
+leaderboard controls **which measurement drives every number on the page**: team ratings, win
+totals, bars, and rankings on Records; Impact/Off/Def/≈Wins on Players. **Blended** (the shipped
+default) is the turnover-weighted box+RAPM blend on both sides. **Box** is the classic
+box-score-only method. **RAPM** prices both offense and defense purely from play-by-play, no box
+score at all — the natural generalization of the old defense-only RAPM arm, now covering offense
+too and selectable rather than always-on. Each method is calibrated with its **own slope**
+(`nbaproj.rapm_blend.calibrate_blend` returns all three: `off_slope`/`def_slope` for Blended,
+`off_slope_box`/`def_slope_box`, `off_slope_rapm`/`def_slope_rapm`) — reusing the blended slope on
+an unblended aggregate would repeat the exact mismatch this project's calibration lessons warn
+against.
+
+No new Monte Carlo simulation needed: every team already carries a precomputed rating-offset grid
+(`RATING_GRID`, ±12 in 1.5 steps) built by resimulating that team's own uncertainty around its
+Blended rating; a Box or RAPM rating is computed with its own slope and **interpolated on that
+same grid** (`_grid_interp` server-side, `winsAt` client-side) — exactly how the old RAPM-only
+arm got `wins_rapm` with no extra simulation, now extended to give full win distributions (not
+just a mean) for both new arms. **Known approximation, kept deliberately**: every other team is
+held at its Blended rating while you look at one method (a partial-equilibrium view, not a full
+league resimulation) — the same simplification the old single-arm readout always used, now
+carrying more weight since it's the primary number for all 30 teams instead of one side stat.
+Carryover and sigma are also shared unchanged across all three methods, matching that same
+precedent. Confirmed empirically after shipping: max rating offset from Blended is ~2-3 points
+(current season), well inside the ±12 grid, and each method's win total sums to roughly (not
+exactly) 1230 across the league — box and RAPM were never checked for that zero-centering
+property the way the shipped blend implicitly has been by living in production, so a per-method
+sum-of-wins sanity print runs on every rebuild.
+
+Emitted per-team with a flat suffix convention (unsuffixed = Blended, `_box`, `_rapm`):
+`rating`/`off_rating`/`def_rating`/`wins`/`p10`.../ and their `_box`/`_rapm` twins. Emitted
+per-player on the Players leaderboard the same way (`scripts/build_nba_players_ui.py`
+`win_parts(..., method=)`): **this changed what unsuffixed `off`/`def`/`impact` mean** on that
+page — before the toggle they were pure box; now unsuffixed = Blended (a derived rating,
+replacement + the same off_dev/def_dev the wins calc uses), `_box` = the old meaning, `_rapm` =
+raw RAPM. Client-side (`ui/template.html`'s `computeRating`/`winParts`, `ui/nba_players/
+template.html`'s `mkey` field-resolution) mirrors the Python bit-for-bit, verified by direct
+comparison. **Display only, never an input** — re-weighting the shipped blend toward RAPM did not
+clear the gate (`scripts/gate_blend_weight.py`); this toggle is for inspection, not a model change.
+
+Non-obvious finding surfaced while building this: whether RAPM-only helps or hurts a team's
+*offense* wins tracks roster **turnover**, not the size of the player's box-vs-RAPM gap — a
+stable-roster star (Curry, 4% turnover, box off +2.80 vs RAPM off +7.05, the biggest gap in the
+league) barely moves toward his own higher RAPM number and can net *lower* under the blend once
+the league-wide slope recalibration is accounted for, while a churned-roster player with a smaller
+gap can net higher. See the CLAUDE.md "Open items" entry for the follow-up (re-checking
+`top_scorer_share_weight` specifically for this player group).
 
 
 `ui/template.html` + `ui/build.py` -> `ui/projections.html` (self-contained, data inlined).
