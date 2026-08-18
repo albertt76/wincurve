@@ -457,7 +457,7 @@
   .controls .grp { display: flex; align-items: center; gap: 7px; }
   .controls .grp > .lbl { font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
     text-transform: uppercase; color: var(--faint); }
-  .method-toggle { display: inline-flex; gap: 5px; }
+  .method-toggle, .conf-toggle { display: inline-flex; gap: 5px; }
   .pill { font: inherit; font-size: 12.5px; cursor: pointer; color: var(--muted);
     background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
     padding: 4px 13px; white-space: nowrap; font-family: var(--mono);
@@ -528,6 +528,13 @@
         <button id="method-blended" class="pill active" role="tab" aria-selected="true">Blended</button>
         <button id="method-box" class="pill" role="tab" aria-selected="false">Box</button>
         <button id="method-rapm" class="pill" role="tab" aria-selected="false">RAPM</button>
+      </nav>
+    </div>
+    <div class="grp"><span class="lbl">conf</span>
+      <nav class="conf-toggle" role="tablist" aria-label="Conference">
+        <button id="conf-all" class="pill active" role="tab" aria-selected="true">All</button>
+        <button id="conf-east" class="pill" role="tab" aria-selected="false">East</button>
+        <button id="conf-west" class="pill" role="tab" aria-selected="false">West</button>
       </nav>
     </div>
     <input class="team-filter" id="team-filter" placeholder="filter team&hellip;" autocomplete="off"
@@ -773,6 +780,34 @@ let METHOD = "blended";
     b.addEventListener("click", () => {
       if (METHOD === k) return;
       METHOD = k; sSet("wincurve-method", k); syncButtons();
+      if (typeof render === "function") render();
+    });
+  }
+})();
+
+/* ---- conference toggle: All / East / West. Franchise conference membership is stable, so this is
+   a plain client-side lookup rather than a data-pipeline field. Display only — never touches the
+   model. ---- */
+const NBA_CONFERENCE = {
+  ATL: "east", BOS: "east", BKN: "east", CHA: "east", CHI: "east", CLE: "east", DET: "east",
+  IND: "east", MIA: "east", MIL: "east", NYK: "east", ORL: "east", PHI: "east", TOR: "east", WAS: "east",
+  DAL: "west", DEN: "west", GSW: "west", HOU: "west", LAC: "west", LAL: "west", MEM: "west",
+  MIN: "west", NOP: "west", OKC: "west", PHX: "west", POR: "west", SAC: "west", SAS: "west", UTA: "west",
+};
+let CONF_FILTER = "all";
+(function () {
+  const btns = { all: document.getElementById("conf-all"),
+                 east: document.getElementById("conf-east"),
+                 west: document.getElementById("conf-west") };
+  for (const [k, b] of Object.entries(btns)) {
+    if (!b) continue;
+    b.addEventListener("click", () => {
+      if (CONF_FILTER === k) return;
+      CONF_FILTER = k;
+      for (const [k2, b2] of Object.entries(btns)) {
+        b2.classList.toggle("active", k2 === k);
+        b2.setAttribute("aria-selected", String(k2 === k));
+      }
       if (typeof render === "function") render();
     });
   }
@@ -1361,11 +1396,13 @@ function render() {
   host.innerHTML = '';
   let rowsData = DATA.teams.map(t => ({ t, ...teamView(t) }))
     .sort((a, b) => b.w.mean - a.w.mean);
+  if (CONF_FILTER !== 'all') rowsData = rowsData.filter(({ t }) =>
+    NBA_CONFERENCE[t.abbr] === CONF_FILTER);
   if (TEAM_QUERY) rowsData = rowsData.filter(({ t }) =>
     (t.abbr + ' ' + t.name).toLowerCase().includes(TEAM_QUERY));
   const countEl = document.getElementById('team-count');
   if (countEl) countEl.textContent =
-    TEAM_QUERY ? `${rowsData.length} of ${DATA.teams.length}` : '';
+    (TEAM_QUERY || CONF_FILTER !== 'all') ? `${rowsData.length} of ${DATA.teams.length}` : '';
 
   rowsData.forEach(({ t, w, edited }) => {
     const wide = t.turnover >= WIDE_TURNOVER;

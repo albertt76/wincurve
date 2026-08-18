@@ -226,6 +226,11 @@
       <button class="pill" data-sort="def">defense</button>
       <button class="pill" data-sort="carry">carryover</button>
     </div>
+    <div class="grp"><span class="lbl">conf</span>
+      <button class="pill on" data-conf="all">All</button>
+      <button class="pill" data-conf="east">East</button>
+      <button class="pill" data-conf="west">West</button>
+    </div>
     <input class="search" id="search" placeholder="filter team…" autocomplete="off">
     <span class="count" id="count"></span>
   </div>
@@ -266,8 +271,17 @@ const sgn = (x, d = 3) => (x >= 0 ? "+" : "") + x.toFixed(d);
 const $ = id => document.getElementById(id);
 
 const teams = DATA.teams.slice();
+
+/* Conference membership is stable, so this is a plain client-side lookup rather than a
+   data-pipeline field. Display only — never touches the model. */
+const NHL_CONFERENCE = {
+  BOS: "east", BUF: "east", DET: "east", FLA: "east", MTL: "east", OTT: "east", TBL: "east", TOR: "east",
+  CAR: "east", CBJ: "east", NJD: "east", NYI: "east", NYR: "east", PHI: "east", PIT: "east", WSH: "east",
+  CHI: "west", COL: "west", DAL: "west", MIN: "west", NSH: "west", STL: "west", UTA: "west", WPG: "west",
+  ANA: "west", CGY: "west", EDM: "west", LAK: "west", SEA: "west", SJS: "west", VAN: "west", VGK: "west",
+};
 const meta = DATA.meta;
-let sortKey = "proj", query = "";
+let sortKey = "proj", query = "", conf = "all";
 
 // shared axis bounds: pad the min p10 / max p90 to round numbers
 const lo = Math.floor((Math.min(...teams.map(t => t.p10)) - 2) / 5) * 5;
@@ -455,6 +469,7 @@ function updateTeamUI(t, row, panel) {
 function render() {
   const rows = $("rows"); rows.innerHTML = "";
   let list = teams.slice().sort((a, b) => (b[sortKey] ?? -1e9) - (a[sortKey] ?? -1e9));
+  if (conf !== "all") list = list.filter(t => NHL_CONFERENCE[t.team] === conf);
   if (query) list = list.filter(t =>
     (t.team + " " + t.name).toLowerCase().includes(query));
   $("count").textContent = `${list.length} of ${teams.length}`;
@@ -536,6 +551,11 @@ document.querySelectorAll(".pill[data-sort]").forEach(p =>
   p.addEventListener("click", () => {
     document.querySelectorAll(".pill[data-sort]").forEach(q => q.classList.remove("on"));
     p.classList.add("on"); sortKey = p.dataset.sort; render();
+  }));
+document.querySelectorAll(".pill[data-conf]").forEach(p =>
+  p.addEventListener("click", () => {
+    document.querySelectorAll(".pill[data-conf]").forEach(q => q.classList.remove("on"));
+    p.classList.add("on"); conf = p.dataset.conf; render();
   }));
 $("search").addEventListener("input", e => { query = e.target.value.trim().toLowerCase(); render(); });
 

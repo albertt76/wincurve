@@ -623,6 +623,19 @@ projections:
 python scripts/project_current.py && python ui/build.py
 ```
 
+**Conference toggle: All / East / West (shipped 2026-08-18, both NBA and NHL Records pages).** A
+third control in the same `.controls` bar (`conf` group of pills) filters the standings table by
+conference — display only, never touches the model. Conference membership is a plain client-side
+lookup keyed by team abbreviation (`NBA_CONFERENCE` in `ui/template.html`, `NHL_CONFERENCE` in
+`ui/nhl_records/template.html`) rather than a data-pipeline field, since franchise conference
+membership is stable and this avoids threading a new column through `snapshots.json` / the NHL
+records builder for a display-only filter. Combines with the existing `filter team…` box as an AND
+(both must match); the `N of 30` / `N of 32` count reflects either filter being active. NBA reuses
+the method-toggle's pill markup and `.active`-class pattern (`#conf-all/east/west`); NHL reuses the
+sort-pills' `data-conf` attribute pattern (`.pill.on`) already established for `data-sort`. No
+Python/build-script change — both pages already inline the abbreviation as `t.abbr` (NBA) / `t.team`
+(NHL), which is all the lookup needs.
+
 Design decisions: 30 team rows on a **shared win axis**, so range widths are directly
 comparable across teams — that comparability is the whole point, since range width carries
 information. Uncertainty is encoded twice, in bar width and in hue (teal = tight, amber =
