@@ -743,6 +743,254 @@
      "turnover": 0.098
     }
    ]
+  },
+  {
+   "run_date": "2026-08-20",
+   "model": "preseason",
+   "season": "2026-27",
+   "snapshot_date": "2026-08-20",
+   "teams": [
+    {
+     "abbr": "BOS",
+     "wins": 60.6,
+     "rating": 9.92,
+     "off_rating": 3.3,
+     "def_rating": 5.35,
+     "turnover": 0.298
+    },
+    {
+     "abbr": "OKC",
+     "wins": 59.8,
+     "rating": 9.74,
+     "off_rating": 2.9,
+     "def_rating": 5.42,
+     "turnover": 0.132
+    },
+    {
+     "abbr": "SAS",
+     "wins": 53.8,
+     "rating": 6.81,
+     "off_rating": 2.6,
+     "def_rating": 1.98,
+     "turnover": 0.215
+    },
+    {
+     "abbr": "DET",
+     "wins": 51.4,
+     "rating": 5.2,
+     "off_rating": 0.32,
+     "def_rating": 2.19,
+     "turnover": 0.337
+    },
+    {
+     "abbr": "CHA",
+     "wins": 50.2,
+     "rating": 4.62,
+     "off_rating": 0.66,
+     "def_rating": 1.18,
+     "turnover": 0.348
+    },
+    {
+     "abbr": "CLE",
+     "wins": 50.0,
+     "rating": 4.61,
+     "off_rating": 3.12,
+     "def_rating": 1.31,
+     "turnover": 0.074
+    },
+    {
+     "abbr": "HOU",
+     "wins": 48.0,
+     "rating": 3.67,
+     "off_rating": 0.06,
+     "def_rating": 3.4,
+     "turnover": 0.27
+    },
+    {
+     "abbr": "LAL",
+     "wins": 47.8,
+     "rating": 3.74,
+     "off_rating": 2.65,
+     "def_rating": 0.54,
+     "turnover": 0.582
+    },
+    {
+     "abbr": "MIN",
+     "wins": 45.4,
+     "rating": 2.62,
+     "off_rating": 2.01,
+     "def_rating": 0.2,
+     "turnover": 0.227
+    },
+    {
+     "abbr": "NYK",
+     "wins": 44.5,
+     "rating": 2.25,
+     "off_rating": 0.87,
+     "def_rating": -0.44,
+     "turnover": 0.11
+    },
+    {
+     "abbr": "DEN",
+     "wins": 44.3,
+     "rating": 2.06,
+     "off_rating": 2.34,
+     "def_rating": -1.35,
+     "turnover": 0.12
+    },
+    {
+     "abbr": "TOR",
+     "wins": 43.8,
+     "rating": 1.93,
+     "off_rating": -0.52,
+     "def_rating": 0.63,
+     "turnover": 0.232
+    },
+    {
+     "abbr": "GSW",
+     "wins": 43.1,
+     "rating": 1.62,
+     "off_rating": 1.42,
+     "def_rating": 1.46,
+     "turnover": 0.045
+    },
+    {
+     "abbr": "MIA",
+     "wins": 42.3,
+     "rating": 1.28,
+     "off_rating": 0.45,
+     "def_rating": 0.05,
+     "turnover": 0.33
+    },
+    {
+     "abbr": "LAC",
+     "wins": 41.7,
+     "rating": 0.81,
+     "off_rating": 0.17,
+     "def_rating": 0.67,
+     "turnover": 0.257
+    },
+    {
+     "abbr": "PHX",
+     "wins": 41.2,
+     "rating": 1.04,
+     "off_rating": -0.38,
+     "def_rating": 0.39,
+     "turnover": 0.213
+    },
+    {
+     "abbr": "POR",
+     "wins": 41.1,
+     "rating": 0.66,
+     "off_rating": 0.47,
+     "def_rating": -0.5,
+     "turnover": 0.244
+    },
+    {
+     "abbr": "ORL",
+     "wins": 40.7,
+     "rating": 0.53,
+     "off_rating": -0.36,
+     "def_rating": 0.42,
+     "turnover": 0.109
+    },
+    {
+     "abbr": "PHI",
+     "wins": 39.0,
+     "rating": -0.21,
+     "off_rating": 0.59,
+     "def_rating": -0.55,
+     "turnover": 0.484
+    },
+    {
+     "abbr": "IND",
+     "wins": 36.2,
+     "rating": -1.34,
+     "off_rating": 1.14,
+     "def_rating": -0.38,
+     "turnover": 0.166
+    },
+    {
+     "abbr": "ATL",
+     "wins": 34.7,
+     "rating": -2.08,
+     "off_rating": -1.82,
+     "def_rating": -0.55,
+     "turnover": 0.273
+    },
+    {
+     "abbr": "DAL",
+     "wins": 34.7,
+     "rating": -2.27,
+     "off_rating": 0.84,
+     "def_rating": -1.03,
+     "turnover": 0.315
+    },
+    {
+     "abbr": "CHI",
+     "wins": 32.4,
+     "rating": -3.31,
+     "off_rating": -1.18,
+     "def_rating": -1.4,
+     "turnover": 0.3
+    },
+    {
+     "abbr": "NOP",
+     "wins": 31.8,
+     "rating": -3.52,
+     "off_rating": -1.09,
+     "def_rating": -1.8,
+     "turnover": 0.149
+    },
+    {
+     "abbr": "MIL",
+     "wins": 31.8,
+     "rating": -3.64,
+     "off_rating": 0.03,
+     "def_rating": -1.71,
+     "turnover": 0.396
+    },
+    {
+     "abbr": "MEM",
+     "wins": 29.8,
+     "rating": -4.64,
+     "off_rating": -1.16,
+     "def_rating": -1.64,
+     "turnover": 0.345
+    },
+    {
+     "abbr": "SAC",
+     "wins": 28.3,
+     "rating": -5.08,
+     "off_rating": -1.18,
+     "def_rating": -1.55,
+     "turnover": 0.125
+    },
+    {
+     "abbr": "BKN",
+     "wins": 27.7,
+     "rating": -5.62,
+     "off_rating": -2.79,
+     "def_rating": -0.98,
+     "turnover": 0.264
+    },
+    {
+     "abbr": "UTA",
+     "wins": 27.4,
+     "rating": -5.57,
+     "off_rating": -1.39,
+     "def_rating": -3.0,
+     "turnover": 0.146
+    },
+    {
+     "abbr": "WAS",
+     "wins": 26.9,
+     "rating": -6.04,
+     "off_rating": -1.97,
+     "def_rating": -1.78,
+     "turnover": 0.179
+    }
+   ]
   }
  ]
 }
