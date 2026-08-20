@@ -524,7 +524,7 @@
   <div class="controls">
     <div class="grp"><span class="lbl">method</span>
       <nav class="method-toggle" role="tablist" aria-label="Method"
-           title="Which measurement drives every number below: Blended (shipped default — box score and play-by-play RAPM combined by roster turnover), Box only (the classic box-score-only method), or RAPM only (play-by-play regularized adjusted plus/minus only). Team win totals, bars, rankings and player Off/Def/Impact/≈Wins all recompute. Every other team is held at its Blended rating while you look at one method — not a full league resimulation.">
+           title="Which measurement drives every number below: Blended (shipped default — box score and play-by-play RAPM combined by roster turnover), Box only (the classic box-score-only method), or RAPM only (play-by-play regularized adjusted plus/minus only). Team win totals, bars, rankings and player Off/Def/Impact/≈Wins all recompute — for whichever team you're viewing. Same shortcut as editing a roster below: only that one team's rating changes, every other team stays at its Blended rating rather than a full league resimulation.">
         <button id="method-blended" class="pill active" role="tab" aria-selected="true">Blended</button>
         <button id="method-box" class="pill" role="tab" aria-selected="false">Box</button>
         <button id="method-rapm" class="pill" role="tab" aria-selected="false">RAPM</button>
@@ -697,10 +697,15 @@
           the box metric, a turned-over one leans on RAPM. <b>Box</b> shows the classic
           box-score-only method. <b>RAPM</b> prices both offense and defense purely from
           play-by-play, with no box score at all. Each method is calibrated with its own
-          slope, so switching is a genuine re-projection, not a cosmetic relabel. One caveat:
-          every other team is held at its Blended rating while you look at one method &mdash;
-          this is not a full league resimulation, the same simplification the shipped model has
-          always used for its defensive RAPM comparison.</dd>
+          slope, so switching is a genuine re-projection, not a cosmetic relabel. <b>Scope of
+          the shortcut:</b> this toggle, and editing a roster below (benching a player, undoing
+          a trade) &mdash; in other words, anything that changes <b>player movement</b> on one
+          team &mdash; only recompute <i>that one team</i>: its new rating is looked up on a
+          range of outcomes pre-simulated around its Blended rating, while every other team
+          stays fixed at its Blended rating rather than being re-simulated too. It does not
+          touch the shipped Blended projection itself (an actual full 30-team season
+          simulation), the historical backtest, or the market comparison &mdash; those are
+          unaffected either way.</dd>
 
         <dt><span class="swatch"></span> market</dt>
         <dd>The hollow ring on the bar and the market readout: the win total the market implies.
