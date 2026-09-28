@@ -68,7 +68,7 @@ user selection (availability is user judgment, Porziņģis discounted for durabi
 | Kristaps Porziņģis | GSW | 41.8 → **43.3** | restored but eased (72%, chronic durability) |
 | Domantas Sabonis | SAC | 26.1 → **27.6** | missed most of last year, restored |
 
-**Second review (2026-09-28), from the owner-approved shortlist** (see the Open item for how each
+**Second review (2026-09-28), from the owner-approved shortlist** (see the shortlist entry in `docs/nba/shipped.md` for how each
 player's effect was priced). Two settings: *clean* = 85% availability, full basis minutes;
 *eased* = 70% availability, 90% minutes. Nine added, one revised; team numbers are the full
 pipeline, before → after:

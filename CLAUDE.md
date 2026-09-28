@@ -8,10 +8,10 @@ Guidance for Claude Code working in this repo. Shared, provider-neutral engineer
 - `docs/nba/*.md` — NBA history and reference, one file per topic (not auto-loaded). Before
   touching a subsystem, read only the file that covers it; see the index at the bottom of
   AI_ENGINEERING.md. `grep -n` the file and read the matching section rather than all of it.
-- `nhl/DESIGN.md` — the authoritative NHL doc (not auto-loaded); read its Roadmap section first
-  for NHL work.
+- `nhl/DESIGN.md` — the authoritative NHL doc (not auto-loaded); read its Status and Open items
+  sections first for NHL work. NHL stage write-ups are in `docs/nhl/`.
 - `docs/nba/roadmap.md` — stage status and open items. Update it in the same commit as related
-  work, marking items ✅ / ⬜ as they change.
+  work, marking items ✅ / ⬜ as they change; move finished write-ups to `docs/nba/shipped.md`.
 
 ## Delegation
 
@@ -34,5 +34,6 @@ reported success" is not verification on its own.
 
 **Maintenance note:** audit and compact this file every few sessions — keep it small and precise.
 Shared architecture, conventions, and engineering rules belong in `AI_ENGINEERING.md`; detailed
-NBA history, experiment write-ups, and dated status belong in `docs/nba/`; NHL detail belongs in
-`nhl/DESIGN.md`. Do not grow this file or `AI_ENGINEERING.md` with experiment write-ups.
+NBA history, experiment write-ups, and dated status belong in `docs/nba/`; NHL status belongs in
+`nhl/DESIGN.md` and NHL stage write-ups in `docs/nhl/`. Do not grow this file,
+`AI_ENGINEERING.md`, `nhl/DESIGN.md`, or `docs/nba/roadmap.md` with experiment write-ups.
