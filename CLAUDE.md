@@ -435,7 +435,8 @@ python ui/build.py                      # inline into ui/projections.html
 blue ring marking the win total the prediction market implies **right now**, plus a
 `mkt N · ±diff` readout where diff is *our projection minus the market*. Source is
 **Kalshi `KXNBAWINS`** (`nbaproj/market_live.py`), the only live per-team win-total market:
-bbref Vegas over/unders are still unposted this early (404), and Polymarket has no per-team
+bbref Vegas over/unders are still unposted (404 through August; as of 2026-09-28 the page exists
+but carries no lines yet — see Open items), and Polymarket has no per-team
 win-total market. Kalshi quotes a **threshold ladder** ("20+/25+/30+ wins"), so we
 reconstruct a full market-implied distribution (median, mean, p10/p90) and compare
 distribution-to-distribution, not just point-to-point. **Strictly downstream — the market
@@ -1765,9 +1766,14 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   itself it needs no backtest gate.
 - ⬜ Historical **injury reasons** still unsourced (Pro Sports Transactions needs a UA;
   otherwise only games-missed is available)
-- ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). bbref Vegas
-  still 404; Polymarket has no per-team win-total market. Re-check bbref later for the Vegas
-  over/under (would add a second live line).
+- ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). Polymarket has no
+  per-team win-total market. ⬜ **bbref Vegas: page is UP but EMPTY as of 2026-09-28** — no
+  longer a 404, but only a header row (`Team | Odds`, no win totals), so `odds._parse_page` returns
+  an empty frame. **Trap:** `odds._fetch_page` caches whatever it gets, so checking the upcoming
+  season without `refresh=True` after that will keep reading the empty skeleton; re-check with
+  `_fetch_page(2027, refresh=True)` and delete `data/raw/odds_html/NBA_2027_preseason_odds.html`
+  if it's still empty. Once populated, wire it as a second live line (the NHL side's
+  `nhl/market_vegas.py` source-aware ring is the pattern to copy).
 - ✅ **"Bloated summer rosters" investigated and rejected** — not a defect; trimming fails
   the gate and the flagged gaps are real (defensive-metric) disagreements. See the
   INVESTIGATED & RESOLVED note and the negative-results table.
