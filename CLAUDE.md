@@ -1719,6 +1719,17 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   motivated it: the flagged guards Trae Young (18% turnover) and Ja Morant (24%) gained offensive
   wins under the old turnover blend (+0.13, +0.23) while Brunson/Curry/SGA LOST (−0.93/−0.87/−1.23)
   despite equal-or-larger box-vs-RAPM gaps — exactly the usage-vs-continuity mismatch now fixed.
+- ⬜ **Small-sample `prior_mpg` inflates camp signings' roles (found 2026-09-28).**
+  `project_current.py` sets each player's projected role to last season's raw minutes per game
+  (`prev.m / prev.g`) with no discount for games played, so a 1-4 game late-season cameo on a
+  tanking team becomes a starter-sized role on the new team: Hayden Gray (1 GP → 25.0 mpg, BOS),
+  Lawson Lovering (2 GP → 25.0, MEM), Kadary Richmond (3 GP → 22.0, CLE — why CLE barely moved
+  after adding Peyton Watson), Keshon Gilbert (4 GP → 18.5, ATL), all at replacement-level impact.
+  Genuine injury-shortened seasons (Bradley Beal 6 GP, Dereck Lively 7 GP) take the same code path
+  but land near a sensible role. Candidate fix: shrink `prior_mpg` toward the 8.0 bench default by
+  games played (e.g. weight `g/(g+k)`), sparing `injury_returns.json` players. It changes minute
+  allocation, so it must clear the walk-forward gate before shipping — NOT applied in the
+  2026-09-28 data refresh.
 - ⬜ Historical **injury reasons** still unsourced (Pro Sports Transactions needs a UA;
   otherwise only games-missed is available)
 - ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). bbref Vegas
