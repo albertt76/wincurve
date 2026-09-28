@@ -86,7 +86,7 @@ def offense_blend_weight(pts: pd.DataFrame, seasons) -> pd.DataFrame:
     Shai Gilgeous-Alexander), whom the turnover weight barely touched -- their low churn left the
     blend at their box value while the league-wide off_slope recalibration docked them ~1 win each.
     Aggregate-neutral vs the turnover weight (walk-forward win MAE within noise) but materially
-    fairer to those players -- see scripts/gate_rapm_offense_blend.py and the CLAUDE.md write-up.
+    fairer to those players -- see scripts/gate_rapm_offense_blend.py and docs/nba/offense.md.
 
     Prior-season (not contemporaneous) so the weight is knowable before the season starts -- the
     same information set a live projection has; the two are ~identical empirically (top-scorer

@@ -215,8 +215,9 @@ def matchups(season: str) -> pd.DataFrame:
     Kept as a clean, ToS-safe, cheap (1 call/season) dataset. A perimeter-containment feature
     from it (matchup FG% allowed) was evaluated and REJECTED -- single- and multi-season
     year-over-year stability stays r^2 ~0.05-0.08 (noise), the DRAYMOND failure mode, because
-    nearest-defender labelling has no arm position or facing direction. See CLAUDE.md. Retained
-    for future work regardless (e.g. if a forced-turnover feature or richer tracking arrives).
+    nearest-defender labelling has no arm position or facing direction. See
+    docs/nba/negative-results.md. Retained for future work regardless (e.g. if a forced-turnover
+    feature or richer tracking arrives).
     """
     return cached_fetch(
         "matchups_rollup",

@@ -260,7 +260,7 @@ def main() -> int:
     # Method toggle (Blended / Box / RAPM), shipped 2026-08: each method needs its own slope
     # because the three aggregates have different scale/dispersion (calibrate_blend fits all
     # three). Blended is the shipped default; Box and RAPM power the UI's method toggle, which
-    # replaced the old RAPM-only-defense side-readout with a full recompute (see CLAUDE.md).
+    # replaced the old RAPM-only-defense side-readout with a full recompute (see docs/nba/ui.md).
     cal = calibrate_blend(A, ts, target_season=TARGET)
     off_slope, off_int = cal["off_slope"], cal["off_intercept"]
     def_slope, def_int = cal["def_slope"], cal["def_intercept"]
@@ -499,7 +499,7 @@ def main() -> int:
         rating_box = float(tr["rating_box"])
         rating_rapm = float(tr["rating_rapm"])
         # Box-only and RAPM-only method-toggle arms: interpolated on the SAME per-team grid
-        # (built once, around the blended rating) rather than a new simulation -- see CLAUDE.md
+        # (built once, around the blended rating) rather than a new simulation -- see docs/nba/ui.md
         # "method toggle" for why this partial-equilibrium approximation (every other team held
         # at its blended rating) is an accepted, precedented simplification.
         wb = _grid_interp(grid_out[tid], rating_box - pred)

@@ -211,7 +211,7 @@
   }
   .caveat b { color: var(--ink); font-weight: 600; }
   footer { margin-top: 34px; font-family: var(--mono); font-size: 11px; color: var(--faint); }
-  /* shared cross-league top nav (see root CLAUDE.md "UI conventions") */
+  /* shared cross-league top nav (see docs/nba/ui.md "UI conventions") */
   .topnav { position: sticky; top: 0; z-index: 50; background: var(--surface); border-bottom: 1px solid var(--line); }
   .topnav-in { max-width: 1080px; margin: 0 auto; padding: 9px 20px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
   .topnav .brand { font-family: var(--mono); font-weight: 650; font-size: 14px; color: var(--ink); text-decoration: none; letter-spacing: -.01em; }
@@ -521,7 +521,7 @@ document.getElementById("foot").textContent =
   `built ${M.built} · seasons: ${Object.values(M.labels).join(", ")} · ` +
   `source: wincurve projections (data/processed/snapshots.json) · impact per 100 possessions`;
 // cross-page deep-link: /players?team=ABBR pre-selects that team's filter (source: the main
-// NBA projections page, ui/template.html — see root CLAUDE.md "UI conventions"). Unknown/absent/
+// NBA projections page, ui/template.html — see docs/nba/ui.md "UI conventions"). Unknown/absent/
 // malformed param falls back to all teams; case-insensitive; wrapped so a bad query never aborts boot.
 try {
   const qt = new URLSearchParams(location.search).get("team");

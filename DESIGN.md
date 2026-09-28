@@ -224,7 +224,7 @@ Backtest protocol throughout: **walk-forward**, train on seasons ≤ N, predict 
 N = 2013…2024. Report MAE and RMSE in wins, plus calibration (are our 80% intervals
 actually 80%?). Compare against three baselines.
 
-Current outcomes below. See CLAUDE.md for the live numbers; this table records how each
+Current outcomes below. See docs/nba/results.md for the live numbers; this table records how each
 stage resolved against its gate.
 
 | Stage | Deliverable | Outcome |

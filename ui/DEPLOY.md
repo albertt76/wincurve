@@ -38,7 +38,7 @@ including each team's roster and the what-if grid — directly into `projections
 team's expanded detail panel (per-player Off/Def and ≈Wins, RAPM flags, disagreement + conviction,
 trade-undo, live editor) renders for everyone with no login. No env vars, no serverless function.
 (A brief password gate existed 2026-08-02..08-06 via `ui/api/premium.js` + `PREMIUM_PASSWORD`; it
-was removed. To bring a paid tier back, see the auth roadmap item in CLAUDE.md.)
+was removed. To bring a paid tier back, see the auth roadmap item in docs/nba/roadmap.md.)
 
 ## What is and isn't exposed
 

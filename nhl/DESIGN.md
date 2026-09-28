@@ -3,11 +3,11 @@
 Project each NHL team's regular-season **standings points** for an upcoming season as a
 probability distribution, built bottom-up from the current roster's players, and compare
 against betting/prediction markets to find explainable per-team disagreements. Same
-research goal and method as the NBA project (`../DESIGN.md`, `../CLAUDE.md`) — **not a
+research goal and method as the NBA project (`../DESIGN.md`, `../AI_ENGINEERING.md`) — **not a
 betting tool** — adapted to hockey.
 
 All statistical acronyms are expanded on first use, per the user's standing preference
-(see root `CLAUDE.md`). This applies to script output too — reports carry their own legend.
+(see root `AI_ENGINEERING.md`). This applies to script output too — reports carry their own legend.
 
 ---
 

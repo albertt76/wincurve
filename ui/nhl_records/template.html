@@ -290,7 +290,7 @@ const xpct = v => ((v - lo) / (hi - lo)) * 100;
 
 /* ---- the what-if editor: an exact client-side port of nhl.gamesim + nhl.season.goal_rates,
    so a roster edit reproduces this page's own build script bit-for-bit (same idea as the NBA
-   project's exact client-side aggregation recompute; see CLAUDE.md "Roster edits recompute in
+   project's exact client-side aggregation recompute; see docs/nba/ui.md "Roster edits recompute in
    the browser"). Only off_mean/def_mean are FROZEN at build time (a single edited team barely
    moves the true 32-team mean) -- everything else is the live edit. */
 const MAXK = 16;
