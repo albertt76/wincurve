@@ -435,7 +435,8 @@ python ui/build.py                      # inline into ui/projections.html
 blue ring marking the win total the prediction market implies **right now**, plus a
 `mkt N · ±diff` readout where diff is *our projection minus the market*. Source is
 **Kalshi `KXNBAWINS`** (`nbaproj/market_live.py`), the only live per-team win-total market:
-bbref Vegas over/unders are still unposted this early (404), and Polymarket has no per-team
+bbref Vegas over/unders are still unposted (404 through August; as of 2026-09-28 the page exists
+but carries no lines yet — see Open items), and Polymarket has no per-team
 win-total market. Kalshi quotes a **threshold ladder** ("20+/25+/30+ wins"), so we
 reconstruct a full market-implied distribution (median, mean, p10/p90) and compare
 distribution-to-distribution, not just point-to-point. **Strictly downstream — the market
@@ -647,7 +648,8 @@ per-team grid of simulated win distributions across rating offsets is interpolat
 keeps real schedule strength intact without running a simulation in the browser.
 
 **Caveats are stated in the page itself, deliberately:** that the model does not beat the
-market on aggregate accuracy (7.62 vs 6.88 MAE), that single-player what-ifs extrapolate the
+market on aggregate accuracy (7.39 vs 6.88 MAE — the page reads ours from `CURRENT_MAE` in
+`ui/template.html`, so bump that constant whenever the shipped MAE changes), that single-player what-ifs extrapolate the
 calibration slope further than the backtest validated, and (upcoming season) that the market
 ring is shown-only and never an input. Do not remove them.
 
@@ -778,8 +780,9 @@ Override files (hand-authored, tracked in git; `data/overrides/` is NOT gitignor
   **Known defect:** aggregation slope is 7.7 where algebra predicts 5, because
   sub-threshold players get no estimate — replacement level in Stage 3 is the fix.
 - 🟡 **Stage 3** — Availability model **validated**; roster/rookie/override machinery
-  **built**; minute-allocation accuracy cannot be fully validated until Stage 4 ties it
-  to team outcomes.
+  **built**. Minute allocation is now validated end-to-end through Stages 4–5 (every change
+  gates on team win MAE), but two known minute-allocation gaps remain open: small-sample
+  `prior_mpg` and newcomers carrying last season's role to a deeper team (see Open items).
   - Availability: MAE 0.186 vs 0.205 for "reuse last season" and 0.219 for league
     average. Still ~15 games of error per player-season — injuries are largely
     irreducible, as expected.
@@ -813,7 +816,8 @@ Override files (hand-authored, tracked in git; `data/overrides/` is NOT gitignor
   win totals). **Live 2026-27 Kalshi pull shipped** (`nbaproj/market_live.py`,
   `scripts/fetch_market.py`): all 30 teams' threshold ladders reconstructed into implied
   win distributions and shown beside ours in the UI (hollow ring + `mkt N · ±diff`). Vegas
-  (bbref) not yet posted (404); Polymarket has no per-team win-total market. Still to do:
+  (bbref) page is up but still empty as of 2026-09-28 (see Open items); Polymarket has no
+  per-team win-total market. Still to do:
   the contract-year hypothesis test. **Downstream-only, never a feature.**
 - ✅ **Offense/defense decouple** — offense and defense projected, aged, and calibrated
   separately (`decouple=True`); MAE-neutral (`scripts/gate_decouple.py`: 7.960 → 7.957 excl.
@@ -966,7 +970,11 @@ tune against measured end-to-end error.
   projected aggregates from earlier folds. Worth 0.7-1.1 wins of MAE.
   **Lesson: fit a calibration on the same kind of quantity you apply it to.**
 
-### 🟡 Defensive metric / RAPM — pipeline + estimator + integration test all done; not shipped
+### ✅ Defensive metric / RAPM — SHIPPED as the turnover-weighted blend (how it got there)
+
+*Status (2026-09-28):* this section is the history. RAPM shipped into the projection as the
+turnover-weighted defensive blend (2026-07) and, 2026-08-06, an offensive blend; the
+"did NOT ship (yet)" verdict below was the intermediate step.
 
 The box-score metric captures only ~12-14% of franchise-level defensive variance; RAPM is
 the documented fix. Built and validated this session:
@@ -1447,8 +1455,8 @@ event order (not by timestamp) is what makes the offense/defense split reproduce
 net. **Validated on 2024 (both schemas exist): corr 0.99 total, 0.98 offense, 0.98 defense** vs
 the v2 reconstruction. Any season 1996-97+ is now reachable regardless of which schema the
 mirror ships.
-RAPM stays a **documented, validated candidate**. The turnover-weighted blend is the natural
-next step once 2025-26 lands and if it clears a coverage check.
+That unblocked the live 2025-26 RAPM input, and the turnover-weighted blend then shipped (see
+the RAPM section above).
 
 ### Measured negative results (do not re-attempt blind)
 
@@ -1692,12 +1700,14 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
 
 ### Decisions pending user input
 
-- ⬜ **Defense estimation.** *(Deferred by user: finish the pipeline first, revisit
-  if defense proves to be the binding constraint.)* Box-score defense is positionally biased and cannot be
-  fixed by adding more box features. The real fix is RAPM (regularized adjusted
-  plus/minus) from play-by-play: ~25,000 games to pull and cache, plus ridge
-  regression on stint-level data. Roughly an overnight data pull. Worth it only if
-  defensive *personnel* questions matter to the user beyond aggregate team projection.
+*(None pending as of 2026-09-28.)*
+
+- ✅ **Defense estimation — RESOLVED.** The once-deferred RAPM (regularized adjusted
+  plus/minus) build was done — bulk play-by-play for 2013-14 → 2025-26 (`nbaproj/bulk_pbp.py`,
+  `nbaproj/rapm.py`, `scripts/build_rapm.py`) — and shipped into the projection as the
+  turnover-weighted defensive blend, then (2026-08-06) an offensive blend. Five further
+  defensive experiments since then all came back neutral-to-negative: the defensive metric sits
+  at a local optimum (see "Defensive-metric experiments — ALL FIVE RESOLVED").
 
 ### Open items
 
@@ -1730,18 +1740,81 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   games played (e.g. weight `g/(g+k)`), sparing `injury_returns.json` players. It changes minute
   allocation, so it must clear the walk-forward gate before shipping — NOT applied in the
   2026-09-28 data refresh.
+- ⬜ **Newcomers carry last season's role to a deeper team (found 2026-09-28).** The broader,
+  full-sample twin of the item above: a player's projected minutes are last season's mpg wherever
+  he now plays, so a heavy-minutes role on a tanking team carries straight into a deep rotation.
+  Cody Williams (24.3 mpg on UTA, −3.57 impact) is projected at 24.3 mpg on MIN behind Edwards /
+  LaMelo Ball / Kuminga / Dosunmu; at a realistic 10 mpg MIN moves **43.3 → 46.5** and its High-
+  conviction −5.8 gap vs Kalshi shrinks to −2.6. NYK's five offseason bench arrivals (Bruce Brown,
+  Konchar, Agbaji, Wiseman, Eubanks) carry 237 → 291 supplied min/240 and drag it ~1.7 wins the
+  same way. **Caution before "fixing" the projection:** the obvious fix was already gated and
+  REJECTED — "canonical curve for newcomers only" (8.44 → 8.61, see the negative-results table),
+  consistent with the recurring "averages are the enemy" lesson. So expect little aggregate payoff
+  from a projection change; the per-team *credibility* payoff is real and is better served by the
+  robustness readout below. (Measured with an exact Python port of the client `computeRating` +
+  `winsAt`, reproducing all 30 shipped teams within 0.02 wins.)
+- ⬜ **Injury-return / known-absence overrides are stale — review before opening night (found
+  2026-09-28; shortlist computed the same day, awaiting the owner's per-player calls).**
+  `known_absences.json` was last edited 2026-07-31 and `injury_returns.json` 2026-08-02, while
+  `scripts/injury_return_candidates.py` surfaces **26 unreviewed candidates** (8 already in the
+  file). Both files are manual user judgment by design (chronic absence vs clean return is a call,
+  not a computation). **Per-player effect on team wins** — the real `project_current.py`
+  pipeline run with every candidate restored through the override path (re-projected from the
+  healthy basis season with normal aging + shrinkage), then attributed one player at a time with
+  the exact client what-if port (others held fixed). *clean* = 85% availability, full basis
+  minutes; *eased* = 70%, 90% minutes:
+
+  | Player (team, age) | GP 22/23/24/25 | clean | eased | context (2026-09-28) |
+  |---|---|---|---|---|
+  | Giannis Antetokounmpo (MIA, 32) | 63/73/67/36 | +3.0 | +0.9 | "very, very good place" at media day |
+  | Anthony Davis (WAS, 34) | 56/76/51/20 | +2.9 | +1.5 | GM: enters season fully healthy |
+  | Ja Morant (POR, 27) | 61/9/50/20 | +1.8 | +1.2 | coach: healthy; a scout: "bad knee" |
+  | Stephen Curry (GSW, 39) | 56/74/70/43 | +1.4 | +0.4 | says fine; seen limping mid-Sept |
+  | Zach LaVine (SAC, 32) | 77/25/74/39 | +1.4 | +1.0 | no clear current news |
+  | Joel Embiid (PHI, 33) | 66/39/19/38 | +1.4 | +0.4 | chronic knee |
+  | Christian Braun (DEN, 26) | 76/82/79/44 | +1.2 | +0.7 | durable history; no news |
+  | Darius Garland (LAC, 27) | 69/57/75/45 | +1.2 | +0.9 | no news |
+  | Tyler Herro (MIL, 27) | 67/42/77/33 | +1.0 | +0.4 | no news |
+
+  The other 17 move their team by under 1 win. **Do NOT add:** Zach Edey (−1.1), Kevin Porter Jr.
+  (−0.9), Jeremy Sochan (−0.8), Larry Nance Jr. (−0.7) — restoring them LOWERS their team (the
+  current projection beats their healthy-season basis, or the restored role is too big) — and
+  **Jimmy Butler, who is a known absence, not a return** (ACL rehab, targeting Jan/Feb 2027; the
+  model's 46% availability already approximates that). **Existing entry to revisit:** Porziņģis
+  (in the file at 72%) is out indefinitely to open camp with an unspecified health issue
+  (reported 2026-09-28); 72% → 50% costs GSW 0.8 wins. **Known-absence adds to consider:** Fox
+  (SAS, hamstring, targeting Nov 1 — ~0 wins by what-if), Butler, Porziņģis if it's long.
+  Accepting many at once dilutes each a little, because opponents improve too (all 26 together
+  move WAS +2.0, not +2.9).
+- ⬜ **Disagreement robustness readout (proposed 2026-09-28).** Three hand-run pressure tests
+  (2026-08-12, 2026-09-28 ×2) each changed a market-disagreement read, and all three used the same
+  moves: re-price the gap with the **carryover zeroed** (IND −8.8 → −3.6, CHA +8.7 → +1.8 — both
+  largely inherited from a roster/injury situation that no longer holds), with **newcomers at
+  bench minutes** (MIN −5.8 → −2.6), and under **each method arm**. Surfacing those three repricings
+  in `disagreementBlock` (e.g. "gap without carryover: −3.6") would make the conviction tag's blind
+  spots visible on the page. Display-only, computed client-side from data already inlined
+  (`computeRating`/`winsAt` with the carryover or a player's `mpg` overridden), so like conviction
+  itself it needs no backtest gate.
 - ⬜ Historical **injury reasons** still unsourced (Pro Sports Transactions needs a UA;
   otherwise only games-missed is available)
-- ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). bbref Vegas
-  still 404; Polymarket has no per-team win-total market. Re-check bbref later for the Vegas
-  over/under (would add a second live line).
+- ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). Polymarket has no
+  per-team win-total market. ⬜ **bbref Vegas: page is UP but EMPTY as of 2026-09-28** — no
+  longer a 404, but only a header row (`Team | Odds`, no win totals), so `odds._parse_page` returns
+  an empty frame. **Trap:** `odds._fetch_page` caches whatever it gets, so checking the upcoming
+  season without `refresh=True` after that will keep reading the empty skeleton; re-check with
+  `_fetch_page(2027, refresh=True)` and delete `data/raw/odds_html/NBA_2027_preseason_odds.html`
+  if it's still empty. Once populated, wire it as a second live line (the NHL side's
+  `nhl/market_vegas.py` source-aware ring is the pattern to copy).
 - ✅ **"Bloated summer rosters" investigated and rejected** — not a defect; trimming fails
   the gate and the flagged gaps are real (defensive-metric) disagreements. See the
   INVESTIGATED & RESOLVED note and the negative-results table.
 - ⬜ Contract/salary history unsourced (only needed for the contract-year test)
-- ⬜ Roster definition for backtest: plan is to reconstruct opening-night rosters from
-  each season's first games. Using full-season rosters would understate real-world
-  error, since February's roster is unknown in October.
+- ✅ **Roster definition for backtest — DONE.** `nbaproj.project.roster_opening_day`
+  reconstructs opening-day rosters (the season roster minus mid-season arrivals, keeping
+  zero-minute players such as a star hurt on opening night), and
+  `project_team_ratings(mode="roster")` uses it — roster mode is the honest headline backtest.
+  Limited to 2016-17+ by the `team_rosters` pull (see the historical-roster note under the Track
+  record item).
 - ✅ **Historical market lines in the per-season UI — SHIPPED (2026-07-31).** Each completed
   season's view now carries the **preseason Vegas over/under** as the hollow blue ring beside our
   mean and the actual diamond — a three-way per-team read (model vs market vs reality).
