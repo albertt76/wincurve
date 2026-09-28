@@ -899,6 +899,29 @@ user selection (availability is user judgment, Porziņģis discounted for durabi
 | Kristaps Porziņģis | GSW | 41.8 → **43.3** | restored but eased (72%, chronic durability) |
 | Domantas Sabonis | SAC | 26.1 → **27.6** | missed most of last year, restored |
 
+**Second review (2026-09-28), from the owner-approved shortlist** (see the Open item for how each
+player's effect was priced). Two settings: *clean* = 85% availability, full basis minutes;
+*eased* = 70% availability, 90% minutes. Nine added, one revised; team numbers are the full
+pipeline, before → after:
+
+| Player | Team | Setting | Before → after wins | Note |
+|---|---|---|---|---|
+| Giannis Antetokounmpo | MIA | clean | 39.4 → **42.0** | healthy at media day |
+| Anthony Davis | WAS | eased | 25.0 → **26.0** | age 34, chronic-absence history |
+| Ja Morant | POR | eased | 42.5 → **43.2** | mixed health reports |
+| Christian Braun | DEN | clean | 46.6 → **47.4** | durable before last season |
+| Darius Garland | LAC | clean | 37.8 → **38.6** | |
+| Tyler Herro | MIL | clean | 32.2 → **32.9** | |
+| Zach LaVine | SAC | eased | 25.3 → **25.8** | |
+| Joel Embiid | PHI | eased | 40.2 → **40.2** | rating +0.15, offset by the league-wide shift below |
+| Stephen Curry | GSW | eased | 42.6 → **41.9** | combined with the Porziņģis revision |
+| Kristaps Porziņģis (revised) | GSW | 72% → 50% | (in GSW above) | out indefinitely to open camp |
+
+Because league wins are zero-sum (~1230), restoring nine players shifts every untouched team
+down ~0.3 wins — the same partial-vs-full-equilibrium gap the what-if editor ignores. De'Aaron
+Fox (SAS, ~7 games) was added to `known_absences.json` as a no-op under the floor rule; Jimmy
+Butler was already there (44 games), which is what produces his 46% availability.
+
 **The VanVleet lesson.** Our metric rated his last healthy season (2024-25) at **−1.1
 impact** (below replacement), so "restore pre-injury level" restores a slightly *negative*
 rating and Houston drops 0.8 — the real effect is fixing his minutes (bench fallback → ~33
@@ -910,8 +933,9 @@ what the *metric* thought, not a reputation.
 candidate pool (rostered, missed >half of last season, positive impact in a recent healthy
 one) — a shortlist to review, **not** a list to import: whether each is a genuine return at
 prior level (vs chronic absence, trade, rest, or age decline) and his prognosis are manual
-calls. Top names it still flags as unreviewed: Anthony Davis, Giannis, Joel Embiid (all
-chronic-absence rather than clean single-injury returns), Stephen Curry (age).
+calls. As of the 2026-09-28 review, every candidate worth ≥1 win to his team has been decided
+(see the second-review table above); the remaining 17 move their team by under 1 win and are
+left to the statistical availability model.
 
 ### ✅ INVESTIGATED & RESOLVED: the "bloated summer rosters" hypothesis was WRONG
 
@@ -1753,8 +1777,11 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   from a projection change; the per-team *credibility* payoff is real and is better served by the
   robustness readout below. (Measured with an exact Python port of the client `computeRating` +
   `winsAt`, reproducing all 30 shipped teams within 0.02 wins.)
-- ⬜ **Injury-return / known-absence overrides are stale — review before opening night (found
-  2026-09-28; shortlist computed the same day, awaiting the owner's per-player calls).**
+- ✅ **Injury-return / known-absence overrides reviewed — APPLIED 2026-09-28.** The owner accepted
+  the shortlist's suggested settings (Giannis, Braun, Garland, Herro clean; Davis, Morant, Curry,
+  LaVine, Embiid eased; Porziņģis revised 72% → 50%; Fox added as a known absence); results are in
+  the "Second review (2026-09-28)" table in the injury-return section. The shortlist as reviewed:
+  (found 2026-09-28)
   `known_absences.json` was last edited 2026-07-31 and `injury_returns.json` 2026-08-02, while
   `scripts/injury_return_candidates.py` surfaces **26 unreviewed candidates** (8 already in the
   file). Both files are manual user judgment by design (chronic absence vs clean return is a call,
@@ -1779,11 +1806,13 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   The other 17 move their team by under 1 win. **Do NOT add:** Zach Edey (−1.1), Kevin Porter Jr.
   (−0.9), Jeremy Sochan (−0.8), Larry Nance Jr. (−0.7) — restoring them LOWERS their team (the
   current projection beats their healthy-season basis, or the restored role is too big) — and
-  **Jimmy Butler, who is a known absence, not a return** (ACL rehab, targeting Jan/Feb 2027; the
-  model's 46% availability already approximates that). **Existing entry to revisit:** Porziņģis
+  **Jimmy Butler, who is a known absence, not a return** (ACL rehab, targeting Jan/Feb 2027 —
+  already in `known_absences.json` at 44 games, which is what produces his 46% availability). **Existing entry to revisit:** Porziņģis
   (in the file at 72%) is out indefinitely to open camp with an unspecified health issue
-  (reported 2026-09-28); 72% → 50% costs GSW 0.8 wins. **Known-absence adds to consider:** Fox
-  (SAS, hamstring, targeting Nov 1 — ~0 wins by what-if), Butler, Porziņģis if it's long.
+  (reported 2026-09-28); 72% → 50% costs GSW 0.8 wins. **Known-absence add:** Fox
+  (SAS, hamstring, targeting Nov 1 — ~0 wins by what-if). ⬜ **Follow-up:** if Porziņģis's camp
+  absence turns out to be long, add him to `known_absences.json` too (the return entry wins over an
+  absence entry, so lower its `expected_availability` as well).
   Accepting many at once dilutes each a little, because opponents improve too (all 26 together
   move WAS +2.0, not +2.9).
 - ⬜ **Disagreement robustness readout (proposed 2026-09-28).** Three hand-run pressure tests
