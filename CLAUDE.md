@@ -1730,6 +1730,39 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   games played (e.g. weight `g/(g+k)`), sparing `injury_returns.json` players. It changes minute
   allocation, so it must clear the walk-forward gate before shipping — NOT applied in the
   2026-09-28 data refresh.
+- ⬜ **Newcomers carry last season's role to a deeper team (found 2026-09-28).** The broader,
+  full-sample twin of the item above: a player's projected minutes are last season's mpg wherever
+  he now plays, so a heavy-minutes role on a tanking team carries straight into a deep rotation.
+  Cody Williams (24.3 mpg on UTA, −3.57 impact) is projected at 24.3 mpg on MIN behind Edwards /
+  LaMelo Ball / Kuminga / Dosunmu; at a realistic 10 mpg MIN moves **43.3 → 46.5** and its High-
+  conviction −5.8 gap vs Kalshi shrinks to −2.6. NYK's five offseason bench arrivals (Bruce Brown,
+  Konchar, Agbaji, Wiseman, Eubanks) carry 237 → 291 supplied min/240 and drag it ~1.7 wins the
+  same way. **Caution before "fixing" the projection:** the obvious fix was already gated and
+  REJECTED — "canonical curve for newcomers only" (8.44 → 8.61, see the negative-results table),
+  consistent with the recurring "averages are the enemy" lesson. So expect little aggregate payoff
+  from a projection change; the per-team *credibility* payoff is real and is better served by the
+  robustness readout below. (Measured with an exact Python port of the client `computeRating` +
+  `winsAt`, reproducing all 30 shipped teams within 0.02 wins.)
+- ⬜ **Injury-return / known-absence overrides are stale — review before opening night (found
+  2026-09-28).** `known_absences.json` was last edited 2026-07-31 and `injury_returns.json`
+  2026-08-02, while `scripts/injury_return_candidates.py` now surfaces **26 unreviewed
+  candidates** (8 already in the file). The biggest by estimated lost value sit on teams with large
+  "we are lower than the market" gaps: **Giannis Antetokounmpo (now MIA, est. 103), Anthony Davis
+  (WAS, 95.5), Joel Embiid (PHI, 91.2)**, then Stephen Curry (GSW, 51.6), Ty Jerome, Tyler Herro.
+  Size of the effect: restoring Davis to his healthy 2024-25 level (the override's upper bound)
+  moves WAS **25.0 → 28.6** (vs Kalshi 35.3). New known absence to consider: De'Aaron Fox (SAS,
+  hamstring, out for the start of the season, targeting Nov 1) — immaterial to SAS by what-if
+  (~0 wins) but the file should be current. Both files are manual user judgment by design
+  (chronic absence vs clean return is a call, not a computation).
+- ⬜ **Disagreement robustness readout (proposed 2026-09-28).** Three hand-run pressure tests
+  (2026-08-12, 2026-09-28 ×2) each changed a market-disagreement read, and all three used the same
+  moves: re-price the gap with the **carryover zeroed** (IND −8.8 → −3.6, CHA +8.7 → +1.8 — both
+  largely inherited from a roster/injury situation that no longer holds), with **newcomers at
+  bench minutes** (MIN −5.8 → −2.6), and under **each method arm**. Surfacing those three repricings
+  in `disagreementBlock` (e.g. "gap without carryover: −3.6") would make the conviction tag's blind
+  spots visible on the page. Display-only, computed client-side from data already inlined
+  (`computeRating`/`winsAt` with the carryover or a player's `mpg` overridden), so like conviction
+  itself it needs no backtest gate.
 - ⬜ Historical **injury reasons** still unsourced (Pro Sports Transactions needs a UA;
   otherwise only games-missed is available)
 - ✅ Live 2026-27 market comparison shipped via **Kalshi** (`market_live.py`). bbref Vegas
