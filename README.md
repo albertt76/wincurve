@@ -45,5 +45,6 @@ with an explanation attached, and a calibrated sense of which teams are genuinel
 - `AI_ENGINEERING.md` — decisions, conventions, and the landmine list; `docs/nba/` holds
   measured results and the experiment history.
 - `DESIGN.md` — architecture and the statistical traps that shaped it.
+- `nhl/` — the NHL system; `nhl/DESIGN.md` is its status doc, `docs/nhl/` its stage history.
 
 Data (nba_api, gitignored) regenerates with `python scripts/fetch_all.py`.

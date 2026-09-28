@@ -18,7 +18,7 @@ AI assistants. Read it before planning or changing anything.
 
 **A multi-sport season-record projection system.** NBA is the mature reference implementation
 (`nbaproj/`). **NHL** is the first expansion (`nhl/`); **`nhl/DESIGN.md` is the authoritative NHL
-doc — read its Roadmap section for the current stage and next step before NHL work.** NHL status:
+doc — read its Status and Open items sections before NHL work; stage write-ups are in `docs/nhl/`.** NHL status:
 Stages 0–5 done, Stage 6 (live projection + Records page at `/nhl/records`) underway; the model
 ties the Vegas points line (10.50 vs 10.47 MAE points). Sport-agnostic code moves into `core/`
 only once a second sport proves the seam (so far just `core/httpcache.py`); the NBA code is not
@@ -219,7 +219,7 @@ There is no unit-test suite; verification is the walk-forward gate plus parity c
 
 ## Open items (⬜)
 
-Details and history: `docs/nba/roadmap.md`.
+Details: `docs/nba/roadmap.md`; finished items and stage history: `docs/nba/shipped.md`.
 
 - Small-sample `prior_mpg` inflates camp signings' roles — shrink toward the bench default by games
   played; changes minute allocation, so it must clear the gate.
@@ -238,7 +238,8 @@ Details and history: `docs/nba/roadmap.md`.
 | File | Covers |
 |---|---|
 | `DESIGN.md` | full architecture, statistical traps, staged plan |
-| `nhl/DESIGN.md` | everything NHL (authoritative) |
+| `nhl/DESIGN.md` | NHL status, shipped model, pipeline, traps, open items (authoritative) |
+| `docs/nhl/*.md` | NHL stage write-ups: data and impact (0–3b), team model (4–5), live and market (6) |
 | `docs/nba/results.md` | backtest MAE ladder, baselines, how to read the noise floor |
 | `docs/nba/data.md` | data inventory, availability windows, sources and scraping rules, season-length landmines, play-by-play schemas |
 | `docs/nba/ui.md` | every NBA page, the UI conventions (nav markup/CSS), market ring, conviction, method toggle, what-if, leaderboard, public-detail decision |
@@ -247,6 +248,7 @@ Details and history: `docs/nba/roadmap.md`.
 | `docs/nba/offense.md` | offensive metric history (oreb, RAPM offense blend weight) |
 | `docs/nba/negative-results.md` | ideas that failed their gate — do not re-attempt blind |
 | `docs/nba/findings.md` | carryover, franchise effect, interval calibration, absence absorption, tanking correction, silent-bug lessons |
-| `docs/nba/roadmap.md` | stage status, open items, hypotheses to test |
+| `docs/nba/roadmap.md` | stage status table, open items, hypotheses to test |
+| `docs/nba/shipped.md` | full stage history and completed roadmap items |
 | `docs/nba_impact_methodology.md` | external talent-evaluator review of the impact methodology |
 | `ui/DEPLOY.md` | Vercel deployment steps |
