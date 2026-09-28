@@ -198,6 +198,40 @@ a stable roster; NYK −7.3 → Medium, RAPM disagrees). Within 1.5 wins it says
 rather than manufacturing a story. All client-side from data already computed; no gate (it is an
 explanation layer, not a projection input).
 
+**Disagreement robustness readout (shipped 2026-09-28).** A second layer under the conviction tag in
+`disagreementBlock` (`robustnessChecks` / `robustnessBlock` in `ui/template.html`): the market gap
+re-priced with **one weak assumption removed at a time** — the three moves every hand-run pressure
+test used (2026-08-12, 2026-09-28 ×2):
+- **without carryover** — the active method's rating minus `t.carryover`;
+- **newcomers at bench** — offseason arrivals (`p.prev`) the model rates below replacement level
+  (by the shipped Blended per-100 value, whatever the active method) yet projects above 10 mpg
+  (`NEWCOMER_BENCH_MPG`), cut to 10 mpg via a new optional `mpgOverride` argument on
+  `computeRating`; the minutes flow exactly as the model allocates any roster's, and the carryover
+  stays. A first rule (cut any newcomer outside his team's top 8 by rating) was rejected while
+  prototyping — it benched real rotation players (Randle, DeRozan, Vučević). Upcoming season only:
+  historical snapshots carry no `prev`, so past seasons show just the other checks;
+- **the other two method arms** (Blended / Box / RAPM).
+
+Each chip is classed `holds` (same side, at least half the gap left), `fades` (under half, or
+inside the 1.5-win agreement band — `AGREE_WINS`, now shared with the row readout), or `flips`
+(at least 1.5 wins on the other side of the market), followed by a one-line verdict. It runs through
+the same `computeRating`/`winsAt` as the what-if editor, so it follows roster edits. Verified
+against an independent Python port (every check, all 30 teams, to rounding) and against the
+pressure tests (MIN −6.1 → −3.0 with Cody Williams at bench minutes). Display only — no gate.
+
+**The readout's own track record is shown on the page, and it is not flattering.**
+`robustnessTrackRecord` swaps in each completed season's snapshot (then restores the live one),
+classifies every Blended gap of 1.5+ wins against the preseason Vegas line, and counts how often
+the model landed closer to the actual record. Measured 2026-09-28 over 7 seasons: **gaps that held
+under every check 39% (n=87) vs gaps that weakened 47% (n=74)** — robustness does *not* pick
+winners. Held gaps are bigger (mean 6.5 vs 3.8 wins), but within gap-size bands they did no better
+(1.5–4 wins: equal; 4–7 and 7+: worse) and they did worse in 5 of 7 seasons. Conviction fared the
+same (model closer on 45% of High, 42% of Medium, 42% of Low gaps). Each panel prints the live
+figures, and the glossary says both tags describe *what a gap rests on*, not whether it is right.
+First live read (2026-27): WAS −9.3 (High conviction) shrinks to −4.1 without the carryover, as do
+IND −9.1 → −4.0 and CHA +8.3 → +1.5; MIN −6.1 → −3.0 and MIA −4.1 → +0.5 with newcomers at bench;
+NYK, SAS and LAC hold under every check.
+
 **Explainability (added for the "is Impact WAR?" question).** A plain-English glossary
 (`<details>` at the foot) defines every number. The player table now has an **≈ Wins**
 column — the WAR-like (wins-above-replacement) translation of a player's value, since **Impact

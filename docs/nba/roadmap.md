@@ -47,18 +47,9 @@ Shipped backtest: **7.39 wins MAE** vs market 6.88; the bar is 8.13 (`docs/nba/r
   same way. **Caution before "fixing" the projection:** the obvious fix was already gated and
   REJECTED — "canonical curve for newcomers only" (8.44 → 8.61, see the negative-results table),
   consistent with the recurring "averages are the enemy" lesson. So expect little aggregate payoff
-  from a projection change; the per-team *credibility* payoff is real and is better served by the
-  robustness readout below. (Measured with an exact Python port of the client `computeRating` +
+  from a projection change; the per-team *credibility* payoff is real and is now surfaced per team by the
+  robustness readout's newcomer check (shipped 2026-09-28, `docs/nba/ui.md`). (Measured with an exact Python port of the client `computeRating` +
   `winsAt`, reproducing all 30 shipped teams within 0.02 wins.)
-- ⬜ **Disagreement robustness readout (proposed 2026-09-28).** Three hand-run pressure tests
-  (2026-08-12, 2026-09-28 ×2) each changed a market-disagreement read, and all three used the same
-  moves: re-price the gap with the **carryover zeroed** (IND −8.8 → −3.6, CHA +8.7 → +1.8 — both
-  largely inherited from a roster/injury situation that no longer holds), with **newcomers at
-  bench minutes** (MIN −5.8 → −2.6), and under **each method arm**. Surfacing those three repricings
-  in `disagreementBlock` (e.g. "gap without carryover: −3.6") would make the conviction tag's blind
-  spots visible on the page. Display-only, computed client-side from data already inlined
-  (`computeRating`/`winsAt` with the carryover or a player's `mpg` overridden), so like conviction
-  itself it needs no backtest gate.
 - ⬜ Historical **injury reasons** still unsourced (Pro Sports Transactions needs a UA;
   otherwise only games-missed is available)
 - ⬜ Contract/salary history unsourced (only needed for the contract-year test)

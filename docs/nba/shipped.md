@@ -315,3 +315,15 @@
   for **per-user auth** (Clerk / Supabase / Auth0 — a session token) + **Stripe** billing. The
   serverless function is the seam. **Payment/Stripe must be wired by the user** — handling payment
   credentials is out of scope for the assistant.
+- ✅ **Disagreement robustness readout — proposed and SHIPPED 2026-09-28.** Three hand-run pressure tests
+  (2026-08-12, 2026-09-28 ×2) each changed a market-disagreement read, and all three used the same
+  moves: re-price the gap with the **carryover zeroed** (IND −8.8 → −3.6, CHA +8.7 → +1.8 — both
+  largely inherited from a roster/injury situation that no longer holds), with **newcomers at
+  bench minutes** (MIN −5.8 → −2.6), and under **each method arm**. Surfacing those three repricings
+  in `disagreementBlock` (e.g. "gap without carryover: −3.6") would make the conviction tag's blind
+  spots visible on the page. Display-only, computed client-side from data already inlined
+  (`computeRating`/`winsAt` with the carryover or a player's `mpg` overridden), so like conviction
+  itself it needs no backtest gate.
+  **Shipped** as the `Robustness` line in `disagreementBlock` (see "Disagreement robustness
+  readout" in `docs/nba/ui.md`). Its own track record on the completed seasons is shown on the page:
+  it does not pick winners (held 39% vs weakened 47% closer than Vegas), and neither does conviction.
