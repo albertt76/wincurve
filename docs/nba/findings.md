@@ -202,6 +202,13 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
 
 ### Findings worth keeping
 
+- **Conviction and robustness do not pick winners (measured 2026-09-28).** Over the 7 completed
+  seasons, on every Blended gap of 1.5+ wins vs the preseason Vegas line, the model landed closer to
+  the actual record on 45% / 42% / 42% of High / Medium / Low conviction gaps, and on 39% (n=87) of
+  gaps that held under every robustness check vs 47% (n=74) of gaps that weakened — no better at
+  matched gap sizes, worse in 5 of 7 seasons. Both are explanation layers (what a gap rests on),
+  not signals of which disagreements will be right; the page says so and prints the live figures.
+
 - **Win Shares cross-check (`scripts/compare_win_shares.py`).** Compared our ≈Wins to
   Basketball-Reference **Win Shares** (WS) for 2025-26 (bbref `/leagues/` advanced page,
   allowed). Overall correlation **0.84**, but split by side: **offense r=0.89 vs defense r=0.52**
