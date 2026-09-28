@@ -114,7 +114,7 @@ def main() -> int:
         tx += both[s].tolist(); ty += both[s + 1].tolist()
     print(f"(ref) single-season YoY m_tovp100:                r2={_r2(np.array(tx), np.array(ty))[0]:.3f}")
     print("\nVERDICT: m_fgpct stays noise (<0.10) even pooled -> SKIP the containment feature; the "
-          "one\nstable feature (m_tovp100) restates steals. Data kept. See CLAUDE.md.")
+          "one\nstable feature (m_tovp100) restates steals. Data kept. See docs/nba/negative-results.md.")
     return 0
 
 

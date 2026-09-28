@@ -56,7 +56,7 @@ def main() -> int:
     # less-than-10ft) turned out to be stable because they mostly measure "is a rim-patrolling
     # big" (Gobert/Embiid/Adams get further inflated), not because they capture a new defensive
     # skill -- they reintroduce the exact positional confound POSITION_RELATIVE_FEATURES removed.
-    # See nbaproj.impact.SHOT_DEFENSE_SURVIVING_CATEGORIES / CLAUDE.md for the full writeup.
+    # See nbaproj.impact.SHOT_DEFENSE_SURVIVING_CATEGORIES / docs/nba/defense-rapm.md for the full writeup.
     ps = add_tracking_features(ps, rim_defense=rim, hustle=hustle, player_team_seasons=pts)
 
     scored, diag = build_impact(ps, pts, ts, pa, first_test_season=2013)

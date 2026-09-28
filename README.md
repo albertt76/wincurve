@@ -42,7 +42,8 @@ with an explanation attached, and a calibrated sense of which teams are genuinel
   `rapm`/`pbp` (defensive plus-minus, in progress).
 - `scripts/` — data pulls and staged backtest reports.
 - `ui/` — the interactive win-curve board with a roster what-if editor.
-- `CLAUDE.md` — decisions, measured results, and the landmine list.
+- `AI_ENGINEERING.md` — decisions, conventions, and the landmine list; `docs/nba/` holds
+  measured results and the experiment history.
 - `DESIGN.md` — architecture and the statistical traps that shaped it.
 
 Data (nba_api, gitignored) regenerates with `python scripts/fetch_all.py`.

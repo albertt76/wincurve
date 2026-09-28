@@ -147,7 +147,7 @@ def main() -> int:
     DECAY.clear(); DECAY.update({0: 1.0, 1: 0.85, 2: 0.72})
     _run("pure")
     print("\nVERDICT: multi-season decayed RAPM <= single-season in all variants, and box beats "
-          "all\nRAPM variants -> SKIP (do not build). See CLAUDE.md negative-results table.")
+          "all\nRAPM variants -> SKIP (do not build). See docs/nba/negative-results.md.")
     return 0
 
 

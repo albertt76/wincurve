@@ -26,7 +26,7 @@ the player's Basketball-Reference page in a new tab.
 
 Note on gating: none. This standalone leaderboard is PUBLIC with its data inlined, and as of
 2026-08-07 the main app's team panels expose the same per-player Off/Def/Impact numbers publicly
-too (the old password gate was removed — see root CLAUDE.md "Team detail is PUBLIC").
+too (the old password gate was removed — see docs/nba/ui.md "Team detail is PUBLIC").
 """
 
 from __future__ import annotations
