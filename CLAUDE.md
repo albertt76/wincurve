@@ -1754,16 +1754,38 @@ Also unrefuted: concentration does **not** need to vary `sigma_rating` (justifie
   robustness readout below. (Measured with an exact Python port of the client `computeRating` +
   `winsAt`, reproducing all 30 shipped teams within 0.02 wins.)
 - ⬜ **Injury-return / known-absence overrides are stale — review before opening night (found
-  2026-09-28).** `known_absences.json` was last edited 2026-07-31 and `injury_returns.json`
-  2026-08-02, while `scripts/injury_return_candidates.py` now surfaces **26 unreviewed
-  candidates** (8 already in the file). The biggest by estimated lost value sit on teams with large
-  "we are lower than the market" gaps: **Giannis Antetokounmpo (now MIA, est. 103), Anthony Davis
-  (WAS, 95.5), Joel Embiid (PHI, 91.2)**, then Stephen Curry (GSW, 51.6), Ty Jerome, Tyler Herro.
-  Size of the effect: restoring Davis to his healthy 2024-25 level (the override's upper bound)
-  moves WAS **25.0 → 28.6** (vs Kalshi 35.3). New known absence to consider: De'Aaron Fox (SAS,
-  hamstring, out for the start of the season, targeting Nov 1) — immaterial to SAS by what-if
-  (~0 wins) but the file should be current. Both files are manual user judgment by design
-  (chronic absence vs clean return is a call, not a computation).
+  2026-09-28; shortlist computed the same day, awaiting the owner's per-player calls).**
+  `known_absences.json` was last edited 2026-07-31 and `injury_returns.json` 2026-08-02, while
+  `scripts/injury_return_candidates.py` surfaces **26 unreviewed candidates** (8 already in the
+  file). Both files are manual user judgment by design (chronic absence vs clean return is a call,
+  not a computation). **Per-player effect on team wins** — the real `project_current.py`
+  pipeline run with every candidate restored through the override path (re-projected from the
+  healthy basis season with normal aging + shrinkage), then attributed one player at a time with
+  the exact client what-if port (others held fixed). *clean* = 85% availability, full basis
+  minutes; *eased* = 70%, 90% minutes:
+
+  | Player (team, age) | GP 22/23/24/25 | clean | eased | context (2026-09-28) |
+  |---|---|---|---|---|
+  | Giannis Antetokounmpo (MIA, 32) | 63/73/67/36 | +3.0 | +0.9 | "very, very good place" at media day |
+  | Anthony Davis (WAS, 34) | 56/76/51/20 | +2.9 | +1.5 | GM: enters season fully healthy |
+  | Ja Morant (POR, 27) | 61/9/50/20 | +1.8 | +1.2 | coach: healthy; a scout: "bad knee" |
+  | Stephen Curry (GSW, 39) | 56/74/70/43 | +1.4 | +0.4 | says fine; seen limping mid-Sept |
+  | Zach LaVine (SAC, 32) | 77/25/74/39 | +1.4 | +1.0 | no clear current news |
+  | Joel Embiid (PHI, 33) | 66/39/19/38 | +1.4 | +0.4 | chronic knee |
+  | Christian Braun (DEN, 26) | 76/82/79/44 | +1.2 | +0.7 | durable history; no news |
+  | Darius Garland (LAC, 27) | 69/57/75/45 | +1.2 | +0.9 | no news |
+  | Tyler Herro (MIL, 27) | 67/42/77/33 | +1.0 | +0.4 | no news |
+
+  The other 17 move their team by under 1 win. **Do NOT add:** Zach Edey (−1.1), Kevin Porter Jr.
+  (−0.9), Jeremy Sochan (−0.8), Larry Nance Jr. (−0.7) — restoring them LOWERS their team (the
+  current projection beats their healthy-season basis, or the restored role is too big) — and
+  **Jimmy Butler, who is a known absence, not a return** (ACL rehab, targeting Jan/Feb 2027; the
+  model's 46% availability already approximates that). **Existing entry to revisit:** Porziņģis
+  (in the file at 72%) is out indefinitely to open camp with an unspecified health issue
+  (reported 2026-09-28); 72% → 50% costs GSW 0.8 wins. **Known-absence adds to consider:** Fox
+  (SAS, hamstring, targeting Nov 1 — ~0 wins by what-if), Butler, Porziņģis if it's long.
+  Accepting many at once dilutes each a little, because opponents improve too (all 26 together
+  move WAS +2.0, not +2.9).
 - ⬜ **Disagreement robustness readout (proposed 2026-09-28).** Three hand-run pressure tests
   (2026-08-12, 2026-09-28 ×2) each changed a market-disagreement read, and all three used the same
   moves: re-price the gap with the **carryover zeroed** (IND −8.8 → −3.6, CHA +8.7 → +1.8 — both
