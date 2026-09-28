@@ -10,7 +10,7 @@
     "apply_overrides takes the MIN of model availability and the override, so ",
     "these are a floor on the absence, never a way to make a player healthier."
   ],
-  "snapshot_date": "2026-07-31",
+  "snapshot_date": "2026-09-28",
   "absences": [
     {"player_name": "Donte DiVincenzo", "player_id": 1628978, "games_missed": 66,
      "reason": "torn right Achilles, out indefinitely (assume ~80% of season)",
@@ -23,6 +23,9 @@
      "source": "user-provided 2026-07-31"},
     {"player_name": "Jimmy Butler III", "player_id": 202710, "games_missed": 44,
      "reason": "torn right ACL (Jan 2026), expected back late January 2027",
-     "source": "user-provided 2026-07-31"}
+     "source": "user-provided 2026-07-31"},
+    {"player_name": "De'Aaron Fox", "player_id": 1628368, "games_missed": 7,
+     "reason": "right hamstring; misses training camp and the start of the season, targeting Nov 1 (below the model's own expected absence, so a no-op under the floor rule -- recorded for accuracy)",
+     "source": "media day reports 2026-09-28; owner-approved shortlist 2026-09-28"}
   ]
 }

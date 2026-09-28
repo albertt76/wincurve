@@ -29,7 +29,7 @@
     "                        eased-in return (1.0 = full role; 0.95 = light early limit).",
     "  player_id             must match nba_api PERSON_ID."
   ],
-  "snapshot_date": "2026-08-02",
+  "snapshot_date": "2026-09-28",
   "returns": [
     {
       "player_name": "Jayson Tatum",
@@ -98,10 +98,10 @@
       "player_name": "Kristaps Porzingis",
       "player_id": 204001,
       "basis_season": 2024,
-      "expected_availability": 0.72,
+      "expected_availability": 0.50,
       "minute_restriction": 0.90,
-      "reason": "Missed most of last season (32 of 82); added per user. Chronically injury-prone (his 2024-25 basis was itself only 42 G), so availability is set conservatively even in a 'return' -- durability, not talent, is the question. Basis 2024-25: 42 G, 28.8 mpg, +3.4 impact.",
-      "source": "user selection 2026-08-02 -- durability discount applied"
+      "reason": "Missed most of last season (32 of 82); added per user. Chronically injury-prone (his 2024-25 basis was itself only 42 G), so availability is set conservatively even in a 'return' -- durability, not talent, is the question. Basis 2024-25: 42 G, 28.8 mpg, +3.4 impact. UPDATE 2026-09-28: out indefinitely to open training camp with an unspecified health issue (ESPN); availability lowered 0.72 -> 0.50 pending news.",
+      "source": "user selection 2026-08-02 -- durability discount applied; revised per owner-approved shortlist 2026-09-28"
     },
     {
       "player_name": "Domantas Sabonis",
@@ -111,6 +111,87 @@
       "minute_restriction": 0.95,
       "reason": "Missed most of last season (19 of 82); added per user as an expected injury-return. Basis 2024-25: 70 G, 34.7 mpg, +1.7 impact.",
       "source": "user selection 2026-08-02"
+    },
+    {
+      "player_name": "Giannis Antetokounmpo",
+      "player_id": 203507,
+      "basis_season": 2024,
+      "expected_availability": 0.85,
+      "minute_restriction": 1.0,
+      "reason": "Played 36 G in 2025-26 after 63/73/67 the three prior seasons; now with MIA. Media day 2026-09-28: 'in a very, very good place'. Clean return. Basis 2024-25 (last season with >= 1200 min).",
+      "source": "owner-approved shortlist 2026-09-28"
+    },
+    {
+      "player_name": "Anthony Davis",
+      "player_id": 203076,
+      "basis_season": 2024,
+      "expected_availability": 0.70,
+      "minute_restriction": 0.90,
+      "reason": "Played 20 G in 2025-26 (56/76/51 the three prior seasons). GM says he enters the season fully healthy; eased for age 34 and a chronic-absence history. Basis 2024-25 (last season with >= 1200 min).",
+      "source": "owner-approved shortlist 2026-09-28"
+    },
+    {
+      "player_name": "Ja Morant",
+      "player_id": 1629630,
+      "basis_season": 2024,
+      "expected_availability": 0.70,
+      "minute_restriction": 0.90,
+      "reason": "Played 20 G in 2025-26 (ankle, hamstring, then an elbow sprain from January). Coach says healthy; an anonymous scout cites a bad knee and conditioning. Eased on the mixed reports. Basis 2024-25 (last season with >= 1200 min).",
+      "source": "owner-approved shortlist 2026-09-28"
+    },
+    {
+      "player_name": "Stephen Curry",
+      "player_id": 201939,
+      "basis_season": 2024,
+      "expected_availability": 0.70,
+      "minute_restriction": 0.90,
+      "reason": "Played 43 G in 2025-26. Says he is fine physically but was seen limping mid-September; age 39. Eased. Basis 2024-25 (last season with >= 1200 min).",
+      "source": "owner-approved shortlist 2026-09-28"
+    },
+    {
+      "player_name": "Zach LaVine",
+      "player_id": 203897,
+      "basis_season": 2024,
+      "expected_availability": 0.70,
+      "minute_restriction": 0.90,
+      "reason": "Played 39 G in 2025-26 (hand injury). No clear current news. Eased. Basis 2024-25 (last season with >= 1200 min).",
+      "source": "owner-approved shortlist 2026-09-28"
+    },
+    {
+      "player_name": "Joel Embiid",
+      "player_id": 203954,
+      "basis_season": 2023,
+      "expected_availability": 0.70,
+      "minute_restriction": 0.90,
+      "reason": "Played 38 G in 2025-26 after 39 and 19; chronic left-knee history. Eased. Basis 2023-24 (last season with >= 1200 min).",
+      "source": "owner-approved shortlist 2026-09-28"
+    },
+    {
+      "player_name": "Christian Braun",
+      "player_id": 1631128,
+      "basis_season": 2024,
+      "expected_availability": 0.85,
+      "minute_restriction": 1.0,
+      "reason": "Played 44 G in 2025-26 after 76/82/79 -- durable history, no current news. Clean return. Basis 2024-25 (last season with >= 1200 min).",
+      "source": "owner-approved shortlist 2026-09-28"
+    },
+    {
+      "player_name": "Darius Garland",
+      "player_id": 1629636,
+      "basis_season": 2024,
+      "expected_availability": 0.85,
+      "minute_restriction": 1.0,
+      "reason": "Played 45 G in 2025-26; no current news. Clean return. Basis 2024-25 (last season with >= 1200 min).",
+      "source": "owner-approved shortlist 2026-09-28"
+    },
+    {
+      "player_name": "Tyler Herro",
+      "player_id": 1629639,
+      "basis_season": 2024,
+      "expected_availability": 0.85,
+      "minute_restriction": 1.0,
+      "reason": "Played 33 G in 2025-26 after 77 the prior season; no current news. Clean return. Basis 2024-25 (last season with >= 1200 min).",
+      "source": "owner-approved shortlist 2026-09-28"
     }
   ]
 }
