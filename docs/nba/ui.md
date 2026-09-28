@@ -138,7 +138,7 @@ blue ring marking the win total the prediction market implies **right now**, plu
 `mkt N · ±diff` readout where diff is *our projection minus the market*. Source is
 **Kalshi `KXNBAWINS`** (`nbaproj/market_live.py`), the only live per-team win-total market:
 bbref Vegas over/unders are still unposted (404 through August; as of 2026-09-28 the page exists
-but carries no lines yet — see Open items), and Polymarket has no per-team
+but carries no lines yet — see `docs/nba/roadmap.md`), and Polymarket has no per-team
 win-total market. Kalshi quotes a **threshold ladder** ("20+/25+/30+ wins"), so we
 reconstruct a full market-implied distribution (median, mean, p10/p90) and compare
 distribution-to-distribution, not just point-to-point. **Strictly downstream — the market
@@ -282,7 +282,7 @@ Non-obvious finding surfaced while building this: whether RAPM-only helps or hur
 stable-roster star (Curry, 4% turnover, box off +2.80 vs RAPM off +7.05, the biggest gap in the
 league) barely moves toward his own higher RAPM number and can net *lower* under the blend once
 the league-wide slope recalibration is accounted for, while a churned-roster player with a smaller
-gap can net higher. See the `docs/nba/roadmap.md` "Open items" entry for the follow-up (re-checking
+gap can net higher. See the `docs/nba/shipped.md` "Completed open items" entry for the follow-up (re-checking
 `top_scorer_share_weight` specifically for this player group).
 
 
