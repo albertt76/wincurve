@@ -238,8 +238,8 @@ stage resolved against its gate.
 | **5b** | One-year residual carryover | ✅ **8.30 → 7.95 MAE**; the one verified win |
 | **6** | Fit as residual structure (diminishing returns) | ❌ **Rejected** — null out-of-sample, sign opposite hypothesis |
 | **7** | Coaching / continuity as shrunk effects | 🟡 Trait is real but hurt the backtest; blocked on mis-dated coach data |
-| **8** | Market comparison + contract-year test | 🟡 Historical + live projections done; live Kalshi/Polymarket pending |
-| **RAPM** | Play-by-play defensive plus-minus | 🟡 Pipeline + box-informed estimator validated; integration gated on overnight pull |
+| **8** | Market comparison + contract-year test | 🟡 Market comparison shipped (historical Vegas + live Kalshi; Polymarket has no per-team market; live Vegas awaits bbref); contract-year test still open — no salary data |
+| **RAPM** | Play-by-play plus-minus | ✅ Shipped: turnover-weighted defensive blend (7.96 → 7.77) + offensive blend (2026-08); 2013-14 → 2025-26 via bulk play-by-play |
 
 Stage 6 was **rejected by its own gate** — a successful outcome, not a failure: it's the
 finding. The residual it was meant to explain turned out to be one-year memory (Stage 5b),
