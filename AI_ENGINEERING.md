@@ -224,9 +224,7 @@ Details: `docs/nba/roadmap.md`; finished items and stage history: `docs/nba/ship
 - Small-sample `prior_mpg` inflates camp signings' roles — shrink toward the bench default by games
   played; changes minute allocation, so it must clear the gate.
 - Newcomers carry last season's role to a deeper team — the obvious fix ("canonical curve for
-  newcomers") was already rejected; better served by the robustness readout.
-- Disagreement robustness readout — show the gap with carryover zeroed, newcomers at bench
-  minutes, and per method arm in `disagreementBlock` (display only).
+  newcomers") was already rejected; the robustness readout's newcomer check now surfaces it per team.
 - bbref 2026-27 Vegas page is up but empty — re-check, then wire as a second live line (copy
   `nhl/market_vegas.py`).
 - If Porziņģis's absence runs long, lower his `injury_returns.json` availability further.

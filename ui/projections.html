@@ -269,6 +269,21 @@
   .conv-high { background: var(--tight-fill); color: var(--tight); }
   .conv-med  { background: var(--wide-fill); color: var(--wide); }
   .conv-low  { background: #b91c1c1a; color: var(--neg); }
+  /* robustness readout: the gap re-priced with one weak assumption removed at a time */
+  .dis-robust { margin-top: 9px; padding-top: 8px; border-top: 1px dashed var(--line);
+    color: var(--muted); font-size: 12.5px; }
+  .rb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 5px 0 4px; }
+  .rb-chip { font-family: var(--mono); font-size: 11.5px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--surface); cursor: help; white-space: nowrap; }
+  .rb-chip b { font-weight: 700; }
+  .rb-chip.holds b { color: var(--ink); }
+  .rb-chip.fades { border-color: var(--wide); color: var(--wide); }
+  .rb-chip.fades b { color: var(--wide); }
+  .rb-chip.flips { border-color: var(--neg); color: var(--neg); }
+  .rb-chip.flips b { color: var(--neg); }
+  .rb-chip.na { color: var(--faint); }
+  .rb-verdict b { color: var(--ink); }
+  .rb-track { margin-top: 4px; font-size: 11.5px; color: var(--faint); }
 
   .tbl-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 680px; }
@@ -715,6 +730,24 @@
           <b>our projection minus the market</b>. Comparison only &mdash; the market never feeds
           the model.</dd>
 
+        <dt>Conviction / Robustness</dt>
+        <dd>Inside a team, when we disagree with the market by 1.5 wins or more. <b>Conviction</b>
+          (High / Medium / Low) is a research aid, not a probability: it drops a level when the gap
+          is defense-led, the roster turned over a lot, or the RAPM-only method disagrees.
+          <b>Robustness</b> re-prices the gap with one weak assumption removed at a time: without
+          the <b>one-year carryover</b> (last season's leftover error, carried forward); with
+          offseason <b>newcomers</b> the model rates below replacement level cut to bench minutes
+          (10 a game) instead of keeping last season's role; and under the <b>other two
+          methods</b>. A check stays plain when at least half the gap survives, turns
+          <span style="color:var(--wide)">amber</span> when the gap shrinks by more than half, and
+          <span style="color:var(--neg)">red</span> when it flips to the other side of the market.
+          <b>Neither tag picks winners.</b> Each panel shows the robustness readout's own track record
+          against the completed seasons' preseason Vegas lines (past seasons have no newcomer
+          check), and gaps that held have not beaten Vegas more often than gaps that weakened.
+          Conviction fared the same when measured on 2026-09-28: the model landed closer than Vegas
+          on 45% of High, 42% of Medium and 42% of Low gaps. Both describe <i>what a gap rests
+          on</i>, not whether it is right.</dd>
+
         <dt>MPG / Avail</dt>
         <dd><b>MPG</b> = minutes per game from last season's role. <b>Avail</b> = projected
           share of the season the player is available, from his games-missed history and age.</dd>
@@ -1054,10 +1087,16 @@ function redistributeFrom(roster, ownFreed, removed, games) {
    Defense blends the box metric and play-by-play RAPM by roster turnover (a steady roster leans
    on the box metric the carryover corrects, a turned-over one on RAPM); offense blends by the
    team's prior top-scorer share (off_weight) -- usage, not continuity, says trust RAPM here. */
-function computeRating(team) {
+// `mpgOverride` (optional Map player id -> mpg) re-prices the team with some players' roles
+// changed and nothing else -- the robustness readout's "newcomers at bench minutes" check. The
+// changed minutes flow through exactly as the model allocates any roster's minutes.
+function computeRating(team, mpgOverride) {
   const st = state.get(team.id);
   const edited = st.off.size > 0 || st.added.length > 0;
-  const roster = team.players.filter(p => !st.off.has(p.id)).concat(st.added);
+  let roster = team.players.filter(p => !st.off.has(p.id)).concat(st.added);
+  if (mpgOverride && mpgOverride.size) {
+    roster = roster.map(p => mpgOverride.has(p.id) ? { ...p, mpg: mpgOverride.get(p.id) } : p);
+  }
   const budget = GMETA.minutes_budget, games = GMETA.full_season_games;
   let mins, unabsorbed = 0;
 
@@ -1181,7 +1220,7 @@ function seasonMarketMAE(snap) {
 // diamond on the same bar (the Track record view quantifies who was closer, season by season).
 function marketReadout(t, w) {
   const gap = w.mean - t.mkt_wins;
-  const cls = Math.abs(gap) < 1.5 ? 'agree' : (gap > 0 ? 'above-mkt' : 'below-mkt');
+  const cls = Math.abs(gap) < AGREE_WINS ? 'agree' : (gap > 0 ? 'above-mkt' : 'below-mkt');
   const lab = marketLabel();
   const src = lab === 'Vegas' ? 'preseason Vegas over/under (bbref)'
     : lab === 'Kalshi' ? 'Kalshi market-implied wins' : 'market-implied wins';
@@ -1191,12 +1230,169 @@ function marketReadout(t, w) {
     + `<span class="${cls}">${gap >= 0 ? '+' : ''}${fmt1(gap)}</span></span>`;
 }
 
+/* Robustness readout: the market gap re-priced with ONE weak assumption removed at a time, so a
+   disagreement that rests on a single assumption is visible on the page instead of only in a
+   hand-run pressure test. The three moves are the ones every pressure test reached for
+   (2026-08-12, 2026-09-28 x2):
+     - carryover zeroed -- the one-year carryover inherits last season's leftover error, so a gap
+       it drives can reflect a situation that no longer holds (IND and CHA in the 2026-09 tests);
+     - newcomers at bench minutes -- an offseason arrival the model rates below replacement level
+       keeps last season's (often tanking-team) role wherever he lands (Cody Williams on MIN);
+     - the other two method arms (Blended / Box / RAPM).
+   Each check runs through the SAME recompute as the roster editor (computeRating + winsAt), so it
+   is exact against the model and respects any roster edits. Display only -- it never feeds the
+   projection, so, like conviction, it needs no backtest gate. */
+const AGREE_WINS = 1.5;          // within this many wins of the market we "broadly agree"
+const NEWCOMER_BENCH_MPG = 10;   // "bench minutes" for the newcomer check
+
+// Offseason arrivals (p.prev) on the active roster that the model rates below replacement level --
+// by the shipped Blended per-100 value, whatever the active method -- yet projects above bench
+// minutes. Only these are cut; a newcomer the model likes keeps his role.
+function benchedNewcomers(t) {
+  const st = state.get(t.id);
+  return t.players.filter(p => p.prev && !st.off.has(p.id) && p.mpg > NEWCOMER_BENCH_MPG
+    && p.off != null && methodDevs(p, t, 'blended').reduce((a, b) => a + b, 0) < 0);
+}
+
+// 'holds' (same side, at least half the gap left), 'fades' (shrinks below half or into
+// agreement), 'flips' (a real gap on the other side of the market), 'na' (check not applicable).
+function robustClass(g0, g) {
+  if (g == null) return 'na';
+  const sameSide = Math.sign(g) === Math.sign(g0);
+  if (!sameSide && Math.abs(g) >= AGREE_WINS) return 'flips';
+  if (!sameSide || Math.abs(g) < AGREE_WINS || Math.abs(g) < 0.5 * Math.abs(g0)) return 'fades';
+  return 'holds';
+}
+
+// The checks for one team under `method` ('blended'/'box'/'rapm'). `crAll` is the full
+// computeRating(t) (every method arm); `gap` is that method's gap to the market. Each check carries
+// its re-priced gap and a class from robustClass.
+function robustnessChecks(t, crAll, gap, method) {
+  const mkt = t.mkt_wins, arm = crAll[method] || crAll.blended;
+  const sgn = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+  const checks = [];
+
+  const carry = t.carryover || 0;
+  checks.push({ phrase: 'without the carryover', label: 'without carryover',
+    gap: winsAt(t, arm.rating - carry).mean - mkt,
+    title: `Our number with the one-year carryover (${sgn(carry)} points per 100 — last season's `
+      + `leftover error, carried forward) removed. The carryover is a validated part of the model, `
+      + `but it inherits last season's situation: if the roster or health picture behind it has `
+      + `changed, weigh this number more.` });
+
+  // Newcomer data exists only for the upcoming season's live roster snapshot.
+  if (DATA.teams.some(x => (x.players || []).some(p => p.prev))) {
+    const nb = benchedNewcomers(t);
+    if (nb.length) {
+      const cr2 = computeRating(t, new Map(nb.map(p => [p.id, NEWCOMER_BENCH_MPG])));
+      checks.push({ phrase: 'with below-replacement newcomers at bench minutes',
+        label: `newcomers at bench (${nb.length})`,
+        gap: winsAt(t, (cr2[method] || cr2.blended).rating).mean - mkt,
+        title: `${nb.map(p => `${p.name} (${p.mpg.toFixed(0)} mpg, from ${p.prev})`).join(', ')} — `
+          + `offseason arrivals the model rates below replacement level yet projects above `
+          + `${NEWCOMER_BENCH_MPG} minutes a game, carrying last season's role. Here each is cut to `
+          + `${NEWCOMER_BENCH_MPG}; the minutes flow to teammates or replacement level exactly as `
+          + `the model allocates any roster's minutes.` });
+    } else {
+      checks.push({ label: 'newcomers', gap: null,
+        title: `No offseason arrival here is rated below replacement level while projected above `
+          + `${NEWCOMER_BENCH_MPG} minutes a game, so this check does not apply.` });
+    }
+  }
+
+  const METHOD_NAME = { blended: 'Blended', box: 'Box only', rapm: 'RAPM only' };
+  const METHOD_ADJ = { blended: 'Blended', box: 'Box-only', rapm: 'RAPM-only' };
+  const available = { blended: true, box: DATA.off_slope_box != null, rapm: crAll.rapm != null };
+  ['blended', 'box', 'rapm'].filter(m => m !== method && available[m]).forEach(m => {
+    checks.push({ phrase: `under the ${METHOD_ADJ[m]} method`, label: METHOD_NAME[m],
+      gap: winsAt(t, crAll[m].rating).mean - mkt,
+      title: `The same gap priced by the ${METHOD_NAME[m]} method (see the method toggle above `
+        + `the table).` });
+  });
+
+  checks.forEach(c => { c.cls = robustClass(gap, c.gap); });
+  return checks;
+}
+
+// Track record of the readout itself, measured on the completed seasons inlined in this page:
+// among the gaps of at least AGREE_WINS against the preseason Vegas line, how often the model
+// landed closer to the final record when the gap held under every check vs when it did not.
+// Computed once, client-side (like the Performance page's Track record), with the active season's
+// DATA/state swapped out and restored, so it stays current whenever the snapshots are rebuilt.
+// Measured 2026-09-28: it does NOT pick winners -- held 39% (n=87) vs weakened 47% (n=74).
+let ROBUST_TRACK;
+function robustnessTrackRecord() {
+  if (ROBUST_TRACK !== undefined) return ROBUST_TRACK;
+  const saved = { DATA, state };
+  const acc = { holds: { closer: 0, n: 0 }, weak: { closer: 0, n: 0 }, seasons: 0 };
+  try {
+    for (const key of GMETA.seasons) {
+      const snap = SNAP.snapshots[key];
+      if (snap.is_current || !snap.grid) continue;
+      DATA = snap;
+      state = new Map(snap.teams.map(t => [t.id, { off: new Set(), added: [] }]));
+      let used = false;
+      for (const t of snap.teams) {
+        if (t.mkt_wins == null || t.actual == null || !t.players) continue;
+        const cr = computeRating(t);
+        if (cr.blended.offR == null) continue;
+        const ours = winsAt(t, cr.blended.rating).mean, gap = ours - t.mkt_wins;
+        if (Math.abs(gap) < AGREE_WINS) continue;
+        const weak = robustnessChecks(t, cr, gap, 'blended').some(c => c.cls === 'fades' || c.cls === 'flips');
+        const g = acc[weak ? 'weak' : 'holds'];
+        g.n += 1;
+        if (Math.abs(ours - t.actual) < Math.abs(t.mkt_wins - t.actual)) g.closer += 1;
+        used = true;
+      }
+      if (used) acc.seasons += 1;
+    }
+  } finally {
+    DATA = saved.DATA; state = saved.state;
+  }
+  ROBUST_TRACK = acc.holds.n && acc.weak.n ? acc : null;
+  return ROBUST_TRACK;
+}
+function robustnessTrackText() {
+  const r = robustnessTrackRecord();
+  if (!r) return '';
+  const pc = g => Math.round(100 * g.closer / g.n);
+  return `In the ${r.seasons} completed seasons shown here, the model landed closer to the final `
+    + `record than Vegas on ${pc(r.holds)}% of the gaps that held under every check `
+    + `(${r.holds.n} gaps) and ${pc(r.weak)}% of the gaps that did not (${r.weak.n}). So robustness `
+    + `tells you what a gap rests on, not whether it is right.`;
+}
+
+function robustnessBlock(t, crAll, gap) {
+  const checks = robustnessChecks(t, crAll, gap, METHOD);
+  const sgn = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(1);
+  const esc = s => s.replace(/"/g, '&quot;');
+  const chips = checks.map(c => `<span class="rb-chip ${c.cls}" title="${esc(c.title)}">${c.label}`
+    + (c.gap == null ? ': n/a' : ` <b>${sgn(c.gap)}</b>`) + '</span>').join('');
+  const fades = checks.filter(c => c.cls === 'fades').map(c => c.phrase);
+  const flips = checks.filter(c => c.cls === 'flips').map(c => c.phrase);
+  const list = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+  const verdict = !fades.length && !flips.length
+    ? 'The gap <b>holds</b> under every check.'
+    : 'The gap ' + [fades.length ? `<b>shrinks by more than half</b> ${list(fades)}` : '',
+                    flips.length ? `<b>flips side</b> ${list(flips)}` : '']
+        .filter(Boolean).join('; it ')
+      + ` &mdash; it rests on ${fades.length + flips.length > 1 ? 'those assumptions' : 'that assumption'}.`;
+  const track = robustnessTrackText();
+  return `<div class="dis-robust"><b>Robustness</b> &mdash; our gap vs the market with one weak
+      assumption removed at a time (hover a check for what it changes):
+    <div class="rb-chips">${chips}</div>
+    <div class="rb-verdict">${verdict}</div>
+    ${track ? `<div class="rb-track">${track}</div>` : ''}
+  </div>`;
+}
+
 // Where does our disagreement with the market come from, and how much should you trust it?
 // This is the tool's actual deliverable -- shown in the expanded panel (the "details" surface).
 // It ADDS to the row readout: the offense/defense/carryover split of our edge, the players
-// driving it, and a conviction tag. `cr` is computeRating(t) (has offR/defR); `wRapm` is the
-// RAPM-only arm's win distribution (may be null on old snapshots).
-function disagreementBlock(t, w, cr, wRapm) {
+// driving it, a conviction tag, and the robustness readout. `cr` is the active method's arm (has
+// offR/defR); `wRapm` is the RAPM-only arm's win distribution (may be null on old snapshots);
+// `crAll` is the full computeRating(t).
+function disagreementBlock(t, w, cr, wRapm, crAll) {
   if (t.mkt_wins == null || cr.offR == null) return '';
   const gap = w.mean - t.mkt_wins;
   const carry = t.carryover || 0;
@@ -1234,7 +1430,7 @@ function disagreementBlock(t, w, cr, wRapm) {
   const level = flags === 0 ? 'High' : flags === 1 ? 'Medium' : 'Low';
   const lvlClass = flags === 0 ? 'conv-high' : flags === 1 ? 'conv-med' : 'conv-low';
   // If we essentially agree with the market, say so instead of manufacturing a story.
-  if (Math.abs(gap) < 1.5) {
+  if (Math.abs(gap) < AGREE_WINS) {
     return `<div class="disagree agree-box">We project <b>${fmt1(w.mean)}</b> wins, `
       + `${lab} implies <b>${fmt1(t.mkt_wins)}</b> — <b>we broadly agree</b> here `
       + `(within ${Math.abs(gap).toFixed(1)}).</div>`;
@@ -1250,6 +1446,7 @@ function disagreementBlock(t, w, cr, wRapm) {
     <div class="dis-conv ${lvlClass}">Conviction: <b>${level}</b>${reasons.length
       ? ' — ' + reasons.join('; ')
       : ' — stable roster, not reliant on our weak defensive metric; our more reliable kind of call'}.</div>
+    ${crAll ? robustnessBlock(t, crAll, gap) : ''}
   </div>`;
 }
 
@@ -1543,7 +1740,7 @@ function renderPanel(t, w) {
       <button class="act" data-reset="${t.id}"
         ${st.off.size || st.added.length ? '' : 'disabled'}>Reset roster</button>
     </div>
-    ${disagreementBlock(t, w, activeArm, wRapm)}
+    ${disagreementBlock(t, w, activeArm, wRapm, cr)}
     ${movesSection(t)}
     <div class="tbl-scroll">
       <table>
