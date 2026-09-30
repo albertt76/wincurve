@@ -88,7 +88,10 @@ Stage write-ups live in `docs/nhl/` (read on demand; index at the bottom).
    is regressed hard because it is half as persistent.
 3. **Roster and minutes** — backtest: `rosters.opening_roster` (season debut for the team, within
    its first 20 games) weighted by prior-season 5v5 TOI; live: `rosters.live_roster` /
-   `live_toi` from the NHL web API.
+   `live_toi` from the NHL web API. **Once the season starts that API roster is the ~23-man active
+   list**, so injured / non-roster skaters are added back from the hand-curated
+   `data/overrides/nhl_injured_nonroster.json` (the league's opening-roster release), counted at
+   last season's minutes only if they have some — mirroring the backtest's first-20-games rule.
 4. **Team strength** — `aggregate.team_ratings`, a minute-weighted mean with replacement level for
    uncovered minutes.
 5. **Goals and points** — offense → goals-for and defense → goals-against with separate slopes,
@@ -131,8 +134,10 @@ scored by `scripts/nhl_market_history_report.py`.
 
 - A "Track record" UI view for the historical Vegas comparison — the report script is the data,
   not yet a page.
-- Injury / known-absence overlays like the NBA override files, including the injury-*return* case
-  the what-if bench toggle does not cover.
+- Injury overlays beyond the roster snapshot: `nhl_injured_nonroster.json` only keeps injured
+  skaters on the roster at full weight; there is no partial-season availability (a long injury to a
+  player who played last season still counts him fully) and no known-absence file. Re-curate the
+  injured list on every roster re-pull — the API roster changes daily in-season.
 - Not attempted: real strength of schedule (a balanced schedule is assumed), a trade editor as the
   what-if editor's v2, pre-2010 shift data from the NHL HTML shift reports, and a proper trinomial
   noise floor.

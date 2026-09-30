@@ -35,6 +35,8 @@ is wrongly kept -- both are low-minute and wash out under minute-weighting, as i
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 
 from . import ingest
@@ -51,6 +53,9 @@ FIRST_GAMES_WINDOW = 20
 # rotation regulars (measured 2022-2024). Second-order: these skaters also get replacement-level
 # IMPACT, so their exact weight barely moves the minute-weighted team mean.
 ROOKIE_TOI_SEC = 30000
+
+# Hand-curated injured / non-roster skaters for the live roster (tracked; see injured_nonroster).
+INJURED_NONROSTER = ingest.DATA_DIR.parent / "overrides" / "nhl_injured_nonroster.json"
 
 
 def _goalie_ids() -> set[int]:
@@ -137,18 +142,38 @@ def active_tricodes(last_season: int = ingest.LAST_SEASON) -> list[str]:
     return sorted(ref[ref["team_id"].isin(ids)]["tricode"])
 
 
+def injured_nonroster() -> pd.DataFrame:
+    """``(team, player_id, pos)`` from the hand-curated ``data/overrides/nhl_injured_nonroster.json``.
+
+    Once the season starts the NHL web API roster is the ~23-man ACTIVE list, so injured /
+    non-roster skaters (e.g. Bedard, Barzal on opening night 2026) vanish from it even though they
+    are still with the club. Empty frame if the file is absent. See the file's ``_README``.
+    """
+    if not INJURED_NONROSTER.exists():
+        return pd.DataFrame(columns=["team", "player_id", "pos"])
+    rows = json.loads(INJURED_NONROSTER.read_text())["players"]
+    return pd.DataFrame([{"team": r["team"], "player_id": int(r["id"]), "pos": r["pos"]}
+                         for r in rows])
+
+
 def live_roster(target_year: int, *, refresh: bool = False) -> pd.DataFrame:
     """Current skater roster for every active team for season ``target_year`` from the NHL web API.
 
-    Returns ``(team, player_id, pos)`` for forwards + defensemen (goalies excluded, as skater impact
-    is 5v5). This is a live snapshot -- re-pull with ``refresh=True`` to pick up later moves.
+    Returns ``(team, player_id, pos, injured)`` for forwards + defensemen (goalies excluded, as
+    skater impact is 5v5). This is a live snapshot -- re-pull with ``refresh=True`` to pick up
+    later moves. Injured / non-roster skaters from ``injured_nonroster()`` are added back to their
+    team (``injured=True``) unless they already appear on some team's active roster.
     """
     frames = []
     for tri in active_tricodes():
         r = ingest.roster(tri, target_year, refresh=refresh)
         frames.append(r[r["group"] != "goalies"][["tricode", "player_id", "pos"]]
                       .rename(columns={"tricode": "team"}))
-    return pd.concat(frames, ignore_index=True)
+    active = pd.concat(frames, ignore_index=True).assign(injured=False)
+    active["player_id"] = active["player_id"].astype(int)
+    inj = injured_nonroster()
+    inj = inj[inj["team"].isin(active_tricodes()) & ~inj["player_id"].isin(active["player_id"])]
+    return pd.concat([active, inj.assign(injured=True)], ignore_index=True)
 
 
 def live_toi(target_year: int, rookie_toi_sec: float = ROOKIE_TOI_SEC, *,
@@ -157,11 +182,14 @@ def live_toi(target_year: int, rookie_toi_sec: float = ROOKIE_TOI_SEC, *,
 
     The current API roster (``live_roster``) weighted by each skater's PRIOR-season 5v5 TOI
     (``projected_toi(target_year)`` = season ``target_year-1``); skaters with no prior season get
-    ``rookie_toi_sec``. Feed to ``aggregate.team_ratings(project(target_year-1), target_year,
+    ``rookie_toi_sec``. An injured / non-roster skater is kept only if he has prior-season minutes
+    (at those minutes): a prospect or a long-term absentee with none is dropped rather than entered
+    at the rookie default. Feed to ``aggregate.team_ratings(project(target_year-1), target_year,
     toi=live_toi(target_year))``.
     """
     roster = live_roster(target_year, refresh=refresh).copy()
     prior = projected_toi(target_year, rookie_toi_sec)
     roster["player_id"] = roster["player_id"].astype(int)
+    roster = roster[~roster["injured"] | roster["player_id"].isin(prior.index)]
     roster["icetime"] = roster["player_id"].map(prior).fillna(rookie_toi_sec)
     return roster[["player_id", "team", "icetime"]]

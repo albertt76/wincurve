@@ -57,7 +57,9 @@ def roster_frame(toi: pd.DataFrame, proj_full: pd.DataFrame, live: pd.DataFrame,
     Uncovered players (rookies / no prior season) fall to the aggregation's replacement level, same
     as the team rating itself -- so a thin rookie correctly shows near the bottom, not blank.
     """
-    d = toi.merge(live[["player_id", "pos"]].drop_duplicates("player_id"), on="player_id", how="left")
+    d = toi.merge(live[["player_id", "pos", "injured"]].drop_duplicates("player_id"), on="player_id",
+                  how="left")
+    d["injured"] = d["injured"].fillna(False).astype(bool)  # counted despite opening-night IR
     d["off"] = d["player_id"].map(proj_full["off"]).fillna(aggregate.REPLACEMENT_OFF)
     d["def"] = d["player_id"].map(proj_full["def"]).fillna(aggregate.REPLACEMENT_DEF)
     d["net"] = d["off"] + d["def"]
@@ -78,7 +80,8 @@ def roster_bundle(d: pd.DataFrame) -> dict:
             {"id": int(r["player_id"]), "name": r["name"], "pos": r["pos"] or "?",
              "off": round(float(r["off"]), 3), "def": round(float(r["def"]), 3),
              "net": round(float(r["net"]), 3), "mpg": round(float(r["mpg"]), 1),
-             "ice": round(float(r["icetime"]), 0), "contrib": round(float(r["contrib"]), 4)}
+             "ice": round(float(r["icetime"]), 0), "contrib": round(float(r["contrib"]), 4),
+             **({"inj": True} if r["injured"] else {})}
             for _, r in ordered.iterrows()
         ]
     return out
@@ -155,10 +158,15 @@ def main() -> int:
         print(f"{i + 1:>2} {r['team']:>5} {r['proj']:>6.1f}   [{r['p10']:>5.1f}, {r['p90']:>5.1f}]   "
               f"{r['off']:>+6.3f} {r['def']:>+6.3f} {r['carry']:>+6.1f}")
     print(f"\nsum of projected points = {g['proj'].sum():.0f}  (32 teams x 82 games x ~2.28 pts/game)")
+    inj_as_of = (json.loads(rosters.INJURED_NONROSTER.read_text())["as_of"]
+                 if rosters.INJURED_NONROSTER.exists() else None)
+    print(f"injured / non-roster skaters counted at last season's minutes: {int(rf['injured'].sum())} "
+          f"(override as of {inj_as_of})")
 
     bundle = {
         "meta": {
             "target_season": season_str(T), "target_start": T, "snapshot_date": snap,
+            "injured_as_of": inj_as_of,
             "model": "stage5-sim+carry", "rho": rho, "sigma": sigma,
             "level_gf": cal["level"], "a1": cal["a1"], "b1": cal["b1"],
             "off_mean": off_mean, "def_mean": def_mean,

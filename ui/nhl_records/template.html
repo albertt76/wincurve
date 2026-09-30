@@ -133,6 +133,8 @@
   .roster td { padding: 3px 8px 3px 0; white-space: nowrap; }
   .roster td.nm { font-weight: 600; color: var(--ink); }
   .roster td.ps { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 20px; }
+  .roster .inj { font-family: var(--mono); font-size: 9.5px; font-weight: 500; color: var(--wide);
+    border: 1px solid var(--wide); border-radius: 3px; padding: 0 3px; margin-left: 5px; }
   .roster td.num { font-family: var(--mono); text-align: right; width: 52px; }
   .roster td.mpg { font-family: var(--mono); text-align: right; color: var(--muted); width: 42px; }
   .roster td.bar { width: 90px; }
@@ -251,6 +253,7 @@
       <dt>carry</dt><dd>One-year carryover: last season's over/under-performance vs the roster model persists ~40% (fitted ρ). It is what separates a roster that keeps beating its parts from one that regresses.</dd>
       <dt>wins</dt><dd>Projected regulation + OT + shootout wins (the standings W). Different from points — a win is 2 points, an overtime/shootout loss is 1.</dd>
       <dt>market ring</dt><dd>The market's season-points number for the team. From Kalshi it is the <i>median</i> of the price ladder — the total the crowd sees as a coin flip to go over, the same kind of number as a sportsbook over/under line. From Vegas it is that over/under line itself.</dd>
+      <dt>inj</dt><dd>A player the team listed as injured / non-roster at the roster snapshot. He still counts, at last season's minutes — the backtest's roster rule counts anyone who plays within a team's first 20 games. Bench him in the what-if editor to see the team without him.</dd>
       <dt>what-if editor</dt><dd>Benching a player replaces his projected off/def with replacement level, as if a call-up filled his exact ice time — an "injury / departure" scenario, not a trade. The recompute is exact (same math this page's projection was built from), except the carryover stays fixed — it reflects <i>last season's</i> team, not this roster edit.</dd>
     </dl>
     <p class="story" style="margin-bottom:12px">
@@ -394,6 +397,11 @@ function driverStory(t) {
   return parts.join(" ");
 }
 
+// injured / non-roster on opening night but counted at last season's minutes (see the glossary)
+const injTag = p => p.inj
+  ? `<span class="inj" title="Injured / non-roster at the roster snapshot; counted at last season's minutes, as if back within ~20 games">inj</span>`
+  : "";
+
 function rosterTable(t) {
   const top = (t.roster || []).slice(0, 6);  // pre-sorted by |contrib| server-side
   if (!top.length) return "";
@@ -402,7 +410,7 @@ function rosterTable(t) {
     const w = Math.min(50, Math.abs(p.contrib) / maxAbs * 50);
     const bar = p.contrib >= 0 ? `<i class="p" style="width:${w}%"></i>` : `<i class="n" style="width:${w}%"></i>`;
     return `<tr>` +
-      `<td class="nm">${p.name}</td><td class="ps">${p.pos}</td>` +
+      `<td class="nm">${p.name}${injTag(p)}</td><td class="ps">${p.pos}</td>` +
       `<td class="num ${p.off >= 0 ? "pos" : "neg"}">${sgn(p.off)}</td>` +
       `<td class="num ${p.def >= 0 ? "pos" : "neg"}">${sgn(p.def)}</td>` +
       `<td class="mpg">${fmt(p.mpg)}</td>` +
@@ -418,7 +426,7 @@ function editPanelHTML(t) {
   const rows = t.roster.map(p => {
     const out = benched.has(p.id);
     return `<tr class="${out ? "out" : ""}" data-id="${p.id}">` +
-      `<td class="nm">${p.name}</td><td class="ps">${p.pos}</td>` +
+      `<td class="nm">${p.name}${injTag(p)}</td><td class="ps">${p.pos}</td>` +
       `<td class="num ${p.off >= 0 ? "pos" : "neg"}">${sgn(p.off)}</td>` +
       `<td class="num ${p.def >= 0 ? "pos" : "neg"}">${sgn(p.def)}</td>` +
       `<td class="mpg">${fmt(p.mpg)}</td>` +

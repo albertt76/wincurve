@@ -124,6 +124,25 @@
     (VAN) from Vegas**; Kalshi medians sit 1.6 points from the July Vegas opener on average; our
     mean disagreement with the ring is 4.8 points; biggest gaps FLA -22.2, EDM -13.0, VGK -11.7
     (we are lower), PIT +9.0 (we are higher), TOR -8.3, WSH -8.2.
+  - **✅ Opening-night roster refresh + injured / non-roster override (2026-09-29).** Re-pulling the
+    live roster on opening night exposed a trap: once the season starts, the NHL web API roster is
+    the **~23-man active list**, not the organization, so injured / non-roster skaters simply vanish
+    -- Bedard, Barzal, Jarvis, Terry, Zub, Severson, Sandin, Gourde, Domi and more, all confirmed
+    still with their clubs by their NHL player pages and the league's opening-roster release. A
+    naive refresh would count them out for all 82 games. Fix: `data/overrides/nhl_injured_nonroster.json`
+    (tracked, hand-curated from that release; 76 skaters resolved to NHL ids, goalies and no-NHL-game
+    prospects omitted) is added back by `rosters.live_roster` unless the player is already on some
+    active roster (32 were -- the API keeps some IR players), and `live_toi` keeps an added player
+    only if he has prior-season 5v5 minutes, at those minutes (32 counted; 12 with none dropped,
+    e.g. Couture, Pietrangelo, Krug). That mirrors the backtest's roster rule (counted if he debuts
+    within the team's first 20 games) as closely as a snapshot allows. The Records page tags these
+    players `inj`. Players missing from the API roster but NOT on the release were left off: mostly
+    AHL assignments (FLA's Petrovic / Reinhardt / Sebrango), plus two unsigned RFAs (restricted free
+    agents) -- Edvinsson (DET) and Nikishin (CAR), whose return is genuinely uncertain.
+    **Result: the refresh barely moved the market gaps** -- mean |ours - market| 4.76 -> 4.72
+    points; FLA -22.2 -> -17.2 (the demoted defensemen had weighed its mean down), EDM -13.0 ->
+    -14.0, VGK -11.7 -> -11.1, PIT +9.0 -> +10.7, TOR -8.3 -> -10.5. The big disagreements are the
+    model's, not stale rosters.
   - **⬜ Remaining.** A "Track record" UI VIEW (the NBA Records page's Projections/Track-record
     toggle) is the natural next step for the historical Vegas comparison -- the report script above
     is the data/measurement, not yet a page. Also: injury / known-absence overlays the NBA project
