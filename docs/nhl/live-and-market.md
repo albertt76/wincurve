@@ -104,6 +104,26 @@
       above, `mkt_source: "kalshi"`). Live now: **32/32 teams from Vegas**, mean disagreement 4.1
       points, biggest gaps FLA (we project 22.3 points BELOW the Vegas line -- our carryover and
       roster numbers see a more mid-pack team than the market's expectation) and PIT (+7.1 above).
+  - **✅ Kalshi points ladder is now the primary live line (2026-09-29, opening night).** Kalshi
+    never listed a `KXNHLWINS` event; it prices the NHL in a separate **`KXNHLSEASONPTS`** series --
+    season *points*, our target unit, as a 70..115 threshold ladder (5-point rungs, the same grid
+    for every team), all 32 teams open. `nhl/market_live.py` now reads it (`market_points_table`;
+    Kalshi tickers LA/NJ/SJ/TB are aliased to LAK/NJD/SJS/TBL and an unknown code raises). Two
+    NHL-specific choices, both because the book is thin and the grid is fixed:
+    - **The ring is the ladder's median, not its mean.** The fixed grid cuts off a strong team's
+      upper tail (COL had 36% on 115+) and a weak team's lower tail (VAN ~50% below 70); the mean
+      anchors those tails one rung past the grid and gets squashed toward the middle (COL mean
+      107.5 vs median 110.5). The median sits inside the grid, and it is the same kind of number as
+      a sportsbook O/U line, so the ring means the same thing whichever source fills it.
+    - **Rungs quoted wider than 0.30 are dropped as unpriced.** Typical spreads were ~0.10; 312 of
+      320 rungs were at or below 0.18, with a clean gap up to 0.36+ (e.g. CGY 70+ quoted 0.00/0.76).
+      VAN's rungs around its median were all that wide, so its median is unreadable and it falls
+      back to the Vegas opener.
+    The Records page is now Kalshi-first, Vegas-fallback (`mkt_source`), with `--market --refresh`
+    to re-pull. Opening-night readout (projection snapshot 2026-08-05): **31 teams from Kalshi, 1
+    (VAN) from Vegas**; Kalshi medians sit 1.6 points from the July Vegas opener on average; our
+    mean disagreement with the ring is 4.8 points; biggest gaps FLA -22.2, EDM -13.0, VGK -11.7
+    (we are lower), PIT +9.0 (we are higher), TOR -8.3, WSH -8.2.
   - **⬜ Remaining.** A "Track record" UI VIEW (the NBA Records page's Projections/Track-record
     toggle) is the natural next step for the historical Vegas comparison -- the report script above
     is the data/measurement, not yet a page. Also: injury / known-absence overlays the NBA project

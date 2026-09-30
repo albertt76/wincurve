@@ -1,10 +1,11 @@
-"""LIVE current-season Vegas points totals -- fills the gap while Kalshi KXNHLWINS is dormant.
+"""Current-season Vegas points totals -- the fallback behind the live Kalshi points ladder.
 
-``nhl/market_live.py`` (Kalshi) has zero open events for the 2026-27 season -- win-total markets
-there post nearer to opening night. Real Vegas sportsbooks price NHL season **points** totals much
-earlier (BetOnline's 2026-27 line opened 7/20/26, per gambling911.com's recap of it), and in
-**points**, our model's exact target unit -- no wins->points conversion needed, unlike the Kalshi
-ring (see ``scripts/nhl_build_records_ui.py``'s ``attach_market``).
+Real Vegas sportsbooks price NHL season **points** totals early (BetOnline's 2026-27 line opened
+7/20/26, per gambling911.com's recap of it), in our model's exact target unit. This was the Records
+page's primary market line until Kalshi's ``KXNHLSEASONPTS`` points ladder was wired in on opening
+night 2026-09-29 (``nhl/market_live.py``); it is now used only for a team whose Kalshi ladder is too
+thinly quoted to read a median (see ``scripts/nhl_build_records_ui.py``). The recap is a one-time
+snapshot of the opening line, not a live feed.
 
 Unlike ``nhl/odds.py`` (hockey-reference.com's clean, parameterized-by-year historical archive),
 there is no equally clean *live* source with a stable per-season URL: sportsbook lines live on

@@ -78,7 +78,7 @@ Stage write-ups live in `docs/nhl/` (read on demand; index at the bottom).
 | 3b — honest roster | ✅ | opening-day roster from shift-chart debuts, weighted by prior-season TOI: 10.61 over 9 folds (the roster leak was worth ~nothing) |
 | 4 — aggregation + carryover | ✅ | minute-weighted mean with replacement fill; one-year carryover rho ≈ 0.37 |
 | 5 — season simulation | ✅ shipped | **10.50 MAE points** over 9 full-season folds; nominal 80% interval covers 0.82 |
-| 6 — live projection + market + Records page | 🟡 | live 2026-27 projection, `/nhl/records` with roster detail and a what-if editor; live Vegas points line; historical Vegas **10.47 vs our 10.50 — a statistical tie** |
+| 6 — live projection + market + Records page | 🟡 | live 2026-27 projection, `/nhl/records` with roster detail and a what-if editor; live Kalshi points ladder (Vegas opener as fallback); historical Vegas **10.47 vs our 10.50 — a statistical tie** |
 
 ## The shipped model
 
@@ -113,14 +113,17 @@ python scripts/nhl_fetch_all.py                     # Stage 0 datasets (cached, 
 python scripts/nhl_fetch_shifts.py --season <yr>    # per-game shift charts (heavy, resumable)
 python scripts/nhl_build_impacts.py                 # single-season xG-RAPM caches
 python scripts/nhl_project_current.py [--refresh]   # -> data/nhl/processed/projection_current.json
-python scripts/nhl_build_records_ui.py              # -> ui/nhl_records/records.html (/nhl/records)
+python scripts/nhl_build_records_ui.py --market [--refresh]  # -> ui/nhl_records/records.html (/nhl/records)
 python scripts/nhl_build_impact_ui.py               # -> ui/nhl/impact.html (/nhl)
 ```
 
-Markets (downstream only): `nhl/market_vegas.py` reads a hand-curated, season-keyed
-`LIVE_SOURCES` URL (BetOnline's 2026-27 points line) that must be re-found each season;
-`nhl/market_live.py` reads Kalshi `KXNHLWINS`, which settles on **wins**, not points (converted via
-each team's implied OT-loss share) and has no open events until near opening night. Historical
+Markets (downstream only): `nhl/market_live.py` reads Kalshi `KXNHLSEASONPTS`, a season-**points**
+threshold ladder for all 32 teams (live on opening night 2026-09-29); the ring is the ladder's
+**median**, because Kalshi uses one fixed 70–115 grid for every team, which truncates the tails and
+squashes the mean, and rungs with a bid/ask spread above 0.30 are dropped as unpriced. A team whose
+ladder is too thin to read a median falls back to `nhl/market_vegas.py`, a hand-curated,
+season-keyed `LIVE_SOURCES` URL (BetOnline's 2026-07-20 opener; re-find each season). Kalshi's
+`KXNHLWINS` wins series exists but has never listed an event. Historical
 lines: `nhl/odds.py` (hockey-reference `/leagues/NHL_<year>_preseason_odds.html`, 2010-11+),
 scored by `scripts/nhl_market_history_report.py`.
 
