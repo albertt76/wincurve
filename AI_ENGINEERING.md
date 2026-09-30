@@ -129,7 +129,8 @@ docs/nba/         on-demand NBA history and reference (index below)
 
 Override files (hand-authored, tracked in git; `data/overrides/` is NOT gitignored):
 `data/overrides/known_absences.json` (players expected to miss time) and
-`data/overrides/injury_returns.json` (its inverse — returning-from-injury stars).
+`data/overrides/injury_returns.json` (its inverse — returning-from-injury stars), and for the NHL
+`data/overrides/nhl_injured_nonroster.json` (injured skaters the in-season API roster omits).
 `data/projection_history.json` is also tracked. `data/raw/` and `data/processed/` are gitignored
 (regenerate with `python scripts/fetch_all.py`).
 

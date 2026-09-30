@@ -133,6 +133,8 @@
   .roster td { padding: 3px 8px 3px 0; white-space: nowrap; }
   .roster td.nm { font-weight: 600; color: var(--ink); }
   .roster td.ps { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 20px; }
+  .roster .inj { font-family: var(--mono); font-size: 9.5px; font-weight: 500; color: var(--wide);
+    border: 1px solid var(--wide); border-radius: 3px; padding: 0 3px; margin-left: 5px; }
   .roster td.num { font-family: var(--mono); text-align: right; width: 52px; }
   .roster td.mpg { font-family: var(--mono); text-align: right; color: var(--muted); width: 42px; }
   .roster td.bar { width: 90px; }
@@ -249,7 +251,9 @@
       <dt>80% interval</dt><dd>The band the season's actual points land in ~80% of the time. It combines <i>season luck</i> (a fixed-talent team's points still swing, SD ~8.5) with our <i>projection error</i>. Backtest coverage: 0.82.</dd>
       <dt>O / D</dt><dd>The team's projected 5-on-5 offense and defense rating (expected goals per 60 above/below average), the skater aggregate that drives goals-for / goals-against.</dd>
       <dt>carry</dt><dd>One-year carryover: last season's over/under-performance vs the roster model persists ~40% (fitted ρ). It is what separates a roster that keeps beating its parts from one that regresses.</dd>
-      <dt>wins</dt><dd>Projected regulation + OT + shootout wins (the standings W). Different from points — the market (Kalshi) settles on wins, so that is what a market ring compares to.</dd>
+      <dt>wins</dt><dd>Projected regulation + OT + shootout wins (the standings W). Different from points — a win is 2 points, an overtime/shootout loss is 1.</dd>
+      <dt>market ring</dt><dd>The market's season-points number for the team. From Kalshi it is the <i>median</i> of the price ladder — the total the crowd sees as a coin flip to go over, the same kind of number as a sportsbook over/under line. From Vegas it is that over/under line itself.</dd>
+      <dt>inj</dt><dd>A player the team listed as injured / non-roster at the roster snapshot. He still counts, at last season's minutes — the backtest's roster rule counts anyone who plays within a team's first 20 games. Bench him in the what-if editor to see the team without him.</dd>
       <dt>what-if editor</dt><dd>Benching a player replaces his projected off/def with replacement level, as if a call-up filled his exact ice time — an "injury / departure" scenario, not a trade. The recompute is exact (same math this page's projection was built from), except the carryover stays fixed — it reflects <i>last season's</i> team, not this roster edit.</dd>
     </dl>
     <p class="story" style="margin-bottom:12px">
@@ -354,13 +358,17 @@ function renderMeta() {
     `<span>32 teams · 80% coverage <b>0.82</b></span>`;
   const nVegas = teams.filter(t => t.mkt_source === "vegas").length;
   const nKalshi = teams.filter(t => t.mkt_source === "kalshi").length;
-  const book = (teams.find(t => t.mkt_book) || {}).mkt_book;
+  const bookOf = src => (teams.find(t => t.mkt_source === src && t.mkt_book) || {}).mkt_book;
   const parts = [];
-  if (nVegas) parts.push(`<b>${nVegas} teams</b> from a live Vegas sportsbook line` +
-    (book ? ` — ${book}` : "") + " — already in points, plotted directly, no conversion.");
-  if (nKalshi) parts.push(`<b>${nKalshi} teams</b> from Kalshi <code>KXNHLWINS</code> implied ` +
-    `wins, converted to a points-equivalent using each team's own model-implied OT-loss share ` +
-    `(Kalshi doesn't split that out itself) — hover a ring for the raw win number.`);
+  if (nKalshi) parts.push(`<b>${nKalshi} teams</b> from the live Kalshi season-points market` +
+    (bookOf("kalshi") ? ` (${bookOf("kalshi")})` : "") + ` — the median of each team's price ` +
+    `ladder, the total the crowd sees as a coin flip.`);
+  const vegasTeams = teams.filter(t => t.mkt_source === "vegas").map(t => t.team).join(", ");
+  const vegasBook = bookOf("vegas") ? ` — ${bookOf("vegas")}.` : ".";
+  if (nVegas) parts.push(nKalshi
+    ? `<b>${vegasTeams}</b> (marked <b>ᵛ</b>) uses a Vegas sportsbook's over/under line instead, ` +
+      `because Kalshi's quotes were too thin to read a median${vegasBook}`
+    : `<b>${nVegas} teams</b> from a Vegas sportsbook's over/under line${vegasBook}`);
   $("mktnote").innerHTML = parts.length
     ? `<b>Market ring.</b> ${parts.join(" ")} Downstream only; the market never feeds the model.`
     : `<b>Market ring:</b> no live NHL market line is posted for this season yet. The ring will ` +
@@ -389,6 +397,11 @@ function driverStory(t) {
   return parts.join(" ");
 }
 
+// injured / non-roster on opening night but counted at last season's minutes (see the glossary)
+const injTag = p => p.inj
+  ? `<span class="inj" title="Injured / non-roster at the roster snapshot; counted at last season's minutes, as if back within ~20 games">inj</span>`
+  : "";
+
 function rosterTable(t) {
   const top = (t.roster || []).slice(0, 6);  // pre-sorted by |contrib| server-side
   if (!top.length) return "";
@@ -397,7 +410,7 @@ function rosterTable(t) {
     const w = Math.min(50, Math.abs(p.contrib) / maxAbs * 50);
     const bar = p.contrib >= 0 ? `<i class="p" style="width:${w}%"></i>` : `<i class="n" style="width:${w}%"></i>`;
     return `<tr>` +
-      `<td class="nm">${p.name}</td><td class="ps">${p.pos}</td>` +
+      `<td class="nm">${p.name}${injTag(p)}</td><td class="ps">${p.pos}</td>` +
       `<td class="num ${p.off >= 0 ? "pos" : "neg"}">${sgn(p.off)}</td>` +
       `<td class="num ${p.def >= 0 ? "pos" : "neg"}">${sgn(p.def)}</td>` +
       `<td class="mpg">${fmt(p.mpg)}</td>` +
@@ -413,7 +426,7 @@ function editPanelHTML(t) {
   const rows = t.roster.map(p => {
     const out = benched.has(p.id);
     return `<tr class="${out ? "out" : ""}" data-id="${p.id}">` +
-      `<td class="nm">${p.name}</td><td class="ps">${p.pos}</td>` +
+      `<td class="nm">${p.name}${injTag(p)}</td><td class="ps">${p.pos}</td>` +
       `<td class="num ${p.off >= 0 ? "pos" : "neg"}">${sgn(p.off)}</td>` +
       `<td class="num ${p.def >= 0 ? "pos" : "neg"}">${sgn(p.def)}</td>` +
       `<td class="mpg">${fmt(p.mpg)}</td>` +
@@ -478,14 +491,15 @@ function render() {
     const row = document.createElement("div");
     row.className = "row"; row.dataset.team = t.team;
     const bandL = xpct(t.p10), bandR = xpct(t.p90), mean = xpct(t.proj);
-    const mktTitle = t.mkt_source === "vegas"
-      ? `market (${t.mkt_book || "Vegas"}) implies ${fmt(t.mkt)} points`
-      : t.mkt != null ? `market implies ${fmt(t.mkt_wins)} wins (~${fmt(t.mkt)} pts-equivalent)` : "";
+    const mktTitle = t.mkt == null ? "" : t.mkt_source === "vegas"
+      ? `Vegas over/under ${fmt(t.mkt)} points` + (t.mkt_book ? ` — ${t.mkt_book}` : "")
+      : `Kalshi median ${fmt(t.mkt)} points` + (t.mkt_book ? ` — ${t.mkt_book}` : "");
     const mktMark = t.mkt != null
       ? `<span class="mkt" style="left:${xpct(t.mkt)}%" title="${mktTitle}"></span>` : "";
-    const mktReadout = t.mkt == null ? "" : t.mkt_source === "vegas"
-      ? ` <span class="faint">mkt ${fmt(t.mkt)} · ${sgn(t.proj - t.mkt, 1)}</span>`
-      : ` <span class="faint">mkt ${fmt(t.mkt_wins)}w · ${sgn(t.proj - t.mkt, 1)}</span>`;
+    const mktReadout = t.mkt == null ? ""
+      : ` <span class="faint" title="${mktTitle}">mkt ${fmt(t.mkt)}` +
+        `${t.mkt_source === "vegas" && teams.some(u => u.mkt_source === "kalshi") ? "ᵛ" : ""}` +
+        ` · ${sgn(t.proj - t.mkt, 1)}</span>`;
     row.innerHTML =
       `<span class="rk">${i + 1}</span>` +
       `<span class="tm"><span class="ab">${t.team}</span><span class="nm">${t.name}</span></span>` +

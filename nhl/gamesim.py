@@ -94,7 +94,8 @@ def expected_wins(gf: np.ndarray, ga: np.ndarray, *, games: int = GAMES, **kw) -
     """Closed-form expected 82-game WINS per team (regulation + OT + shootout; the standings W).
 
     Standings points and wins are different targets in hockey -- a win is 2 points but an OT/SO loss
-    is still 1 -- so a wins-settled market (Kalshi KXNHLWINS) is compared to this, not to points."""
+    is still 1 -- so a wins-settled market would be compared to this, not to points. (The live
+    Kalshi market, KXNHLSEASONPTS, settles on points.)"""
     p_win, _, _ = game_point_probs(gf, ga, **kw)
     return games * p_win
 
