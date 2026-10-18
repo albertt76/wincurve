@@ -58,6 +58,12 @@ Shipped backtest: **7.39 wins MAE** vs market 6.88; the bar is 8.13 (`docs/nba/r
   gets; re-check with `_fetch_page(2027, refresh=True)` and delete
   `data/raw/odds_html/NBA_2027_preseason_odds.html` if it's still empty. Once populated, wire it
   as a second live line (copy the NHL side's source-aware `nhl/market_vegas.py` ring).
+  Still empty on 2026-10-17. Stopgap: `data/overrides/sportsbook_win_totals.json` holds hand-copied
+  BetMGM totals (as of 2026-10-13, downstream-only, can be days stale) for cross-checking Kalshi.
+- ⬜ `scripts/price_futures.py` (prices Kalshi's season-long futures with the gap shrunk by the
+  measured slope b = 0.32 +/- 0.11) is a work in progress and not committed: the Kalshi fetch,
+  scenario loop, sizing and report are unwritten, and nothing in it has been run or validated.
+- Polymarket now lists per-team win totals (wide spreads), contradicting the older doc claim.
 - ⬜ **Porziņģis follow-up (2026-09-28 injury review).** If his camp absence turns out to be long,
   add him to `known_absences.json` too — and lower his `injury_returns.json`
   `expected_availability`, since a return entry wins over an absence entry.
