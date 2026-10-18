@@ -29,7 +29,7 @@
     "                        eased-in return (1.0 = full role; 0.95 = light early limit).",
     "  player_id             must match nba_api PERSON_ID."
   ],
-  "snapshot_date": "2026-10-17",
+  "snapshot_date": "2026-10-18",
   "returns": [
     {
       "player_name": "Jayson Tatum",
@@ -98,10 +98,10 @@
       "player_name": "Kristaps Porzingis",
       "player_id": 204001,
       "basis_season": 2024,
-      "expected_availability": 0.50,
+      "expected_availability": 0.30,
       "minute_restriction": 0.90,
-      "reason": "Missed most of last season (32 of 82); added per user. Chronically injury-prone (his 2024-25 basis was itself only 42 G), so availability is set conservatively even in a 'return' -- durability, not talent, is the question. Basis 2024-25: 42 G, 28.8 mpg, +3.4 impact. UPDATE 2026-09-28: out indefinitely to open training camp with an unspecified health issue (ESPN); availability lowered 0.72 -> 0.50 pending news. CHECK 2026-10-17: still out indefinitely after missing all of camp and preseason (GSW, 10-14: no timetable, 'getting better and better'); no new information, 0.50 kept.",
-      "source": "user selection 2026-08-02 -- durability discount applied; revised per owner-approved shortlist 2026-09-28"
+      "reason": "Missed most of last season (32 of 82); added per user. Chronically injury-prone (his 2024-25 basis was itself only 42 G), so availability is set conservatively even in a 'return' -- durability, not talent, is the question. Basis 2024-25: 42 G, 28.8 mpg, +3.4 impact. UPDATE 2026-09-28: out indefinitely to open training camp with an unspecified health issue (ESPN); availability lowered 0.72 -> 0.50 pending news. CHECK 2026-10-17: still out indefinitely after missing all of camp and preseason (GSW, 10-14: no timetable, 'getting better and better'); no new information, 0.50 kept. UPDATE 2026-10-18: user directive -- assume he plays 30% of games (~25 of 82); availability lowered 0.50 -> 0.30.",
+      "source": "user selection 2026-08-02 -- durability discount applied; revised per owner-approved shortlist 2026-09-28; 0.30 per user 2026-10-18"
     },
     {
       "player_name": "Domantas Sabonis",
