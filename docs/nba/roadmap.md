@@ -60,9 +60,15 @@ Shipped backtest: **7.39 wins MAE** vs market 6.88; the bar is 8.13 (`docs/nba/r
   as a second live line (copy the NHL side's source-aware `nhl/market_vegas.py` ring).
   Still empty on 2026-10-17. Stopgap: `data/overrides/sportsbook_win_totals.json` holds hand-copied
   BetMGM totals (as of 2026-10-13, downstream-only, can be days stale) for cross-checking Kalshi.
-- ⬜ `scripts/price_futures.py` (prices Kalshi's season-long futures with the gap shrunk by the
-  measured slope b = 0.32 +/- 0.11) is a work in progress and not committed: the Kalshi fetch,
-  scenario loop, sizing and report are unwritten, and nothing in it has been run or validated.
+- ✅ `scripts/price_futures.py` (2026-10-18): prices every Kalshi season-long contract on both sides
+  from one joint simulation. Our gap to the market is shrunk to the measured share b = 0.32 +/- 0.11
+  (slope of actual-minus-market on ours-minus-market, 210 team-seasons), the simulated win spread is
+  matched to the backtested ~8.5 around that mean (the shipped sigma, fit for the unshrunk model, is
+  too wide and inflates every tail contract), and playoff-stage markets are blended halfway to the
+  market (not backtested). Finding: Kalshi's team win means sum to ~1290 vs the 1230 wins a season
+  holds (sportsbook ~1246), so 'under' sides carry edge even with zero model skill. Not backtested
+  as a trading strategy; quotes are thin ($10-$100 deep). ⬜ backtest the gap-shrink on historical
+  ladders; ⬜ wire a cleaner sportsbook feed once bbref populates.
 - Polymarket now lists per-team win totals (wide spreads), contradicting the older doc claim.
 - ⬜ **Porziņģis follow-up (2026-09-28 injury review).** If his camp absence turns out to be long,
   add him to `known_absences.json` too — and lower his `injury_returns.json`
