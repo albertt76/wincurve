@@ -448,6 +448,8 @@ def main() -> None:
     ap.add_argument("--max-spread", type=float, default=0.06, help="max bid-ask gap to consider")
     ap.add_argument("--min-depth", type=float, default=10.0, help="min dollars resting at the quote")
     ap.add_argument("--min-roi", type=float, default=0.10, help="min ROI at b - 1 SE")
+    ap.add_argument("--top", type=int, default=0,
+                    help="keep only the N positions with the most expected profit at b - 1 SE (0 = all)")
     args = ap.parse_args()
 
     teams = json.loads((PROC / "projections_current.json").read_text())["teams"]
@@ -547,6 +549,17 @@ def main() -> None:
         if k >= 3:
             alloc.append({**c, "contracts": k, "stake": k * c["outlay"]})
     alloc.sort(key=lambda c: -c["stake"])
+    if args.top and len(alloc) > args.top:
+        # The tail is many tiny positions, often extra rungs of a view already held. Drop it by expected
+        # profit (dollars) at b - 1 SE; the trimmed stakes stay in cash rather than being re-spread, since
+        # most kept positions already sit at a per-contract, per-team, or order-book-depth cap.
+        alloc.sort(key=lambda c: -c["stake"] * c["roi"]["lo"])
+        dropped = alloc[args.top:]
+        alloc = alloc[:args.top]
+        print(f"\n--top {args.top}: dropped {len(dropped)} smaller positions "
+              f"(${sum(c['stake'] for c in dropped):,.2f} staked, "
+              f"${sum(c['stake'] * c['roi']['lo'] for c in dropped):,.2f} expected profit at b - 1 SE); "
+              f"that money stays in cash")
     spent = sum(c["stake"] for c in alloc)
     print(f"\nALLOCATION  (quarter-Kelly on the b - 1 SE case; caps: {args.per_pos:.0%} per contract, "
           f"{args.per_team:.0%} per team, {args.total:.0%} total; whole contracts, fee included)")
