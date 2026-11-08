@@ -113,10 +113,12 @@ def american_to_prob(o: float) -> float:
     return -o / (-o + 100.0) if o < 0 else 100.0 / (o + 100.0)
 
 
-def anchors(abbrs: list[str], model_mean: dict[str, float]) -> tuple[dict, dict]:
+def anchors(abbrs: list[str], model_mean: dict[str, float],
+            market_path: Path | None = None) -> tuple[dict, dict]:
     """Market-mean anchor per team (average of Kalshi's ladder mean and the sportsbook line's
-    implied mean), plus the pieces for the report."""
-    kal = json.loads((PROC / "market_2026_27.json").read_text())["teams"]
+    implied mean), plus the pieces for the report. `market_path` overrides the live Kalshi
+    snapshot (review_positions.py passes the frozen preseason copy)."""
+    kal = json.loads((market_path or PROC / "market_2026_27.json").read_text())["teams"]
     book = json.loads(SPORTSBOOK.read_text())["lines"] if SPORTSBOOK.exists() else {}
     out, parts = {}, {}
     for a in abbrs:
@@ -284,9 +286,9 @@ def _get(url: str, tries: int = 6) -> dict:
     raise RuntimeError("unreachable")
 
 
-def fetch_markets(refresh: bool) -> dict:
+def fetch_markets(refresh: bool, path: Path | None = None) -> dict:
     RAW.mkdir(parents=True, exist_ok=True)
-    path = RAW / "kalshi_futures_27.json"
+    path = path or RAW / "kalshi_futures_27.json"
     if path.exists() and not refresh:
         return json.loads(path.read_text())
     out = {}
