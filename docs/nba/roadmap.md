@@ -69,6 +69,17 @@ Shipped backtest: **7.39 wins MAE** vs market 6.88; the bar is 8.13 (`docs/nba/r
   holds (sportsbook ~1246), so 'under' sides carry edge even with zero model skill. Not backtested
   as a trading strategy; quotes are thin ($10-$100 deep). ⬜ backtest the gap-shrink on historical
   ladders; ⬜ wire a cleaner sportsbook feed once bbref populates.
+- ✅ `scripts/review_positions.py` (2026-11-08): in-season review of placed Kalshi positions. It marks
+  them to market (YES exits at the bid, NO at 1 - YES ask, minus the fee) and re-simulates the rest
+  of the season. Each team's rating is w * SRS + (1 - w) * the preseason calibrated prior, with
+  w = N/(N+46.4), which reproduces the gated w(25) = 0.35. The prior reads a frozen PRESEASON Kalshi
+  snapshot (`data/processed/market_2026_27_preseason.json`, local-only) so in-season prices never
+  leak into it. It prices new contracts and runs a fractional-Kelly rebalance over sells and buys
+  together. NEWS? guard: a team is flagged when a liquid contract sits >10 points from the no-skill
+  lens (the market's preseason means updated by the same results). Finding at 9 games: 13 of 30
+  teams were flagged, and the biggest apparent edges (OKC, UTA) traced to injuries the model cannot
+  see (Holmgren, J. Williams, Wallace; Jaren Jackson Jr.). ⬜ gate w below 25 games (fit at
+  N = 10 / 15 walk-forward); ⬜ feed in-season absences into the prior instead of only flagging them.
 - Polymarket now lists per-team win totals (wide spreads), contradicting the older doc claim.
 - ⬜ **Porziņģis follow-up (2026-09-28 injury review).** If his camp absence turns out to be long,
   add him to `known_absences.json` too — and lower his `injury_returns.json`

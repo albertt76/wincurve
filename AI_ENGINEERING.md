@@ -125,6 +125,8 @@ scripts/
   build_nba_players_ui.py      league-wide player leaderboard page
   price_futures.py   prices Kalshi's season-long futures (ladder rungs, playoffs, division, seed, title)
                      from the model with the gap shrunk by the measured slope b; sizes a bankroll
+  review_positions.py  in-season: marks live positions to market, re-simulates the rest of the
+                     season from the standings, hold-vs-sell, new contracts, a NEWS? guard
 ui/               self-contained pages (template.html -> built .html); deployed to Vercel
 docs/nba/         on-demand NBA history and reference (index below)
 ```
@@ -146,6 +148,7 @@ python scripts/fetch_market.py --refresh # live Kalshi win totals (downstream co
 python scripts/project_current.py        # upcoming-season live bundle
 python scripts/log_projection.py         # drift history (idempotent per run date + model)
 python scripts/price_futures.py          # optional: price + size Kalshi futures (research, not a trade)
+python scripts/review_positions.py       # in-season: review placed positions (reads a gitignored positions file)
 python scripts/build_snapshots.py        # historical bundles + combined snapshots.json
 python ui/build.py                       # -> ui/projections.html + ui/performance/performance.html
 python scripts/build_nba_players_ui.py   # -> ui/nba_players/players.html
